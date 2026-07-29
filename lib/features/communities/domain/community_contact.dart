@@ -1,0 +1,74 @@
+import 'package:flutter/material.dart';
+
+enum CommunityMembershipState { none, invited, member }
+
+extension CommunityMembershipStateX on CommunityMembershipState {
+  String get label => switch (this) {
+        CommunityMembershipState.none => 'Invite',
+        CommunityMembershipState.invited => 'Invited',
+        CommunityMembershipState.member => 'Member',
+      };
+}
+
+class CommunityContact {
+  const CommunityContact({
+    required this.id,
+    required this.name,
+    required this.phoneNumber,
+    required this.avatarLabel,
+    required this.accentColor,
+    required this.about,
+    this.isOnWhatsWave = true,
+    this.appInviteSent = false,
+    this.memberCommunityIds = const <String>[],
+    this.pendingCommunityInviteIds = const <String>[],
+  });
+
+  final String id;
+  final String name;
+  final String phoneNumber;
+  final String avatarLabel;
+  final Color accentColor;
+  final String about;
+  final bool isOnWhatsWave;
+  final bool appInviteSent;
+  final List<String> memberCommunityIds;
+  final List<String> pendingCommunityInviteIds;
+
+  CommunityMembershipState membershipStateFor(String communityId) {
+    if (memberCommunityIds.contains(communityId)) {
+      return CommunityMembershipState.member;
+    }
+    if (pendingCommunityInviteIds.contains(communityId)) {
+      return CommunityMembershipState.invited;
+    }
+    return CommunityMembershipState.none;
+  }
+
+  CommunityContact copyWith({
+    String? id,
+    String? name,
+    String? phoneNumber,
+    String? avatarLabel,
+    Color? accentColor,
+    String? about,
+    bool? isOnWhatsWave,
+    bool? appInviteSent,
+    List<String>? memberCommunityIds,
+    List<String>? pendingCommunityInviteIds,
+  }) {
+    return CommunityContact(
+      id: id ?? this.id,
+      name: name ?? this.name,
+      phoneNumber: phoneNumber ?? this.phoneNumber,
+      avatarLabel: avatarLabel ?? this.avatarLabel,
+      accentColor: accentColor ?? this.accentColor,
+      about: about ?? this.about,
+      isOnWhatsWave: isOnWhatsWave ?? this.isOnWhatsWave,
+      appInviteSent: appInviteSent ?? this.appInviteSent,
+      memberCommunityIds: memberCommunityIds ?? this.memberCommunityIds,
+      pendingCommunityInviteIds:
+          pendingCommunityInviteIds ?? this.pendingCommunityInviteIds,
+    );
+  }
+}

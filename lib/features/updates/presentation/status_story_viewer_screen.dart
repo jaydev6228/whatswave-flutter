@@ -1,0 +1,1203 @@
+import 'dart:async';
+import 'dart:math' as math;
+
+import 'package:flutter/material.dart';
+import 'package:video_player/video_player.dart';
+
+import '../../../app/theme/app_palette.dart';
+import '../../../core/models/status_story.dart';
+import '../../shared/widgets/avatar_badge.dart';
+import 'widgets/status_media_decoration_overlay.dart';
+import 'widgets/status_media_source.dart';
+import 'widgets/status_story_media_surface.dart';
+import 'widgets/text_status_canvas.dart';
+import 'widgets/status_ring_avatar.dart';
+
+class StatusStoryDeleteResult {
+  const StatusStoryDeleteResult({
+    required this.didDelete,
+    this.updatedStory,
+    this.errorMessage,
+  });
+
+  final bool didDelete;
+  final StatusStory? updatedStory;
+  final String? errorMessage;
+}
+
+class StatusStoryViewerScreen extends StatefulWidget {
+  const StatusStoryViewerScreen({
+    required this.story,
+    required this.onStoryViewed,
+    this.segmentDurationOverride,
+    this.initialSegmentIndex,
+    this.onDeleteSegment,
+    super.key,
+  });
+
+  final StatusStory story;
+  final ValueChanged<StatusStory> onStoryViewed;
+  final Duration? segmentDurationOverride;
+  final int? initialSegmentIndex;
+  final Future<StatusStoryDeleteResult> Function(
+    StatusStory story,
+    StatusStorySegment segment,
+  )? onDeleteSegment;
+
+  @override
+  State<StatusStoryViewerScreen> createState() =>
+      _StatusStoryViewerScreenState();
+}
+
+enum _StoryTapDirection { left, right }
+
+class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
+    with SingleTickerProviderStateMixin {
+  static const Duration _tapNavigationThreshold = Duration(milliseconds: 170);
+
+  late final AnimationController _segmentProgressController;
+  late int _currentSegmentIndex;
+  late int _reportedSeenSegments;
+  bool _isClosing = false;
+  bool _isTransitioning = false;
+  bool _isPausedByHold = false;
+  int? _activePointer;
+  DateTime? _activePointerDownAt;
+  _StoryTapDirection? _pendingTapDirection;
+  VideoPlayerController? _videoController;
+  Future<void>? _videoInitialization;
+  String? _activeVideoPath;
+  VideoPlayerController? _musicController;
+  String? _activeMusicAssetPath;
+  bool _isDeletingSegment = false;
+  late StatusStory _storyData;
+
+  StatusStory get _story => _storyData;
+  int get _segmentCount => math.max(_story.totalSegments, 1);
+  StatusStorySegment? get _currentSegment =>
+      _story.segmentAt(_currentSegmentIndex);
+  StatusStoryType get _currentSegmentType =>
+      _currentSegment?.type ?? _story.type;
+  double get _segmentProgress => _segmentProgressController.value;
+
+  @override
+  void initState() {
+    super.initState();
+    _storyData = widget.story;
+    _currentSegmentIndex = _initialSegmentIndexFor(
+      _story,
+      initialSegmentIndex: widget.initialSegmentIndex,
+    );
+    _reportedSeenSegments = _story.clampedSeenSegments;
+    _segmentProgressController = AnimationController(
+      vsync: this,
+      duration: _segmentDurationFor(
+        type: _currentSegmentType,
+        segment: _currentSegment,
+      ),
+    )
+      ..addListener(_handleProgressTick)
+      ..addStatusListener(_handleProgressStatusChange);
+    _startCurrentSegmentPlayback();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      _reportCurrentSegmentViewed();
+    });
+  }
+
+  @override
+  void dispose() {
+    _clearGestureTracking();
+    _segmentProgressController
+      ..removeListener(_handleProgressTick)
+      ..removeStatusListener(_handleProgressStatusChange)
+      ..dispose();
+    unawaited(_disposeVideoController());
+    unawaited(_disposeMusicController());
+    super.dispose();
+  }
+
+  void _handleProgressTick() {
+    if (!mounted) {
+      return;
+    }
+    setState(() {});
+  }
+
+  void _handleProgressStatusChange(AnimationStatus status) {
+    if (status == AnimationStatus.completed) {
+      _advanceToNextSegment();
+    }
+  }
+
+  int _initialSegmentIndexFor(
+    StatusStory story, {
+    int? initialSegmentIndex,
+  }) {
+    if (story.totalSegments <= 0) {
+      return 0;
+    }
+    if (initialSegmentIndex != null) {
+      return initialSegmentIndex.clamp(0, story.totalSegments - 1);
+    }
+    if (story.isMine) {
+      return 0;
+    }
+    if (!story.hasUnseenSegments) {
+      return 0;
+    }
+    return math.min(
+      math.max(story.seenSegments, 0),
+      story.totalSegments - 1,
+    );
+  }
+
+  Duration _segmentDurationFor({
+    required StatusStoryType type,
+    StatusStorySegment? segment,
+  }) {
+    if (widget.segmentDurationOverride != null) {
+      return widget.segmentDurationOverride!;
+    }
+
+    final persistedDurationMillis = segment?.durationMillis;
+    if (persistedDurationMillis != null && persistedDurationMillis > 0) {
+      return Duration(milliseconds: persistedDurationMillis);
+    }
+
+    return switch (type) {
+      StatusStoryType.text => const Duration(seconds: 5),
+      StatusStoryType.photo => const Duration(seconds: 5),
+      StatusStoryType.video => const Duration(seconds: 10),
+    };
+  }
+
+  Future<void> _configureSegmentPlayback({
+    required bool restartProgress,
+  }) async {
+    final segment = _currentSegment;
+    final segmentType = _currentSegmentType;
+    final musicPlaybackFuture = _configureMusicPlayback();
+    final mediaPath = segment?.localMediaPath?.trim();
+    if (segmentType != StatusStoryType.video ||
+        mediaPath == null ||
+        mediaPath.isEmpty) {
+      await _disposeVideoController();
+      if (restartProgress) {
+        _restartSegmentPlayback(
+          type: segmentType,
+          segment: segment,
+        );
+      }
+      await musicPlaybackFuture;
+      return;
+    }
+
+    if (!statusMediaSourceExists(mediaPath)) {
+      await _disposeVideoController();
+      if (restartProgress) {
+        _restartSegmentPlayback(
+          type: segmentType,
+          segment: segment,
+        );
+      }
+      await musicPlaybackFuture;
+      return;
+    }
+
+    if (_activeVideoPath == mediaPath &&
+        _videoController != null &&
+        _videoController!.value.isInitialized) {
+      if (!_isPausedByHold) {
+        await _videoController!.play();
+      }
+      if (restartProgress) {
+        _restartSegmentPlayback(
+          type: segmentType,
+          segment: segment,
+        );
+      }
+      return;
+    }
+
+    await _disposeVideoController();
+
+    final controller = buildStatusMediaVideoController(mediaPath);
+    final initialization = controller.initialize();
+    _videoController = controller;
+    _videoInitialization = initialization;
+    _activeVideoPath = mediaPath;
+    if (mounted) {
+      setState(() {});
+    }
+
+    try {
+      await initialization;
+      if (!mounted || _videoController != controller) {
+        await controller.dispose();
+        return;
+      }
+
+      await controller.setLooping(true);
+      final musicAssetPath = segment?.musicTrack?.previewAssetPath?.trim();
+      await controller.setVolume(
+        musicAssetPath == null || musicAssetPath.isEmpty ? 1 : 0,
+      );
+      if (!_isPausedByHold) {
+        await controller.play();
+      }
+      if (widget.segmentDurationOverride == null &&
+          (segment?.durationMillis == null || segment!.durationMillis! <= 0) &&
+          controller.value.duration > Duration.zero) {
+        _segmentProgressController.duration = controller.value.duration;
+      }
+    } catch (_) {
+      if (_videoController == controller) {
+        await controller.dispose();
+        _videoController = null;
+        _videoInitialization = null;
+        _activeVideoPath = null;
+      }
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    if (restartProgress) {
+      _restartSegmentPlayback(
+        type: segmentType,
+        segment: segment,
+      );
+    }
+    await musicPlaybackFuture;
+    setState(() {});
+  }
+
+  Future<void> _configureMusicPlayback() async {
+    final assetPath = _currentSegment?.musicTrack?.previewAssetPath?.trim();
+    if (assetPath == null || assetPath.isEmpty) {
+      await _disposeMusicController();
+      return;
+    }
+
+    if (_activeMusicAssetPath == assetPath &&
+        _musicController != null &&
+        _musicController!.value.isInitialized) {
+      if (!_isPausedByHold) {
+        await _musicController!.play();
+      }
+      return;
+    }
+
+    await _disposeMusicController();
+
+    final controller = VideoPlayerController.asset(assetPath);
+    _musicController = controller;
+    _activeMusicAssetPath = assetPath;
+
+    try {
+      await controller.initialize();
+      if (!mounted || _musicController != controller) {
+        await controller.dispose();
+        return;
+      }
+
+      await controller.setLooping(true);
+      await controller.setVolume(1);
+      if (!_isPausedByHold) {
+        await controller.play();
+      }
+    } catch (_) {
+      if (_musicController == controller) {
+        await controller.dispose();
+        _musicController = null;
+        _activeMusicAssetPath = null;
+      }
+    }
+  }
+
+  void _startCurrentSegmentPlayback() {
+    final segment = _currentSegment;
+    final hasMusic =
+        segment?.musicTrack?.previewAssetPath?.trim().isNotEmpty == true;
+    final isLocalVideoSegment = _currentSegmentType == StatusStoryType.video &&
+        segment?.hasLocalMedia == true;
+
+    if (!isLocalVideoSegment && !hasMusic) {
+      unawaited(_disposeVideoController());
+      _restartSegmentPlayback(
+        type: _currentSegmentType,
+        segment: segment,
+      );
+      return;
+    }
+
+    unawaited(_configureSegmentPlayback(restartProgress: true));
+  }
+
+  void _restartSegmentPlayback({
+    required StatusStoryType type,
+    StatusStorySegment? segment,
+  }) {
+    _segmentProgressController.duration =
+        _segmentDurationFor(type: type, segment: segment);
+    if (_isPausedByHold) {
+      _segmentProgressController.value = 0;
+    } else {
+      _segmentProgressController.forward(from: 0);
+    }
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  void _pausePlaybackForHold() {
+    if (_isPausedByHold || _isClosing) {
+      return;
+    }
+
+    _isPausedByHold = true;
+    _segmentProgressController.stop();
+    unawaited(_videoController?.pause());
+    unawaited(_musicController?.pause());
+  }
+
+  void _resumePlaybackFromHold() {
+    if (!_isPausedByHold || _isClosing) {
+      return;
+    }
+
+    _isPausedByHold = false;
+    _segmentProgressController.forward();
+    if (_currentSegmentType == StatusStoryType.video &&
+        _videoController != null &&
+        _videoController!.value.isInitialized) {
+      unawaited(_videoController!.play());
+    }
+    if (_musicController != null && _musicController!.value.isInitialized) {
+      unawaited(_musicController!.play());
+    }
+  }
+
+  void _resumePlaybackIfNeeded({
+    required bool shouldResume,
+  }) {
+    if (!shouldResume || _isClosing) {
+      return;
+    }
+
+    _segmentProgressController.forward();
+    if (_currentSegmentType == StatusStoryType.video &&
+        _videoController != null &&
+        _videoController!.value.isInitialized) {
+      unawaited(_videoController!.play());
+    }
+    if (_musicController != null && _musicController!.value.isInitialized) {
+      unawaited(_musicController!.play());
+    }
+  }
+
+  void _handleZonePointerDown(
+    _StoryTapDirection direction,
+    PointerDownEvent event,
+  ) {
+    if (_isClosing || _activePointer != null) {
+      return;
+    }
+
+    _activePointer = event.pointer;
+    _activePointerDownAt = DateTime.now();
+    _pendingTapDirection = direction;
+    _pausePlaybackForHold();
+  }
+
+  void _handleZonePointerUp(
+    _StoryTapDirection direction,
+    PointerUpEvent event,
+  ) {
+    if (_activePointer != event.pointer) {
+      return;
+    }
+
+    final pointerDownAt = _activePointerDownAt;
+    final pressDuration = pointerDownAt == null
+        ? _tapNavigationThreshold
+        : DateTime.now().difference(pointerDownAt);
+    final shouldNavigate = pressDuration < _tapNavigationThreshold &&
+        _pendingTapDirection == direction;
+    _clearGestureTracking();
+
+    if (shouldNavigate) {
+      _cancelHoldPauseWithoutResume();
+      switch (direction) {
+        case _StoryTapDirection.left:
+          unawaited(_returnToPreviousSegment());
+          break;
+        case _StoryTapDirection.right:
+          unawaited(_advanceToNextSegment());
+          break;
+      }
+      return;
+    }
+
+    _resumePlaybackFromHold();
+  }
+
+  void _handleZonePointerCancel(PointerCancelEvent event) {
+    if (_activePointer != event.pointer) {
+      return;
+    }
+
+    _clearGestureTracking();
+    if (_isPausedByHold) {
+      _resumePlaybackFromHold();
+    }
+  }
+
+  void _cancelHoldPauseWithoutResume() {
+    if (!_isPausedByHold) {
+      return;
+    }
+
+    _isPausedByHold = false;
+  }
+
+  void _clearGestureTracking() {
+    _activePointer = null;
+    _activePointerDownAt = null;
+    _pendingTapDirection = null;
+  }
+
+  void _reportCurrentSegmentViewed() {
+    if (_story.totalSegments <= 0) {
+      return;
+    }
+
+    final seenSegments =
+        math.min(_currentSegmentIndex + 1, _story.totalSegments);
+    if (seenSegments <= _reportedSeenSegments) {
+      return;
+    }
+
+    _reportedSeenSegments = seenSegments;
+    widget.onStoryViewed(_story.copyWith(seenSegments: seenSegments));
+  }
+
+  Future<void> _deleteCurrentSegmentWithConfirmation() async {
+    final onDeleteSegment = widget.onDeleteSegment;
+    final segment = _currentSegment;
+    if (onDeleteSegment == null ||
+        segment == null ||
+        _isDeletingSegment ||
+        _isClosing) {
+      return;
+    }
+
+    final shouldResumeAfterDialog = !_isPausedByHold;
+    _segmentProgressController.stop();
+    await _videoController?.pause();
+    await _musicController?.pause();
+    if (!mounted) {
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        final isLastSegment = _story.totalSegments <= 1;
+        final segmentLabel = switch (segment.type) {
+          StatusStoryType.text => 'text status',
+          StatusStoryType.photo => 'photo status',
+          StatusStoryType.video => 'video status',
+        };
+
+        return AlertDialog(
+          title: Text(
+            isLastSegment ? 'Delete status?' : 'Delete this status item?',
+          ),
+          content: Text(
+            isLastSegment
+                ? 'This will remove your last $segmentLabel from My status.'
+                : 'This removes only the current $segmentLabel. Your other status items stay available.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.error,
+                foregroundColor: Theme.of(context).colorScheme.onError,
+              ),
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    if (confirmed != true) {
+      _resumePlaybackIfNeeded(shouldResume: shouldResumeAfterDialog);
+      return;
+    }
+
+    setState(() {
+      _isDeletingSegment = true;
+    });
+
+    final result = await onDeleteSegment(_story, segment);
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _isDeletingSegment = false;
+    });
+
+    if (!result.didDelete) {
+      final errorMessage =
+          result.errorMessage ?? 'We could not delete that status right now.';
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(content: Text(errorMessage)),
+        );
+      _resumePlaybackIfNeeded(shouldResume: shouldResumeAfterDialog);
+      return;
+    }
+
+    final updatedStory = result.updatedStory;
+    if (updatedStory == null || !updatedStory.hasSegments) {
+      await _closeViewer();
+      return;
+    }
+
+    setState(() {
+      _storyData = updatedStory;
+      _currentSegmentIndex = math.min(
+        _currentSegmentIndex,
+        updatedStory.totalSegments - 1,
+      );
+      _reportedSeenSegments = updatedStory.clampedSeenSegments;
+    });
+    _startCurrentSegmentPlayback();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      _reportCurrentSegmentViewed();
+    });
+  }
+
+  Future<void> _advanceToNextSegment() async {
+    if (_isTransitioning || _isClosing || !mounted) {
+      return;
+    }
+
+    _isTransitioning = true;
+    try {
+      if (_currentSegmentIndex < _segmentCount - 1) {
+        setState(() {
+          _currentSegmentIndex += 1;
+        });
+        _reportCurrentSegmentViewed();
+        _startCurrentSegmentPlayback();
+        return;
+      }
+
+      await _closeViewer();
+    } finally {
+      _isTransitioning = false;
+    }
+  }
+
+  Future<void> _returnToPreviousSegment() async {
+    if (_isTransitioning || _isClosing || !mounted) {
+      return;
+    }
+
+    _isTransitioning = true;
+    try {
+      if (_currentSegmentIndex > 0) {
+        setState(() {
+          _currentSegmentIndex -= 1;
+        });
+        _startCurrentSegmentPlayback();
+        return;
+      }
+
+      _startCurrentSegmentPlayback();
+    } finally {
+      _isTransitioning = false;
+    }
+  }
+
+  Future<void> _closeViewer() async {
+    if (_isClosing || !mounted) {
+      return;
+    }
+
+    _isClosing = true;
+    _clearGestureTracking();
+    _isPausedByHold = false;
+    _segmentProgressController.stop();
+    await _videoController?.pause();
+    await _musicController?.pause();
+    if (!mounted) {
+      return;
+    }
+    await Navigator.of(context).maybePop();
+  }
+
+  Future<void> _disposeVideoController() async {
+    final controller = _videoController;
+    _videoController = null;
+    _videoInitialization = null;
+    _activeVideoPath = null;
+    if (controller != null) {
+      await controller.dispose();
+    }
+  }
+
+  Future<void> _disposeMusicController() async {
+    final controller = _musicController;
+    _musicController = null;
+    _activeMusicAssetPath = null;
+    if (controller != null) {
+      await controller.dispose();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final story = _story;
+    final theme = Theme.of(context);
+
+    return Scaffold(
+      key: const Key('updates_story_viewer'),
+      backgroundColor: AppPalette.deepOcean,
+      body: AnimatedContainer(
+        duration: const Duration(milliseconds: 220),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              story.accentColor.withValues(alpha: 0.86),
+              AppPalette.deepOcean,
+              AppPalette.deepOcean.withValues(alpha: 0.94),
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Positioned.fill(
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 220),
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeInCubic,
+                child: _StoryViewerCard(
+                  key: ValueKey(
+                    '${story.id}-segment-$_currentSegmentIndex-${_currentSegment?.localMediaPath ?? _currentSegmentType.name}',
+                  ),
+                  story: story,
+                  segment: _currentSegment,
+                  currentSegmentIndex: _currentSegmentIndex,
+                  totalSegments: _segmentCount,
+                  videoController: _videoController,
+                  videoInitialization: _videoInitialization,
+                ),
+              ),
+            ),
+            Positioned.fill(
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Listener(
+                      key: const Key(
+                        'updates_story_viewer_left_zone',
+                      ),
+                      behavior: HitTestBehavior.translucent,
+                      onPointerDown: (event) => _handleZonePointerDown(
+                          _StoryTapDirection.left, event),
+                      onPointerUp: (event) =>
+                          _handleZonePointerUp(_StoryTapDirection.left, event),
+                      onPointerCancel: _handleZonePointerCancel,
+                    ),
+                  ),
+                  Expanded(
+                    child: Listener(
+                      key: const Key(
+                        'updates_story_viewer_right_zone',
+                      ),
+                      behavior: HitTestBehavior.translucent,
+                      onPointerDown: (event) => _handleZonePointerDown(
+                        _StoryTapDirection.right,
+                        event,
+                      ),
+                      onPointerUp: (event) =>
+                          _handleZonePointerUp(_StoryTapDirection.right, event),
+                      onPointerCancel: _handleZonePointerCancel,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+                child: Column(
+                  children: [
+                    _StoryProgressBar(
+                      totalSegments: _segmentCount,
+                      currentSegmentIndex: _currentSegmentIndex,
+                      activeProgress: _segmentProgress,
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        story.isMine
+                            ? AvatarBadge(
+                                label: story.avatarLabel,
+                                color: story.accentColor,
+                                size: 38,
+                              )
+                            : StatusRingAvatar(
+                                label: story.avatarLabel,
+                                color: story.accentColor,
+                                totalSegments: story.totalSegments,
+                                seenSegments: story.seenSegments,
+                                size: 38,
+                              ),
+                        const SizedBox(width: 9),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                story.name,
+                                style: theme.textTheme.titleSmall?.copyWith(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w800,
+                                  height: 1,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                story.timeLabel,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: Colors.white.withValues(alpha: 0.72),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (story.isMine && widget.onDeleteSegment != null)
+                          _StoryIconButton(
+                            key: const Key('updates_story_delete_button'),
+                            tooltip: 'Delete current status',
+                            onPressed: _isDeletingSegment
+                                ? null
+                                : _deleteCurrentSegmentWithConfirmation,
+                            child: _isDeletingSegment
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : const Icon(
+                                    Icons.delete_outline_rounded,
+                                    color: Colors.white,
+                                    size: 20,
+                                  ),
+                          ),
+                        const SizedBox(width: 6),
+                        _StoryIconButton(
+                          tooltip: 'Close',
+                          onPressed: _closeViewer,
+                          child: const Icon(
+                            Icons.close_rounded,
+                            color: Colors.white,
+                            size: 20,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const Spacer(),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StoryViewerCard extends StatelessWidget {
+  const _StoryViewerCard({
+    required this.story,
+    required this.currentSegmentIndex,
+    required this.totalSegments,
+    this.segment,
+    this.videoController,
+    this.videoInitialization,
+    super.key,
+  });
+
+  final StatusStory story;
+  final StatusStorySegment? segment;
+  final int currentSegmentIndex;
+  final int totalSegments;
+  final VideoPlayerController? videoController;
+  final Future<void>? videoInitialization;
+
+  @override
+  Widget build(BuildContext context) {
+    final activeSegment = segment;
+    if ((activeSegment?.type ?? story.type) == StatusStoryType.text) {
+      return _TextStoryCard(
+        story: story,
+        segment: activeSegment,
+      );
+    }
+    if (activeSegment?.hasLocalMedia == true) {
+      return _LocalMediaStoryCard(
+        story: story,
+        segment: activeSegment!,
+        currentSegmentIndex: currentSegmentIndex,
+        totalSegments: totalSegments,
+        videoController: videoController,
+        videoInitialization: videoInitialization,
+      );
+    }
+
+    return _FallbackStoryCard(
+      story: story,
+      currentSegmentIndex: currentSegmentIndex,
+      totalSegments: totalSegments,
+    );
+  }
+}
+
+class _TextStoryCard extends StatelessWidget {
+  const _TextStoryCard({
+    required this.story,
+    required this.segment,
+  });
+
+  final StatusStory story;
+  final StatusStorySegment? segment;
+
+  @override
+  Widget build(BuildContext context) {
+    final activeSegment = segment;
+    return TextStatusCanvas(
+      key: const Key('updates_story_text_card'),
+      text: activeSegment?.previewText ?? story.previewText,
+      style: activeSegment?.textStyle ?? const StatusTextStyle(),
+      accentColor: story.accentColor,
+      borderRadius: BorderRadius.zero,
+    );
+  }
+}
+
+class _LocalMediaStoryCard extends StatelessWidget {
+  const _LocalMediaStoryCard({
+    required this.story,
+    required this.segment,
+    required this.currentSegmentIndex,
+    required this.totalSegments,
+    this.videoController,
+    this.videoInitialization,
+  });
+
+  final StatusStory story;
+  final StatusStorySegment segment;
+  final int currentSegmentIndex;
+  final int totalSegments;
+  final VideoPlayerController? videoController;
+  final Future<void>? videoInitialization;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox.expand(
+      key: const Key('updates_story_viewer_media_surface'),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          StatusStoryMediaSurface(
+            type: segment.type,
+            localMediaPath: segment.localMediaPath ?? '',
+            mediaTransform: segment.mediaTransform,
+            videoController: videoController,
+            videoInitialization: videoInitialization,
+            unavailableMessage: 'This local media is no longer available.',
+          ),
+          SafeArea(
+            child: StatusMediaDecorationOverlay(
+              segment: segment,
+              accentColor: story.accentColor,
+              padding: kStatusMediaOverlayCanvasPadding,
+              showBackdrop: false,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FallbackStoryCard extends StatelessWidget {
+  const _FallbackStoryCard({
+    required this.story,
+    required this.currentSegmentIndex,
+    required this.totalSegments,
+  });
+
+  final StatusStory story;
+  final int currentSegmentIndex;
+  final int totalSegments;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final intensity =
+        totalSegments <= 1 ? 1.0 : (currentSegmentIndex + 1) / totalSegments;
+    final previewLine = _previewLineForSegment(story, currentSegmentIndex);
+    final typeLabel = _typeLabelFor(story.type);
+    final segmentLabel = totalSegments <= 1
+        ? typeLabel
+        : '${currentSegmentIndex + 1} / $totalSegments';
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Colors.white.withValues(alpha: 0.06 + (0.02 * intensity)),
+            story.accentColor.withValues(alpha: 0.12 + (0.08 * intensity)),
+            AppPalette.deepOcean.withValues(alpha: 0.56 + (0.08 * intensity)),
+          ],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(24, 56, 24, 36),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    _iconForType(story.type),
+                    size: 14,
+                    color: Colors.white,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    segmentLabel,
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Spacer(),
+            Text(
+              previewLine,
+              style: theme.textTheme.headlineMedium?.copyWith(
+                color: Colors.white.withValues(alpha: 0.94),
+                height: 1.02,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              story.name,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: Colors.white.withValues(alpha: 0.72),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static IconData _iconForType(StatusStoryType type) {
+    return switch (type) {
+      StatusStoryType.text => Icons.text_fields_rounded,
+      StatusStoryType.photo => Icons.photo_library_outlined,
+      StatusStoryType.video => Icons.videocam_outlined,
+    };
+  }
+
+  static String _typeLabelFor(
+    StatusStoryType type,
+  ) {
+    return switch (type) {
+      StatusStoryType.text => 'Text',
+      StatusStoryType.photo => 'Photo',
+      StatusStoryType.video => 'Video',
+    };
+  }
+
+  static String _previewLineForSegment(
+    StatusStory story,
+    int currentSegmentIndex,
+  ) {
+    final candidate = story.segmentAt(currentSegmentIndex)?.previewText.trim() ??
+        story.previewText.trim();
+    if (candidate.isNotEmpty &&
+        candidate.toLowerCase() != 'shared a new photo update' &&
+        candidate.toLowerCase() != 'shared a new video update') {
+      return candidate;
+    }
+
+    return switch (story.type) {
+      StatusStoryType.text => story.isMine ? 'Your text status' : 'Text update',
+      StatusStoryType.photo => 'Photo update',
+      StatusStoryType.video => 'Video clip',
+    };
+  }
+}
+
+class _StoryIconButton extends StatelessWidget {
+  const _StoryIconButton({
+    required this.child,
+    required this.onPressed,
+    this.tooltip,
+    super.key,
+  });
+
+  final Widget child;
+  final VoidCallback? onPressed;
+  final String? tooltip;
+
+  @override
+  Widget build(BuildContext context) {
+    final button = Material(
+      color: Colors.black.withValues(alpha: 0.22),
+      shape: const CircleBorder(),
+      child: InkWell(
+        onTap: onPressed,
+        customBorder: const CircleBorder(),
+        child: SizedBox(
+          width: 32,
+          height: 32,
+          child: Center(child: child),
+        ),
+      ),
+    );
+
+    if (tooltip == null || tooltip!.isEmpty) {
+      return button;
+    }
+
+    return Tooltip(
+      message: tooltip,
+      child: button,
+    );
+  }
+}
+
+class _StoryProgressBar extends StatelessWidget {
+  const _StoryProgressBar({
+    required this.totalSegments,
+    required this.currentSegmentIndex,
+    required this.activeProgress,
+  });
+
+  final int totalSegments;
+  final int currentSegmentIndex;
+  final double activeProgress;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: List<Widget>.generate(
+        totalSegments,
+        (index) {
+          final progress = (index < currentSegmentIndex
+                  ? 1.0
+                  : index == currentSegmentIndex
+                      ? activeProgress
+                      : 0.0)
+              .clamp(0.0, 1.0)
+              .toDouble();
+          final trackColor = Colors.white.withValues(
+            alpha: index == currentSegmentIndex ? 0.3 : 0.18,
+          );
+
+          return Expanded(
+            child: Padding(
+              padding:
+                  EdgeInsets.only(right: index == totalSegments - 1 ? 0 : 4),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(99),
+                child: SizedBox(
+                  height: 4,
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final fillWidth = constraints.maxWidth * progress;
+                      return Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          DecoratedBox(
+                            key: Key('updates_story_progress_track_$index'),
+                            decoration: BoxDecoration(
+                              color: trackColor,
+                            ),
+                          ),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: SizedBox(
+                              key: Key('updates_story_progress_fill_$index'),
+                              width: fillWidth,
+                              height: constraints.maxHeight,
+                              child: const DecoratedBox(
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
