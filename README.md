@@ -6,12 +6,9 @@
 
 Running on the iOS Simulator (iPhone 17 Pro).
 
-<video src="docs/demo/whatswave-demo.mp4" controls width="360">
-  Your browser/markdown viewer can't preview this video inline —
-  watch or download it directly: docs/demo/whatswave-demo.mp4
-</video>
+[![Watch the demo video](docs/screenshots/03-chats-list.png)](docs/demo/whatswave-demo.mp4)
 
-<sub>If the inline player above doesn't render, watch/download it directly: [docs/demo/whatswave-demo.mp4](docs/demo/whatswave-demo.mp4)</sub>
+<sub>▶️ Click the screenshot above (or [this link](docs/demo/whatswave-demo.mp4)) to watch/download the full screen recording.</sub>
 
 | Auth | Profile setup | Chats list | Chat detail |
 |---|---|---|---|
