@@ -7,6 +7,7 @@ import '../../features/calls/data/calls_repository.dart';
 import '../../features/calls/data/fake_calls_repository.dart';
 import '../../features/chats/data/chat_repository.dart';
 import '../../features/chats/data/fake_chat_repository.dart';
+import '../../features/chats/data/firestore_chat_repository.dart';
 import '../../features/communities/data/communities_repository.dart';
 import '../../features/communities/data/fake_communities_repository.dart';
 import '../../features/updates/data/fake_updates_repository.dart';
@@ -383,7 +384,8 @@ class BackendRepositoryBundleFactory {
       authRepository:
           _buildAuthRepository(runtimeConfig, enableDemoRestoreSession),
       callsRepository: _buildCallsRepository(enableDemoRestoreSession),
-      chatRepository: _buildChatRepository(enableDemoRestoreSession),
+      chatRepository:
+          _buildChatRepository(runtimeConfig, enableDemoRestoreSession),
       communitiesRepository:
           _buildCommunitiesRepository(enableDemoRestoreSession),
       updatesRepository: _buildUpdatesRepository(enableDemoRestoreSession),
@@ -416,7 +418,14 @@ class BackendRepositoryBundleFactory {
         : FakeCallsRepository();
   }
 
-  ChatRepository _buildChatRepository(bool enableDemoRestoreSession) {
+  ChatRepository _buildChatRepository(
+    BackendRuntimeConfig runtimeConfig,
+    bool enableDemoRestoreSession,
+  ) {
+    if (runtimeConfig.backendMode == BackendMode.firebaseFirst) {
+      return FirestoreChatRepository();
+    }
+
     return enableDemoRestoreSession
         ? FakeChatRepository(latency: Duration.zero)
         : FakeChatRepository();
