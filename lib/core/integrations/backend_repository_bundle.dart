@@ -163,81 +163,68 @@ class RuntimeAwareRepositoryAdapterCatalog implements RepositoryAdapterCatalog {
     return <RepositoryAdapterReadiness>[
       RepositoryAdapterReadiness(
         featureArea: 'Auth and session',
-        providerName: 'Firebase Auth scaffold',
-        status: RepositoryAdapterStatus.localFallback,
+        providerName: 'Firebase Phone Auth',
+        status: RepositoryAdapterStatus.liveCloud,
         summary:
-            'Auth flows are still backed by the persistent local fallback while the Firebase phone auth adapter is being wired for the $environment environment.',
+            'Phone entry, SMS/reCAPTCHA verification, session restore, and profile bootstrap all run against real Firebase Auth for the $environment environment.',
         capabilities: <String>[
-          'Local fallback session',
+          'Firebase Auth ready',
           ...emulatorCapability,
           ...projectCapability,
-          if (runtimeConfig.firebaseAuthReady) 'Firebase Auth ready',
         ],
         nextSteps: <String>[
-          ..._firebaseCoreSteps(),
-          if (!runtimeConfig.firebaseAuthReady)
-            'Enable Firebase Auth phone sign-in before replacing the seeded OTP path.',
-          'Bind session restore and profile bootstrap to the live Firebase auth boundary.',
+          'Add real APNs silent-push app verification for a smoother device flow (currently relies on the reCAPTCHA fallback everywhere, including physical devices).',
         ],
       ),
       RepositoryAdapterReadiness(
         featureArea: 'Chats and messages',
-        providerName: 'Firestore chat scaffold',
-        status: RepositoryAdapterStatus.localFallback,
+        providerName: 'Firestore chats',
+        status: RepositoryAdapterStatus.liveCloud,
         summary:
-            'Chat lists, message sends, and thread state still come from seeded local data while Firestore collections and indexes are prepared.',
+            'Thread fetch, send, read state, and archive actions are all backed by Cloud Firestore, gated by per-thread participant security rules.',
         capabilities: <String>[
-          'Local fallback threads',
+          'Firestore ready',
           ...emulatorCapability,
           ...projectCapability,
-          if (runtimeConfig.firestoreReady) 'Firestore ready',
         ],
         nextSteps: <String>[
-          ..._firebaseCoreSteps(),
-          if (!runtimeConfig.firestoreReady)
-            'Enable Firestore collections, indexes, and security rules for messages and threads.',
-          'Bind thread fetch, send, read state, and archive actions to Firestore-backed repositories.',
+          'Move unreadCount/isMuted/isPinned/isArchived to per-participant state -- currently single fields on the thread doc, which only works correctly for a single-viewer test account.',
+          'Paginate message history instead of fetching every message on every fetchThreads() call.',
         ],
       ),
       RepositoryAdapterReadiness(
         featureArea: 'Updates and channels',
-        providerName: 'Firestore and Storage updates scaffold',
-        status: RepositoryAdapterStatus.localFallback,
+        providerName: 'Firestore updates (media stays local)',
+        status: RepositoryAdapterStatus.liveCloud,
         summary:
-            'Stories, channels, and status creation are still local while Firestore metadata and Cloud Storage uploads are scaffolded.',
+            'Status story metadata (segments, overlays, captions, transforms) syncs through Cloud Firestore. Photo/video files stay device-local rather than Cloud Storage, so they only display on the device that created them.',
         capabilities: <String>[
-          'Local fallback stories',
+          'Firestore ready',
           ...emulatorCapability,
           ...projectCapability,
-          if (runtimeConfig.firestoreReady) 'Firestore ready',
           if (runtimeConfig.firebaseStorageReady) 'Cloud Storage ready',
         ],
         nextSteps: <String>[
-          ..._firebaseCoreSteps(),
-          if (!runtimeConfig.firestoreReady)
-            'Prepare Firestore collections for story metadata and channel previews.',
           if (!runtimeConfig.firebaseStorageReady)
-            'Enable Cloud Storage and bucket rules for status media uploads.',
-          'Bind status creation, viewed state, and channel discovery to live repositories.',
+            'Enable Cloud Storage (requires upgrading to the Blaze plan) to sync photos/videos across devices instead of storing them locally.',
+          'Add real cross-user "seen" tracking (currently only your own story is ever visible to write to; a per-viewer subcollection would be needed for real multi-user visibility).',
+          'Wire channel discovery to a real data source -- currently returns an empty list in Firebase mode.',
         ],
       ),
       RepositoryAdapterReadiness(
         featureArea: 'Communities and contacts',
-        providerName: 'Firestore communities scaffold',
-        status: RepositoryAdapterStatus.localFallback,
+        providerName: 'Firestore communities (contacts stay local)',
+        status: RepositoryAdapterStatus.liveCloud,
         summary:
-            'Community hubs, invite state, and contacts search remain local until the shared Firestore community model is finalized.',
+            'Community creation, opening, and invite bookkeeping are backed by Cloud Firestore. Contacts remain an in-memory fake list -- real device contacts integration is a separate, unimplemented feature.',
         capabilities: <String>[
-          'Local fallback communities',
+          'Firestore ready',
           ...emulatorCapability,
           ...projectCapability,
-          if (runtimeConfig.firestoreReady) 'Firestore ready',
         ],
         nextSteps: <String>[
-          ..._firebaseCoreSteps(),
-          if (!runtimeConfig.firestoreReady)
-            'Finalize Firestore collections and access rules for communities, contacts, and invites.',
-          'Bind community creation, invite, and discovery flows to the live data layer.',
+          'Add membership-based write rules for genuine multi-user communities -- currently only a community\'s creator can write it.',
+          'Integrate a real device contacts package (e.g. flutter_contacts) behind AppPermissionService.contactAccessStatus(), which is already wired for the permission prompt.',
         ],
       ),
       RepositoryAdapterReadiness(
@@ -347,14 +334,6 @@ class RuntimeAwareRepositoryAdapterCatalog implements RepositoryAdapterCatalog {
     ];
   }
 
-  List<String> _firebaseCoreSteps() {
-    return <String>[
-      if (!runtimeConfig.firebaseOptionsGenerated)
-        'Run flutterfire configure and commit firebase_options.dart.',
-      if (!runtimeConfig.hasFirebaseNativeConfig)
-        'Add GoogleService-Info.plist and google-services.json for this environment.',
-    ];
-  }
 }
 
 class BackendRepositoryBundle {

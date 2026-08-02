@@ -58,13 +58,14 @@ Keep the Flutter app ready for:
 
 ## Firebase-first checklist
 
-1. Add FlutterFire CLI setup
-2. Create `firebase_options.dart`
-3. Wire auth and session restore
-4. Add chat and message repositories
-5. Add media upload/download
-6. Add FCM token sync
-7. Add Crashlytics and Analytics
+1. [x] Add FlutterFire CLI setup
+2. [x] Create `firebase_options.dart`
+3. [x] Wire auth and session restore -- `FirebaseAuthRepository`
+4. [x] Add chat and message repositories -- `FirestoreChatRepository`
+5. [x] Add status/updates and communities repositories -- `FirestoreUpdatesRepository`, `FirestoreCommunitiesRepository` (not originally itemized here, but followed the same pattern)
+6. [ ] Add media upload/download -- deliberately deferred; status media stays device-local rather than Cloud Storage, to avoid requiring the Blaze billing plan (see `docs/handoff/03_firebase_dev_setup.md`)
+7. [ ] Add FCM token sync
+8. [ ] Add Crashlytics and Analytics
 
 ## AWS escalation triggers
 
@@ -90,3 +91,16 @@ Start with Firebase for speed, but keep repository and service boundaries strict
 - The settings backend screen exposes provider readiness, setup guidance, and active local adapters so real Firebase wiring can replace local defaults incrementally.
 - Runtime backend flags now let the app switch between `local`, `firebase`, and `aws` scaffolding modes without rewriting the feature screens.
 - Firebase-first scaffold services now surface missing setup directly in the backend sync screen, including `firebase_options.dart`, native config files, storage, FCM, APNs, analytics, crash reporting, and call-provider readiness.
+
+## Phase B progress
+
+Auth, chats, updates, and communities are no longer scaffolds -- they run against real Firebase services when `WW_BACKEND_TARGET=firebase`:
+
+- **Auth**: `FirebaseAuthRepository` (`lib/features/auth/data/firebase_auth_repository.dart`) -- real phone/OTP verification via `firebase_auth`, session persistence, profile fields stored via `updateDisplayName` + a local `about` field in `SharedPreferences` (no Firestore user-profile collection yet).
+- **Chats**: `FirestoreChatRepository` (`lib/features/chats/data/firestore_chat_repository.dart`) -- `chatThreads/{id}` documents with a `messages` subcollection, gated by a `participantUids` array in both the query and `firestore.rules`.
+- **Updates**: `FirestoreUpdatesRepository` (`lib/features/updates/data/firestore_updates_repository.dart`) -- one `statusStories/{uid}` document per user (leverages `StatusStory.toJson()`/`fromJson()`, which already serialized the entire nested segment/overlay/transform model). Media stays local (see the checklist above).
+- **Communities**: `FirestoreCommunitiesRepository` (`lib/features/communities/data/firestore_communities_repository.dart`) -- communities only; contacts stay an in-memory fake list, since device contacts integration is a separate, unimplemented feature.
+
+Each repository documents its own scope decisions and known gaps in a class-level doc comment -- read those directly for the most current, precise picture rather than this summary.
+
+Still fully local/simulated: **Calls** (own roadmap in `docs/calling_strategy.md`), **Settings/preferences** (no reason to move these to a backend yet), **push notifications**, **Crashlytics/Analytics**.

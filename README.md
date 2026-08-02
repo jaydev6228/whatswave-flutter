@@ -50,6 +50,25 @@ This repo currently includes:
 - A shared observability seam that captures app, shell, and calling breadcrumbs locally and is ready to swap for a release telemetry provider
 - Unit and widget tests for the foundation, auth/session flow, chats, updates, calls, communities, settings, and security layers
 
+## Backend status
+
+The app runs in two modes, switched at launch via `WW_BACKEND_TARGET` (see `config/README.md`) -- `local` is always the default, `firebase` opts into the adapters below. Every repository sits behind an interface (`AuthRepository`, `ChatRepository`, etc.), so switching modes never touches a screen.
+
+| Feature | Local mode | Firebase mode |
+|---|---|---|
+| Auth | Seeded fake phone/OTP flow | **Real Firebase Phone Auth** (SMS/reCAPTCHA verification, session persistence) |
+| Chats | Seeded fake threads | **Real Cloud Firestore** (per-thread participant security rules) |
+| Updates/Status | Seeded fake stories | **Real Cloud Firestore** for metadata; photo/video stay device-local (no Cloud Storage yet -- see below) |
+| Communities | Seeded fake communities + contacts | **Real Cloud Firestore** for communities; contacts stay a fake in-memory list (device contacts integration is a separate, unimplemented feature) |
+| Calls | Simulated (Timers, no real transport) | Same -- calling has its own documented roadmap in `docs/calling_strategy.md`, not started |
+| Push, Crashlytics, Analytics | Not implemented | Not implemented |
+
+Known, deliberate scope decisions (each documented in the relevant repository file):
+- Status media (photos/videos) stays on-device rather than uploading to Firebase Storage, to avoid requiring the pay-as-you-go Blaze billing plan for a portfolio project.
+- Cross-user visibility (seeing someone else's chat/story/community) only really applies once a second real account exists to test against -- the write-security rules are in place, but only exercised by a single test account so far.
+
+For the full setup story (Firebase console steps, `flutterfire configure`, local secrets), see `docs/handoff/03_firebase_dev_setup.md` and `config/README.md`.
+
 ## Project structure
 
 ```text
