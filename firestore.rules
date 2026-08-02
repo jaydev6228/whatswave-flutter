@@ -30,5 +30,19 @@ service cloud.firestore {
       allow read: if request.auth != null;
       allow write: if request.auth != null && request.auth.uid == ownerUid;
     }
+
+    match /communities/{communityId} {
+      // Any signed-in user can read any community (like a real community
+      // directory) -- only the creator (ownerUid) can create/update it.
+      // A genuine multi-user community would need membership-based write
+      // rules instead; out of scope while there's only one real test
+      // account.
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+                      && request.auth.uid == request.resource.data.ownerUid;
+      allow update: if request.auth != null
+                      && request.auth.uid == resource.data.ownerUid;
+      allow delete: if false;
+    }
   }
 }
