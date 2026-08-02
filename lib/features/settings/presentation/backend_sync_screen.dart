@@ -1,6 +1,8 @@
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/material.dart';
 
 import '../../../core/config/backend_runtime_config.dart';
+import '../../../core/config/runtime_flags.dart';
 import '../../../core/integrations/backend_repository_bundle.dart';
 import '../../../core/integrations/integration_hub_controller.dart';
 import '../../shared/widgets/empty_state_card.dart';
@@ -142,6 +144,39 @@ class _BackendSyncScreenState extends State<BackendSyncScreen> {
                             ),
                           ),
                         ),
+                        if (kEnableDemoSurfaces) ...[
+                          const SizedBox(height: 24),
+                          const SectionHeading(title: 'Debug tools'),
+                          const SizedBox(height: 12),
+                          Card(
+                            key: const Key('backend_sync_debug_tools_card'),
+                            child: Padding(
+                              padding: const EdgeInsets.all(18),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'QA-only actions, compiled out of release builds.',
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: theme.colorScheme.onSurface
+                                          .withValues(alpha: 0.7),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  OutlinedButton.icon(
+                                    key: const Key(
+                                        'backend_sync_test_crash_button'),
+                                    onPressed: () =>
+                                        FirebaseCrashlytics.instance.crash(),
+                                    icon: const Icon(
+                                        Icons.bug_report_outlined),
+                                    label: const Text('Send test crash'),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
                         const SizedBox(height: 24),
                         const SectionHeading(title: 'Firebase setup status'),
                         const SizedBox(height: 12),
