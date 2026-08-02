@@ -80,6 +80,62 @@ Place the native config files here:
 - Android: `android/app/google-services.json`
 - iOS: `ios/Runner/GoogleService-Info.plist`
 
+These are gitignored in this repo (kept local-only, since this is a public
+portfolio repo and they contain your real project ID). Regenerate them any
+time with `flutterfire configure`.
+
+## iOS Phone Auth: required URL scheme
+
+Firebase Phone Auth on iOS falls back to a reCAPTCHA-based verification flow
+whenever real APNs silent push isn't available (this is always true on the
+Simulator, and can also happen on real devices). Without a URL scheme
+registered, the SDK crashes with:
+
+```
+FirebaseAuth/PhoneAuthProvider.swift:109: Fatal error: Please register
+custom URL scheme app-<PROJECT_NUMBER>-ios-<APP_ID_SUFFIX> in the app's
+Info.plist file.
+```
+
+The crash message tells you the exact scheme to use — it's derived from your
+`GOOGLE_APP_ID` (found in `GoogleService-Info.plist`), formatted as
+`app-<project_number>-ios-<app_id_suffix>`. For example, a `GOOGLE_APP_ID` of
+`1:299554920918:ios:98575fc550c6057bfe6c77` becomes
+`app-1-299554920918-ios-98575fc550c6057bfe6c77`.
+
+Add it to `ios/Runner/Info.plist`:
+
+```xml
+<key>CFBundleURLTypes</key>
+<array>
+  <dict>
+    <key>CFBundleTypeRole</key>
+    <string>Editor</string>
+    <key>CFBundleURLSchemes</key>
+    <array>
+      <string>app-<PROJECT_NUMBER>-ios-<APP_ID_SUFFIX></string>
+    </array>
+  </dict>
+</array>
+```
+
+`Info.plist` itself **is** committed to this repo (unlike the Firebase config
+files above), but the scheme value is replaced with the placeholder
+`REPLACE_WITH_YOUR_FIREBASE_APP_ID_URL_SCHEME` before committing, since the
+real value embeds your project identifiers. After setting up your own
+Firebase project, swap in your own derived value locally, then run:
+
+```bash
+git update-index --skip-worktree ios/Runner/Info.plist
+```
+
+so git stops tracking further local changes to this file (prevents
+accidentally committing your real value later). To undo:
+
+```bash
+git update-index --no-skip-worktree ios/Runner/Info.plist
+```
+
 ## CLI setup on the new machine
 
 Install the CLIs on the new machine:

@@ -2,6 +2,7 @@ import '../../core/config/backend_runtime_config.dart';
 import '../../core/sample/demo_data.dart';
 import '../../features/auth/data/auth_repository.dart';
 import '../../features/auth/data/fake_auth_repository.dart';
+import '../../features/auth/data/firebase_auth_repository.dart';
 import '../../features/calls/data/calls_repository.dart';
 import '../../features/calls/data/fake_calls_repository.dart';
 import '../../features/chats/data/chat_repository.dart';
@@ -379,7 +380,8 @@ class BackendRepositoryBundleFactory {
     required bool enableDemoRestoreSession,
   }) {
     return BackendRepositoryBundle(
-      authRepository: _buildAuthRepository(enableDemoRestoreSession),
+      authRepository:
+          _buildAuthRepository(runtimeConfig, enableDemoRestoreSession),
       callsRepository: _buildCallsRepository(enableDemoRestoreSession),
       chatRepository: _buildChatRepository(enableDemoRestoreSession),
       communitiesRepository:
@@ -389,7 +391,14 @@ class BackendRepositoryBundleFactory {
     );
   }
 
-  AuthRepository _buildAuthRepository(bool enableDemoRestoreSession) {
+  AuthRepository _buildAuthRepository(
+    BackendRuntimeConfig runtimeConfig,
+    bool enableDemoRestoreSession,
+  ) {
+    if (runtimeConfig.backendMode == BackendMode.firebaseFirst) {
+      return FirebaseAuthRepository();
+    }
+
     if (enableDemoRestoreSession) {
       return FakeAuthRepository(
         restoredUser: DemoData.currentUser,
