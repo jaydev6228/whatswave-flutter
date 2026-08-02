@@ -14,3 +14,30 @@ pubspec.lock
 
 # macOS
 .DS_Store
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.cer
+*.mobileprovision
+*.keystore
+*.jks
+key.properties
+android/key.properties
+serviceAccountKey*.json
+*-firebase-adminsdk-*.json
+*.credentials.json
+
+# Firebase (client config kept local-only for this public portfolio repo;
+# regenerate with `flutterfire configure` per docs/handoff/03_firebase_dev_setup.md)
+android/app/google-services.json
+ios/Runner/GoogleService-Info.plist
+macos/Runner/GoogleService-Info.plist
+lib/firebase_options.dart
+firebase.json
+.firebase/
+firebase-debug.log
+firebase-debug.*.log
