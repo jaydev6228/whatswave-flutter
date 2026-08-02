@@ -1,0 +1,21 @@
+{
+  "WW_BACKEND_TARGET": "local",
+  "WW_APP_ENV": "development",
+  "WW_CALL_PROVIDER": "simulated",
+
+  "WW_ENABLE_DEMO_SURFACES": true,
+  "WW_DEMO_RESTORE_SESSION": false,
+
+  "WW_FIREBASE_PROJECT_ID": "",
+  "WW_USE_FIREBASE_EMULATORS": false,
+  "WW_FIREBASE_OPTIONS_READY": false,
+  "WW_IOS_FIREBASE_CONFIG_READY": false,
+  "WW_ANDROID_FIREBASE_CONFIG_READY": false,
+  "WW_FIREBASE_AUTH_READY": false,
+  "WW_FIRESTORE_READY": false,
+  "WW_FIREBASE_STORAGE_READY": false,
+  "WW_FCM_READY": false,
+  "WW_APNS_READY": false,
+  "WW_ANALYTICS_ENABLED": false,
+  "WW_CRASH_REPORTING_ENABLED": false
+}

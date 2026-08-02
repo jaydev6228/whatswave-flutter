@@ -122,6 +122,19 @@ flutter run -d emulator-5554 \
   --dart-define=WW_APP_ENV=development
 ```
 
+#### Easier alternative: `config/dev.json`
+
+Instead of retyping `--dart-define` flags, copy `config/dev.json.example` to
+`config/dev.json` (gitignored, local-only) and run:
+
+```bash
+flutter run --dart-define-from-file=config/dev.json
+```
+
+See `config/README.md` for the full key reference. You'll also need your own
+Firebase config for Firebase mode — see
+`docs/handoff/03_firebase_dev_setup.md`.
+
 ### 4. Launch simulators and emulators
 
 List the available emulator IDs:

@@ -19,6 +19,7 @@ pubspec.lock
 .env
 .env.*
 !.env.example
+config/dev.json
 *.pem
 *.p12
 *.cer
