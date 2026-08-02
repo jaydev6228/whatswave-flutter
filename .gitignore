@@ -20,6 +20,7 @@ pubspec.lock
 .env.*
 !.env.example
 config/dev.json
+ios/Flutter/Secrets.xcconfig
 *.pem
 *.p12
 *.cer

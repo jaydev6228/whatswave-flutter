@@ -103,7 +103,8 @@ The crash message tells you the exact scheme to use — it's derived from your
 `1:299554920918:ios:98575fc550c6057bfe6c77` becomes
 `app-1-299554920918-ios-98575fc550c6057bfe6c77`.
 
-Add it to `ios/Runner/Info.plist`:
+`ios/Runner/Info.plist` already references this via an Xcode build variable
+(committed as-is, no per-developer edits needed):
 
 ```xml
 <key>CFBundleURLTypes</key>
@@ -113,28 +114,24 @@ Add it to `ios/Runner/Info.plist`:
     <string>Editor</string>
     <key>CFBundleURLSchemes</key>
     <array>
-      <string>app-<PROJECT_NUMBER>-ios-<APP_ID_SUFFIX></string>
+      <string>$(FIREBASE_AUTH_URL_SCHEME)</string>
     </array>
   </dict>
 </array>
 ```
 
-`Info.plist` itself **is** committed to this repo (unlike the Firebase config
-files above), but the scheme value is replaced with the placeholder
-`REPLACE_WITH_YOUR_FIREBASE_APP_ID_URL_SCHEME` before committing, since the
-real value embeds your project identifiers. After setting up your own
-Firebase project, swap in your own derived value locally, then run:
+The actual value comes from `ios/Flutter/Secrets.xcconfig`, which is
+gitignored (same "committed template, gitignored real file" pattern as
+`config/dev.json` — see `config/README.md`). Set it up once:
 
 ```bash
-git update-index --skip-worktree ios/Runner/Info.plist
+cp ios/Flutter/Secrets.xcconfig.example ios/Flutter/Secrets.xcconfig
 ```
 
-so git stops tracking further local changes to this file (prevents
-accidentally committing your real value later). To undo:
-
-```bash
-git update-index --no-skip-worktree ios/Runner/Info.plist
-```
+Then edit `ios/Flutter/Secrets.xcconfig` and set `FIREBASE_AUTH_URL_SCHEME`
+to your own derived value. `Debug.xcconfig`/`Release.xcconfig` already
+`#include? "Secrets.xcconfig"` (the `?` makes it optional, so a fresh clone
+without this file still builds — Phone Auth just won't work until it's set).
 
 ## CLI setup on the new machine
 

@@ -31,7 +31,7 @@
 			<string>Editor</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>REPLACE_WITH_YOUR_FIREBASE_APP_ID_URL_SCHEME</string>
+				<string>$(FIREBASE_AUTH_URL_SCHEME)</string>
 			</array>
 		</dict>
 	</array>

@@ -63,6 +63,6 @@ key/value strings — see `docs/handoff/03_firebase_dev_setup.md` for both:
 - The native Firebase config files (`google-services.json`,
   `GoogleService-Info.plist`, `lib/firebase_options.dart`) — generate your
   own with `flutterfire configure`.
-- The iOS Phone Auth URL scheme in `ios/Runner/Info.plist` — derived from
-  your own `GOOGLE_APP_ID`, applied locally via `git update-index
-  --skip-worktree` so it never gets committed.
+- The iOS Phone Auth URL scheme, derived from your own `GOOGLE_APP_ID` — set
+  it in `ios/Flutter/Secrets.xcconfig` (copy from `Secrets.xcconfig.example`,
+  gitignored, same pattern as this file but on the Xcode side).
