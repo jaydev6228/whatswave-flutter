@@ -5,6 +5,10 @@ import 'package:flutter/widgets.dart';
 
 import '../core/observability/app_telemetry.dart';
 
+import 'package:firebase_core/firebase_core.dart';
+
+import '../firebase_options.dart';
+
 void bootstrap(
   Widget app, {
   AppTelemetry? telemetry,
@@ -12,8 +16,11 @@ void bootstrap(
   final resolvedTelemetry = telemetry ?? LocalAppTelemetry();
 
   runZonedGuarded(
-    () {
+    () async {
       WidgetsFlutterBinding.ensureInitialized();
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
       FlutterError.onError = (details) {
         FlutterError.presentError(details);
         final contextDescription = details.context?.toDescription();
