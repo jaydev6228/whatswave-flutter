@@ -7,6 +7,7 @@ import '../../../core/config/backend_runtime_config.dart';
 import '../../../core/config/runtime_flags.dart';
 import '../../../core/integrations/backend_repository_bundle.dart';
 import '../../../core/integrations/integration_hub_controller.dart';
+import '../../calls/presentation/call_signaling_test_screen.dart';
 import '../../calls/presentation/livekit_test_screen.dart';
 import '../../shared/widgets/empty_state_card.dart';
 import '../../shared/widgets/section_heading.dart';
@@ -219,6 +220,20 @@ class _BackendSyncScreenState extends State<BackendSyncScreen> {
                                     onPressed: _copyIdToken,
                                     icon: const Icon(Icons.key_outlined),
                                     label: const Text('Copy Firebase ID token'),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  OutlinedButton.icon(
+                                    key: const Key(
+                                        'backend_sync_call_signaling_test_button'),
+                                    onPressed: () => Navigator.of(context).push(
+                                      MaterialPageRoute<void>(
+                                        builder: (_) =>
+                                            const CallSignalingTestScreen(),
+                                      ),
+                                    ),
+                                    icon: const Icon(Icons.call_outlined),
+                                    label:
+                                        const Text('Test call signaling'),
                                   ),
                                 ],
                               ),
