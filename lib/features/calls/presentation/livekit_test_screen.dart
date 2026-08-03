@@ -28,6 +28,7 @@ class _LiveKitTestScreenState extends State<LiveKitTestScreen> {
   String _status = 'Not connected';
   bool _isConnecting = false;
   String? _errorMessage;
+  String? _warningMessage;
 
   @override
   void dispose() {
@@ -48,6 +49,7 @@ class _LiveKitTestScreenState extends State<LiveKitTestScreen> {
     setState(() {
       _isConnecting = true;
       _errorMessage = null;
+      _warningMessage = null;
       _status = 'Connecting...';
     });
 
@@ -55,7 +57,18 @@ class _LiveKitTestScreenState extends State<LiveKitTestScreen> {
       final room = lk.Room();
       await room.connect(_url, _token);
 
-      final cameraPub = await room.localParticipant?.setCameraEnabled(true);
+      // Camera capture is unavailable on the iOS Simulator (no real
+      // AVCaptureDevice), so it's expected to throw there. Caught
+      // separately so mic-only + the connection itself can still be
+      // verified on Simulator; a real device is required for video.
+      lk.LocalTrackPublication? cameraPub;
+      String? warning;
+      try {
+        cameraPub = await room.localParticipant?.setCameraEnabled(true);
+      } catch (e) {
+        warning = 'Camera unavailable (expected on iOS Simulator): $e';
+      }
+
       await room.localParticipant?.setMicrophoneEnabled(true);
 
       if (!mounted) {
@@ -65,6 +78,7 @@ class _LiveKitTestScreenState extends State<LiveKitTestScreen> {
         _room = room;
         _localVideoTrack = cameraPub?.track as lk.LocalVideoTrack?;
         _status = 'Connected to room "${room.name}"';
+        _warningMessage = warning;
         _isConnecting = false;
       });
     } catch (e) {
@@ -85,6 +99,7 @@ class _LiveKitTestScreenState extends State<LiveKitTestScreen> {
       _room = null;
       _localVideoTrack = null;
       _status = 'Disconnected';
+      _warningMessage = null;
     });
     await room?.disconnect();
     await room?.dispose();
@@ -109,6 +124,13 @@ class _LiveKitTestScreenState extends State<LiveKitTestScreen> {
                 Text(
                   _errorMessage!,
                   style: TextStyle(color: theme.colorScheme.error),
+                ),
+              ],
+              if (_warningMessage != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  _warningMessage!,
+                  style: TextStyle(color: theme.colorScheme.tertiary),
                 ),
               ],
               const SizedBox(height: 16),
