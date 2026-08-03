@@ -62,6 +62,21 @@ class AppShell extends StatefulWidget {
   State<AppShell> createState() => _AppShellState();
 }
 
+class _NavIconWithBadge extends StatelessWidget {
+  const _NavIconWithBadge({required this.icon, required this.count});
+
+  final IconData icon;
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    if (count <= 0) {
+      return Icon(icon);
+    }
+    return Badge.count(count: count, child: Icon(icon));
+  }
+}
+
 class _AppShellState extends State<AppShell> {
   AppTab _currentTab = AppTab.chats;
   bool _trackedInitialTab = false;
@@ -120,56 +135,68 @@ class _AppShellState extends State<AppShell> {
         index: _currentTab.index,
         children: pages,
       ),
-      bottomNavigationBar: NavigationBarTheme(
-        data: navigationTheme.copyWith(
-          labelTextStyle: adaptiveLabelTextStyle,
-        ),
-        child: NavigationBar(
-          selectedIndex: _currentTab.index,
-          onDestinationSelected: (index) {
-            final nextTab = AppTab.values[index];
-            if (nextTab == _currentTab) {
-              return;
-            }
+      bottomNavigationBar: AnimatedBuilder(
+        animation: widget.chatsController,
+        builder: (context, _) {
+          final unreadChatCount = widget.chatsController.unreadThreadCount;
+          return NavigationBarTheme(
+            data: navigationTheme.copyWith(
+              labelTextStyle: adaptiveLabelTextStyle,
+            ),
+            child: NavigationBar(
+              selectedIndex: _currentTab.index,
+              onDestinationSelected: (index) {
+                final nextTab = AppTab.values[index];
+                if (nextTab == _currentTab) {
+                  return;
+                }
 
-            AppTelemetryScope.of(context).recordInteraction(
-              'navigation_tab_selected',
-              attributes: <String, Object?>{
-                'from': _currentTab.name,
-                'to': nextTab.name,
+                AppTelemetryScope.of(context).recordInteraction(
+                  'navigation_tab_selected',
+                  attributes: <String, Object?>{
+                    'from': _currentTab.name,
+                    'to': nextTab.name,
+                  },
+                );
+                setState(() => _currentTab = nextTab);
+                _trackScreenView(nextTab);
               },
-            );
-            setState(() => _currentTab = nextTab);
-            _trackScreenView(nextTab);
-          },
-          destinations: const [
-            NavigationDestination(
-              icon: Icon(Icons.chat_bubble_outline_rounded),
-              selectedIcon: Icon(Icons.chat_bubble_rounded),
-              label: 'Chats',
+              destinations: [
+                NavigationDestination(
+                  icon: _NavIconWithBadge(
+                    icon: Icons.chat_bubble_outline_rounded,
+                    count: unreadChatCount,
+                  ),
+                  selectedIcon: _NavIconWithBadge(
+                    icon: Icons.chat_bubble_rounded,
+                    count: unreadChatCount,
+                  ),
+                  label: 'Chats',
+                ),
+                const NavigationDestination(
+                  icon: Icon(Icons.auto_awesome_motion_outlined),
+                  selectedIcon: Icon(Icons.auto_awesome_motion_rounded),
+                  label: 'Updates',
+                ),
+                const NavigationDestination(
+                  icon: Icon(Icons.groups_outlined),
+                  selectedIcon: Icon(Icons.groups_rounded),
+                  label: 'Communities',
+                ),
+                const NavigationDestination(
+                  icon: Icon(Icons.call_outlined),
+                  selectedIcon: Icon(Icons.call_rounded),
+                  label: 'Calls',
+                ),
+                const NavigationDestination(
+                  icon: Icon(Icons.settings_outlined),
+                  selectedIcon: Icon(Icons.settings_rounded),
+                  label: 'Settings',
+                ),
+              ],
             ),
-            NavigationDestination(
-              icon: Icon(Icons.auto_awesome_motion_outlined),
-              selectedIcon: Icon(Icons.auto_awesome_motion_rounded),
-              label: 'Updates',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.groups_outlined),
-              selectedIcon: Icon(Icons.groups_rounded),
-              label: 'Communities',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.call_outlined),
-              selectedIcon: Icon(Icons.call_rounded),
-              label: 'Calls',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.settings_outlined),
-              selectedIcon: Icon(Icons.settings_rounded),
-              label: 'Settings',
-            ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }

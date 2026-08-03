@@ -325,6 +325,10 @@ class _ChatsScreenState extends State<ChatsScreen> {
                                 isArchived: true,
                               );
                             },
+                            onDelete: () async {
+                              _dismissSearchFocus();
+                              return widget.controller.deleteThread(thread.id);
+                            },
                           );
                         },
                         childCount: visibleThreads.length,
@@ -713,6 +717,9 @@ class _ArchivedChatsScreenState extends State<ArchivedChatsScreen> {
                                 isArchived: false,
                               );
                             },
+                            onDelete: () {
+                              return widget.controller.deleteThread(thread.id);
+                            },
                           );
                         },
                         childCount: archivedThreads.length,
@@ -778,6 +785,7 @@ class _ArchiveableChatListItem extends StatelessWidget {
     required this.onOpen,
     required this.onStoryTap,
     required this.onArchiveToggle,
+    required this.onDelete,
   });
 
   final ChatThread thread;
@@ -789,36 +797,63 @@ class _ArchiveableChatListItem extends StatelessWidget {
   final VoidCallback onOpen;
   final VoidCallback? onStoryTap;
   final Future<bool> Function() onArchiveToggle;
+  final Future<bool> Function() onDelete;
 
   @override
   Widget build(BuildContext context) {
-    final direction = isArchivedView
-        ? DismissDirection.startToEnd
-        : DismissDirection.endToStart;
+    final theme = Theme.of(context);
+    // Archive/unarchive keeps its existing swipe direction per view; delete
+    // takes over whichever direction was previously unused there.
+    final deleteDirection = isArchivedView
+        ? DismissDirection.endToStart
+        : DismissDirection.startToEnd;
 
     return Column(
       children: [
         Dismissible(
           key: Key(
               'chat_swipe_${thread.id}_${isArchivedView ? 'archived' : 'inbox'}'),
-          direction: isBusy ? DismissDirection.none : direction,
+          direction: isBusy
+              ? DismissDirection.none
+              : DismissDirection.horizontal,
           movementDuration: const Duration(milliseconds: 220),
           resizeDuration: const Duration(milliseconds: 180),
           background: isArchivedView
-              ? const _ArchiveSwipeActionBackground(
+              ? const _SwipeActionBackground(
                   alignment: Alignment.centerLeft,
                   icon: Icons.unarchive_rounded,
                   label: 'Move to inbox',
                 )
-              : const ColoredBox(color: Colors.transparent),
+              : _SwipeActionBackground(
+                  alignment: Alignment.centerLeft,
+                  icon: Icons.delete_outline_rounded,
+                  label: 'Delete',
+                  color: theme.colorScheme.errorContainer,
+                  foregroundColor: theme.colorScheme.onErrorContainer,
+                ),
           secondaryBackground: isArchivedView
-              ? null
-              : const _ArchiveSwipeActionBackground(
+              ? _SwipeActionBackground(
+                  alignment: Alignment.centerRight,
+                  icon: Icons.delete_outline_rounded,
+                  label: 'Delete',
+                  color: theme.colorScheme.errorContainer,
+                  foregroundColor: theme.colorScheme.onErrorContainer,
+                )
+              : const _SwipeActionBackground(
                   alignment: Alignment.centerRight,
                   icon: Icons.archive_outlined,
                   label: 'Archive',
                 ),
-          confirmDismiss: (_) => onArchiveToggle(),
+          confirmDismiss: (direction) async {
+            if (direction == deleteDirection) {
+              final confirmed = await _confirmDelete(context);
+              if (!confirmed) {
+                return false;
+              }
+              return onDelete();
+            }
+            return onArchiveToggle();
+          },
           child: _ChatTile(
             thread: thread,
             story: story,
@@ -840,18 +875,53 @@ class _ArchiveableChatListItem extends StatelessWidget {
       ],
     );
   }
+
+  Future<bool> _confirmDelete(BuildContext context) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Delete this chat?'),
+          content: Text(
+            'This removes "${thread.name}" from your chat list. '
+            'It comes back if they message you again.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: Text(
+                'Delete',
+                style: TextStyle(
+                  color: Theme.of(dialogContext).colorScheme.error,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+    return result ?? false;
+  }
 }
 
-class _ArchiveSwipeActionBackground extends StatelessWidget {
-  const _ArchiveSwipeActionBackground({
+class _SwipeActionBackground extends StatelessWidget {
+  const _SwipeActionBackground({
     required this.alignment,
     required this.icon,
     required this.label,
+    this.color,
+    this.foregroundColor,
   });
 
   final Alignment alignment;
   final IconData icon;
   final String label;
+  final Color? color;
+  final Color? foregroundColor;
 
   @override
   Widget build(BuildContext context) {
@@ -859,9 +929,12 @@ class _ArchiveSwipeActionBackground extends StatelessWidget {
     final padding = alignment == Alignment.centerLeft
         ? const EdgeInsets.only(left: 22)
         : const EdgeInsets.only(right: 22);
+    final resolvedForeground =
+        foregroundColor ?? theme.colorScheme.onPrimaryContainer;
 
     return Container(
-      color: theme.colorScheme.primaryContainer.withValues(alpha: 0.78),
+      color: (color ?? theme.colorScheme.primaryContainer)
+          .withValues(alpha: 0.78),
       alignment: alignment,
       padding: padding,
       child: Row(
@@ -871,7 +944,7 @@ class _ArchiveSwipeActionBackground extends StatelessWidget {
             Text(
               label,
               style: theme.textTheme.labelLarge?.copyWith(
-                color: theme.colorScheme.onPrimaryContainer,
+                color: resolvedForeground,
                 fontWeight: FontWeight.w800,
               ),
             ),
@@ -879,14 +952,14 @@ class _ArchiveSwipeActionBackground extends StatelessWidget {
           ],
           Icon(
             icon,
-            color: theme.colorScheme.onPrimaryContainer,
+            color: resolvedForeground,
           ),
           if (alignment == Alignment.centerLeft) ...[
             const SizedBox(width: 8),
             Text(
               label,
               style: theme.textTheme.labelLarge?.copyWith(
-                color: theme.colorScheme.onPrimaryContainer,
+                color: resolvedForeground,
                 fontWeight: FontWeight.w800,
               ),
             ),
