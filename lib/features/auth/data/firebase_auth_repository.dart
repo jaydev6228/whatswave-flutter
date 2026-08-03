@@ -203,6 +203,14 @@ class FirebaseAuthRepository implements AuthRepository {
   Future<AppUser> _appUserFromFirebaseUser(fb_auth.User user) async {
     final name = (user.displayName ?? '').trim();
     final about = await _readAbout(user.uid) ?? '';
+    // Keeps userProfiles/{uid} fresh on every session, not just on profile
+    // save -- otherwise an account that completed onboarding before this
+    // collection existed (or hasn't touched Settings since) never gets a
+    // userProfiles doc, and every OTHER user's chat thread with them falls
+    // all the way back to the generic "WhatsWave user"/"?" placeholder.
+    // Fire-and-forget: best-effort like the rest of this class, and it
+    // shouldn't add a network round trip to every app launch/sign-in.
+    unawaited(_registerUserProfile(user.uid, name));
     return AppUser(
       name: name,
       phoneNumber: user.phoneNumber ?? '',
