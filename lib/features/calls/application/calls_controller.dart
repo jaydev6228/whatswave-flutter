@@ -1,14 +1,18 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:livekit_client/livekit_client.dart' as lk;
 
 import '../../../core/observability/app_telemetry.dart';
 import '../../../core/permissions/app_permission_service.dart';
+import '../data/call_signaling_service.dart';
 import '../data/calls_repository.dart';
+import '../data/livekit_token_service.dart';
 import '../domain/call_contact.dart';
 import '../domain/call_history_entry.dart';
 import '../domain/call_permissions.dart';
 import '../domain/call_session.dart';
+import '../domain/call_signal.dart';
 
 class CallsController extends ChangeNotifier {
   CallsController({
@@ -16,6 +20,10 @@ class CallsController extends ChangeNotifier {
     AppPermissionService? permissionService,
     AppTelemetry? telemetry,
     DateTime Function()? now,
+    CallSignalingService? signalingService,
+    LiveKitTokenService? tokenService,
+    String? liveKitUrl,
+    Stream<String?>? currentUserIdStream,
     this.outgoingRingDuration = const Duration(milliseconds: 900),
     this.outgoingConnectingDuration = const Duration(milliseconds: 700),
     this.incomingMissedAfter = const Duration(seconds: 18),
@@ -23,12 +31,22 @@ class CallsController extends ChangeNotifier {
   })  : _repository = repository,
         _permissionService = permissionService ?? MemoryAppPermissionService(),
         _telemetry = telemetry ?? NoopAppTelemetry.instance,
-        _now = now ?? DateTime.now;
+        _now = now ?? DateTime.now,
+        _signalingService = signalingService,
+        _tokenService = tokenService,
+        _liveKitUrl = liveKitUrl {
+    if (currentUserIdStream != null && signalingService != null) {
+      _authUidSubscription = currentUserIdStream.listen(_handleUidChanged);
+    }
+  }
 
   final CallsRepository _repository;
   final AppPermissionService _permissionService;
   final AppTelemetry _telemetry;
   final DateTime Function() _now;
+  final CallSignalingService? _signalingService;
+  final LiveKitTokenService? _tokenService;
+  final String? _liveKitUrl;
   final Duration outgoingRingDuration;
   final Duration outgoingConnectingDuration;
   final Duration incomingMissedAfter;
@@ -46,6 +64,14 @@ class CallsController extends ChangeNotifier {
   Timer? _durationTicker;
   int _sessionSequence = 0;
 
+  StreamSubscription<String?>? _authUidSubscription;
+  StreamSubscription<CallSignal?>? _incomingSignalSubscription;
+  StreamSubscription<CallSignal?>? _activeSignalSubscription;
+  lk.Room? _room;
+  lk.EventsListener<lk.RoomEvent>? _roomListener;
+  lk.LocalVideoTrack? _localVideoTrack;
+  lk.VideoTrack? _remoteVideoTrack;
+
   bool get hasLoaded => _hasLoaded;
   bool get isLoading => _isLoading;
   bool get isClearingHistory => _isClearingHistory;
@@ -55,6 +81,14 @@ class CallsController extends ChangeNotifier {
       List<CallHistoryEntry>.unmodifiable(_history);
   CallPermissions get permissions => _permissions;
   CallSession? get currentSession => _currentSession;
+
+  /// The local camera preview for a real (LiveKit-backed) call. Null for
+  /// simulated calls, or before the camera has connected.
+  lk.LocalVideoTrack? get localVideoTrack => _localVideoTrack;
+
+  /// The remote participant's video track for a real call. Null for
+  /// simulated calls, audio-only calls, or before the peer's video arrives.
+  lk.VideoTrack? get remoteVideoTrack => _remoteVideoTrack;
 
   Future<void> ensureLoaded() async {
     if (_hasLoaded || _isLoading) {
@@ -185,6 +219,17 @@ class CallsController extends ChangeNotifier {
       return false;
     }
 
+    final calleeUid = contact.uid;
+    final signaling = _signalingService;
+    if (calleeUid != null && signaling != null) {
+      return _beginRealOutgoingSession(
+        contact: contact,
+        type: type,
+        calleeUid: calleeUid,
+        signaling: signaling,
+      );
+    }
+
     _telemetry.recordInteraction(
       'call_outgoing_started',
       attributes: _callAttributes(
@@ -194,6 +239,60 @@ class CallsController extends ChangeNotifier {
     );
     _beginOutgoingSession(contact: contact, type: type);
     return true;
+  }
+
+  Future<bool> _beginRealOutgoingSession({
+    required CallContact contact,
+    required CallType type,
+    required String calleeUid,
+    required CallSignalingService signaling,
+  }) async {
+    _cancelTimers();
+    _errorMessage = null;
+
+    try {
+      final signal = await signaling.placeCall(
+        calleeUid: calleeUid,
+        type: type,
+      );
+      final session = CallSession(
+        id: 'call-${_sessionSequence++}',
+        contact: contact,
+        type: type,
+        direction: CallDirection.outgoing,
+        phase: CallSessionPhase.ringing,
+        createdAt: _now(),
+        isSpeakerOn: type == CallType.video,
+        isLocalVideoEnabled: type == CallType.video,
+        callId: signal.id,
+      );
+      _currentSession = session;
+      _telemetry.recordInteraction(
+        'call_outgoing_started',
+        attributes: _callAttributes(
+          contact: contact,
+          type: type,
+          extra: <String, Object?>{'real': true},
+        ),
+      );
+      notifyListeners();
+      _watchActiveSignal(signal.id);
+      return true;
+    } catch (error, stackTrace) {
+      _errorMessage = 'We could not start that call right now.';
+      _telemetry.recordError(
+        error,
+        stackTrace,
+        source: 'call_place',
+        fatal: false,
+        attributes: <String, Object?>{
+          'contact_id': contact.id,
+          'type': type.name,
+        },
+      );
+      notifyListeners();
+      return false;
+    }
   }
 
   Future<bool> simulateIncomingCall({
@@ -259,6 +358,30 @@ class CallsController extends ChangeNotifier {
       'call_incoming_accepted',
       attributes: _sessionTelemetryAttributes(session),
     );
+
+    if (session.isReal) {
+      try {
+        await _signalingService!.updateStatus(
+          session.callId!,
+          CallSignalStatus.accepted,
+        );
+      } catch (error, stackTrace) {
+        _errorMessage = 'We could not accept that call right now.';
+        _telemetry.recordError(
+          error,
+          stackTrace,
+          source: 'call_accept',
+          fatal: false,
+        );
+        notifyListeners();
+        return false;
+      }
+      // Joining LiveKit happens in _handleSignalUpdate, reacting to our own
+      // status write above via the watchCall subscription already started
+      // by _handleIncomingSignal.
+      return true;
+    }
+
     _transitionToConnecting(session.id);
     return true;
   }
@@ -274,6 +397,14 @@ class CallsController extends ChangeNotifier {
         'call_incoming_declined',
         attributes: _sessionTelemetryAttributes(session),
       );
+      if (session.isReal) {
+        try {
+          await _signalingService!
+              .updateStatus(session.callId!, CallSignalStatus.declined);
+        } catch (_) {
+          // Best-effort -- we're finishing the local session regardless.
+        }
+      }
       await _finishSession(status: CallHistoryStatus.declined);
       return;
     }
@@ -285,6 +416,15 @@ class CallsController extends ChangeNotifier {
     final session = _currentSession;
     if (session == null) {
       return;
+    }
+
+    if (session.isReal) {
+      try {
+        await _signalingService!
+            .updateStatus(session.callId!, CallSignalStatus.ended);
+      } catch (_) {
+        // Best-effort -- we're finishing the local session regardless.
+      }
     }
 
     final status = switch (session.phase) {
@@ -305,6 +445,9 @@ class CallsController extends ChangeNotifier {
 
     final isMuted = !session.isMuted;
     _currentSession = session.copyWith(isMuted: isMuted);
+    if (session.isReal) {
+      unawaited(_room?.localParticipant?.setMicrophoneEnabled(!isMuted));
+    }
     _telemetry.recordInteraction(
       'call_mute_toggled',
       attributes: _sessionTelemetryAttributes(
@@ -325,6 +468,11 @@ class CallsController extends ChangeNotifier {
 
     final isSpeakerOn = !session.isSpeakerOn;
     _currentSession = session.copyWith(isSpeakerOn: isSpeakerOn);
+    if (session.isReal) {
+      unawaited(
+        lk.AudioManager.instance.setSpeakerOutputPreferred(isSpeakerOn),
+      );
+    }
     _telemetry.recordInteraction(
       'call_speaker_toggled',
       attributes: _sessionTelemetryAttributes(
@@ -347,6 +495,9 @@ class CallsController extends ChangeNotifier {
     _currentSession = session.copyWith(
       isLocalVideoEnabled: !session.isLocalVideoEnabled,
     );
+    if (session.isReal) {
+      unawaited(_setRealCamera(isLocalVideoEnabled));
+    }
     _telemetry.recordInteraction(
       'call_video_toggled',
       attributes: _sessionTelemetryAttributes(
@@ -367,6 +518,13 @@ class CallsController extends ChangeNotifier {
 
     final isFrontCamera = !session.isFrontCamera;
     _currentSession = session.copyWith(isFrontCamera: isFrontCamera);
+    if (session.isReal) {
+      unawaited(
+        _localVideoTrack?.setCameraPosition(
+          isFrontCamera ? lk.CameraPosition.front : lk.CameraPosition.back,
+        ),
+      );
+    }
     _telemetry.recordInteraction(
       'call_camera_switched',
       attributes: _sessionTelemetryAttributes(
@@ -492,6 +650,199 @@ class CallsController extends ChangeNotifier {
     });
   }
 
+  void _handleUidChanged(String? uid) {
+    _incomingSignalSubscription?.cancel();
+    _incomingSignalSubscription = null;
+    final signaling = _signalingService;
+    if (uid == null || signaling == null) {
+      return;
+    }
+    _incomingSignalSubscription =
+        signaling.watchIncomingCall(uid).listen(_handleIncomingSignal);
+  }
+
+  void _handleIncomingSignal(CallSignal? signal) {
+    if (signal == null || _currentSession != null) {
+      // Either nothing ringing, or we're already on a call -- a real
+      // product would auto-decline or queue a second incoming call;
+      // out of scope here.
+      return;
+    }
+
+    _cancelTimers();
+    _errorMessage = null;
+    // We only know the caller's uid at this point -- no contact-name
+    // resolution against device contacts/Firestore yet, so the incoming
+    // call surfaces with a placeholder identity. A known, documented gap.
+    final contact = CallContact(
+      id: signal.callerUid,
+      name: 'Caller ${signal.callerUid.substring(0, 4)}',
+      avatarLabel: signal.callerUid.substring(0, 2).toUpperCase(),
+      accentColor: Colors.teal,
+      uid: signal.callerUid,
+    );
+    final session = CallSession(
+      id: 'call-${_sessionSequence++}',
+      contact: contact,
+      type: signal.type,
+      direction: CallDirection.incoming,
+      phase: CallSessionPhase.incoming,
+      createdAt: _now(),
+      isSpeakerOn: signal.type == CallType.video,
+      isLocalVideoEnabled: signal.type == CallType.video,
+      callId: signal.id,
+    );
+    _currentSession = session;
+    _telemetry.recordInteraction(
+      'call_incoming_real',
+      attributes: _sessionTelemetryAttributes(session),
+    );
+    notifyListeners();
+    _watchActiveSignal(signal.id);
+  }
+
+  void _watchActiveSignal(String callId) {
+    _activeSignalSubscription?.cancel();
+    _activeSignalSubscription =
+        _signalingService!.watchCall(callId).listen(_handleSignalUpdate);
+  }
+
+  Future<void> _handleSignalUpdate(CallSignal? signal) async {
+    final session = _currentSession;
+    if (session == null || signal == null || signal.id != session.callId) {
+      return;
+    }
+
+    switch (signal.status) {
+      case CallSignalStatus.ringing:
+        return;
+      case CallSignalStatus.accepted:
+        if (session.phase == CallSessionPhase.connecting ||
+            session.phase == CallSessionPhase.connected) {
+          return;
+        }
+        await _joinLiveKitRoomAndConnect(session, signal.roomName);
+        return;
+      case CallSignalStatus.declined:
+        await _finishSession(status: CallHistoryStatus.declined);
+        return;
+      case CallSignalStatus.ended:
+        final status = session.phase == CallSessionPhase.connected
+            ? CallHistoryStatus.completed
+            : (session.direction == CallDirection.outgoing
+                ? CallHistoryStatus.canceled
+                : CallHistoryStatus.missed);
+        await _finishSession(status: status);
+        return;
+    }
+  }
+
+  Future<void> _joinLiveKitRoomAndConnect(
+    CallSession session,
+    String roomName,
+  ) async {
+    _currentSession = session.copyWith(phase: CallSessionPhase.connecting);
+    notifyListeners();
+
+    final tokenService = _tokenService;
+    final liveKitUrl = _liveKitUrl;
+    if (tokenService == null || liveKitUrl == null) {
+      _errorMessage = 'Calling is not fully configured on this build.';
+      _telemetry.recordError(
+        StateError('Missing LiveKit token service or URL'),
+        StackTrace.current,
+        source: 'call_livekit_connect',
+        fatal: false,
+      );
+      notifyListeners();
+      await _finishSession(status: CallHistoryStatus.failed);
+      return;
+    }
+
+    try {
+      final token = await tokenService.fetchToken(roomName);
+      final room = lk.Room();
+      await room.connect(liveKitUrl, token);
+
+      final roomListener = room.createListener();
+      roomListener.on<lk.TrackSubscribedEvent>((event) {
+        if (event.track is lk.VideoTrack) {
+          _remoteVideoTrack = event.track as lk.VideoTrack;
+          notifyListeners();
+        }
+      });
+
+      lk.LocalTrackPublication? cameraPub;
+      if (session.isVideo) {
+        try {
+          cameraPub = await room.localParticipant?.setCameraEnabled(true);
+        } catch (_) {
+          // Camera unavailable (e.g. iOS Simulator has no real
+          // AVCaptureDevice) -- non-fatal, mirrors LiveKitTestScreen.
+        }
+      }
+      await room.localParticipant?.setMicrophoneEnabled(true);
+
+      final current = _currentSession;
+      if (current == null || current.id != session.id) {
+        // Session was ended locally while we were still connecting.
+        await roomListener.dispose();
+        await room.disconnect();
+        await room.dispose();
+        return;
+      }
+
+      _room = room;
+      _roomListener = roomListener;
+      _localVideoTrack = cameraPub?.track as lk.LocalVideoTrack?;
+      _currentSession = current.copyWith(
+        phase: CallSessionPhase.connected,
+        connectedAt: _now(),
+        setConnectedAt: true,
+      );
+      _telemetry.recordInteraction(
+        'call_connected',
+        attributes: _sessionTelemetryAttributes(_currentSession!),
+      );
+      _startDurationTicker();
+      notifyListeners();
+    } catch (error, stackTrace) {
+      _errorMessage = 'We could not connect that call.';
+      _telemetry.recordError(
+        error,
+        stackTrace,
+        source: 'call_livekit_connect',
+        fatal: false,
+      );
+      notifyListeners();
+      await _finishSession(status: CallHistoryStatus.failed);
+    }
+  }
+
+  Future<void> _setRealCamera(bool enabled) async {
+    try {
+      final pub = await _room?.localParticipant?.setCameraEnabled(enabled);
+      _localVideoTrack = enabled ? pub?.track as lk.LocalVideoTrack? : null;
+      notifyListeners();
+    } catch (_) {
+      // Camera unavailable (e.g. iOS Simulator) -- non-fatal.
+    }
+  }
+
+  Future<void> _teardownRealCallResources() async {
+    await _activeSignalSubscription?.cancel();
+    _activeSignalSubscription = null;
+    final room = _room;
+    final roomListener = _roomListener;
+    _room = null;
+    _roomListener = null;
+    _localVideoTrack = null;
+    _remoteVideoTrack = null;
+    await roomListener?.dispose();
+    await room?.disconnect();
+    await room?.dispose();
+  }
+
   Future<void> _finishSession({
     required CallHistoryStatus status,
   }) async {
@@ -524,6 +875,7 @@ class CallsController extends ChangeNotifier {
     ]);
     _currentSession = null;
     _cancelTimers();
+    unawaited(_teardownRealCallResources());
     _telemetry.recordInteraction(
       'call_session_finished',
       attributes: _sessionTelemetryAttributes(
@@ -656,6 +1008,9 @@ class CallsController extends ChangeNotifier {
   @override
   void dispose() {
     _cancelTimers();
+    _authUidSubscription?.cancel();
+    _incomingSignalSubscription?.cancel();
+    unawaited(_teardownRealCallResources());
     super.dispose();
   }
 }

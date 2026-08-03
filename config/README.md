@@ -47,6 +47,7 @@ long list of `--dart-define=...` flags every time.
 | `WW_CRASH_REPORTING_ENABLED` | `true` \| `false` | `false` | Readiness-checklist flag for Crashlytics (Slice 6+). |
 | `LIVEKIT_URL` | string (e.g. `wss://your-project.livekit.cloud`) | `""` | Your LiveKit Cloud project's WebSocket URL, used only by the debug-only LiveKit test screen. |
 | `LIVEKIT_TEST_TOKEN` | string | `""` | A manually-generated test token (`lk token create ...`) for the debug-only LiveKit test screen. Not used anywhere in the real call flow -- production calling needs per-user tokens minted server-side, not a hardcoded test token. |
+| `LIVEKIT_TOKEN_SERVER_URL` | string | `""` | The deployed `server/livekit-token` Vercel function's `/api/token` endpoint. Used by real calls (`CallsController`) to fetch a per-user LiveKit token, authenticated with the caller's Firebase ID token. See `server/livekit-token/README.md`. |
 
 Most `*_READY` flags are currently just cosmetic labels surfaced on the
 Backend and sync settings screen — they don't gate real behavior yet (that's

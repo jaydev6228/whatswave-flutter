@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../calls/application/calls_controller.dart';
+import '../../calls/domain/call_contact.dart';
+import '../../calls/domain/call_history_entry.dart';
+import '../../calls/presentation/call_experience_screen.dart';
 import '../../shared/widgets/avatar_badge.dart';
 import '../../shared/widgets/empty_state_card.dart';
 import '../application/communities_controller.dart';
@@ -16,10 +20,16 @@ const double _kCommunitiesRowHorizontalPadding = 18;
 class CommunitiesScreen extends StatefulWidget {
   const CommunitiesScreen({
     required this.controller,
+    this.callsController,
     super.key,
   });
 
   final CommunitiesController controller;
+
+  /// When provided, "on WhatsWave" contacts (matched via phoneDirectory,
+  /// see CommunityContact.matchedUid) get a real Call action. Null in
+  /// contexts that don't wire Calls in (e.g. some tests).
+  final CallsController? callsController;
 
   @override
   State<CommunitiesScreen> createState() => _CommunitiesScreenState();
@@ -220,6 +230,9 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
                               widget.controller.requestContactsAccess,
                           onOpenContactSettings:
                               widget.controller.openContactSettings,
+                          onCall: widget.callsController == null
+                              ? null
+                              : _callContact,
                         ),
                     ],
                   ),
@@ -255,6 +268,35 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
       builder: (context) {
         return _CreateCommunitySheet(controller: widget.controller);
       },
+    );
+  }
+
+  Future<void> _callContact(CommunityContact contact, CallType type) async {
+    final callsController = widget.callsController;
+    final matchedUid = contact.matchedUid;
+    if (callsController == null || matchedUid == null) {
+      return;
+    }
+
+    final started = await callsController.startOutgoingCall(
+      contact: CallContact(
+        id: matchedUid,
+        name: contact.name,
+        avatarLabel: contact.avatarLabel,
+        accentColor: contact.accentColor,
+        photoAssetPath: null,
+        uid: matchedUid,
+      ),
+      type: type,
+    );
+    if (!started || !mounted) {
+      return;
+    }
+
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => CallExperienceScreen(controller: callsController),
+      ),
     );
   }
 
@@ -498,6 +540,7 @@ class _ContactsPane extends StatelessWidget {
     required this.onSelectCommunityForContact,
     required this.onRequestContactsAccess,
     required this.onOpenContactSettings,
+    this.onCall,
   });
 
   final CommunitiesController controller;
@@ -506,6 +549,8 @@ class _ContactsPane extends StatelessWidget {
       onSelectCommunityForContact;
   final Future<void> Function() onRequestContactsAccess;
   final Future<void> Function() onOpenContactSettings;
+  final Future<void> Function(CommunityContact contact, CallType type)?
+      onCall;
 
   @override
   Widget build(BuildContext context) {
@@ -689,6 +734,9 @@ class _ContactsPane extends StatelessWidget {
               contact: contact,
               onShareInvite: () => onShareInvite(contact),
               onSelectCommunity: () => onSelectCommunityForContact(contact),
+              onCall: onCall == null
+                  ? null
+                  : (type) => onCall!(contact, type),
             );
           }),
       ],
@@ -844,12 +892,14 @@ class _ContactCard extends StatelessWidget {
     required this.contact,
     required this.onShareInvite,
     required this.onSelectCommunity,
+    this.onCall,
   });
 
   final CommunitiesController controller;
   final CommunityContact contact;
   final VoidCallback onShareInvite;
   final VoidCallback onSelectCommunity;
+  final Future<void> Function(CallType type)? onCall;
 
   @override
   Widget build(BuildContext context) {
@@ -945,9 +995,12 @@ class _ContactCard extends StatelessWidget {
                       ),
                     ],
                     const SizedBox(height: 10),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: contact.isOnWhatsWave
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        contact.isOnWhatsWave
                           ? FilledButton.tonalIcon(
                               key: Key('contact_primary_action_${contact.id}'),
                               onPressed: isBusy ? null : onSelectCommunity,
@@ -995,6 +1048,28 @@ class _ContactCard extends StatelessWidget {
                                     : 'Share app',
                               ),
                             ),
+                        if (onCall != null &&
+                            contact.isOnWhatsWave &&
+                            contact.matchedUid != null) ...[
+                          IconButton.filledTonal(
+                            key: Key('contact_call_audio_${contact.id}'),
+                            tooltip: 'Voice call',
+                            visualDensity: VisualDensity.compact,
+                            onPressed:
+                                isBusy ? null : () => onCall!(CallType.audio),
+                            icon: const Icon(Icons.call_outlined, size: 18),
+                          ),
+                          IconButton.filledTonal(
+                            key: Key('contact_call_video_${contact.id}'),
+                            tooltip: 'Video call',
+                            visualDensity: VisualDensity.compact,
+                            onPressed:
+                                isBusy ? null : () => onCall!(CallType.video),
+                            icon:
+                                const Icon(Icons.videocam_outlined, size: 18),
+                          ),
+                        ],
+                      ],
                     ),
                   ],
                 ),

@@ -16,6 +16,7 @@ class CallSession {
     this.isSpeakerOn = false,
     this.isLocalVideoEnabled = false,
     this.isFrontCamera = true,
+    this.callId,
   });
 
   final String id;
@@ -30,8 +31,13 @@ class CallSession {
   final bool isLocalVideoEnabled;
   final bool isFrontCamera;
 
+  /// The backing CallSignal's id when this is a real call (see
+  /// CallSignalingService), null for the local/simulated call flow.
+  final String? callId;
+
   bool get isIncoming => direction == CallDirection.incoming;
   bool get isVideo => type == CallType.video;
+  bool get isReal => callId != null;
 
   int elapsedSeconds(DateTime now) {
     if (connectedAt == null) {
@@ -54,6 +60,7 @@ class CallSession {
     bool? isSpeakerOn,
     bool? isLocalVideoEnabled,
     bool? isFrontCamera,
+    String? callId,
   }) {
     return CallSession(
       id: id ?? this.id,
@@ -68,6 +75,7 @@ class CallSession {
       isSpeakerOn: isSpeakerOn ?? this.isSpeakerOn,
       isLocalVideoEnabled: isLocalVideoEnabled ?? this.isLocalVideoEnabled,
       isFrontCamera: isFrontCamera ?? this.isFrontCamera,
+      callId: callId ?? this.callId,
     );
   }
 }

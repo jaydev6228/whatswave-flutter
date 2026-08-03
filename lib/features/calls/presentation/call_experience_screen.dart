@@ -1,6 +1,7 @@
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:livekit_client/livekit_client.dart' as lk;
 
 import '../../../app/theme/app_palette.dart';
 import '../application/calls_controller.dart';
@@ -168,6 +169,8 @@ class _VideoCallLayout extends StatelessWidget {
                 SizedBox(width: isCompactWidth ? 12 : 18),
                 _LocalVideoPreviewCard(
                   session: session,
+                  localVideoTrack:
+                      session.isReal ? controller.localVideoTrack : null,
                   width: previewWidth,
                   height: previewHeight,
                   compact: isCompact,
@@ -180,6 +183,7 @@ class _VideoCallLayout extends StatelessWidget {
             Expanded(
               child: _VideoAmbientStage(
                 key: const Key('call_video_ambient_stage'),
+                controller: controller,
                 session: session,
                 compact: isCompact,
                 scheme: scheme,
@@ -307,11 +311,13 @@ class _AudioCallLayout extends StatelessWidget {
 class _VideoAmbientStage extends StatelessWidget {
   const _VideoAmbientStage({
     super.key,
+    required this.controller,
     required this.session,
     required this.compact,
     required this.scheme,
   });
 
+  final CallsController controller;
   final CallSession session;
   final bool compact;
   final _CallVisualScheme scheme;
@@ -320,6 +326,9 @@ class _VideoAmbientStage extends StatelessWidget {
   Widget build(BuildContext context) {
     final accentColor = session.contact.accentColor;
     final secondaryGlow = Color.lerp(AppPalette.sky, AppPalette.purple, 0.55)!;
+    final remoteTrack = session.isReal ? controller.remoteVideoTrack : null;
+    final showRemoteVideo =
+        session.phase == CallSessionPhase.connected && remoteTrack != null;
 
     return Stack(
       fit: StackFit.expand,
@@ -347,7 +356,12 @@ class _VideoAmbientStage extends StatelessWidget {
             ),
           ),
         ),
-        if (session.phase != CallSessionPhase.connected)
+        if (showRemoteVideo)
+          Positioned.fill(
+            key: const Key('call_remote_video_surface'),
+            child: lk.VideoTrackRenderer(remoteTrack),
+          )
+        else if (session.phase != CallSessionPhase.connected)
           Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -383,9 +397,11 @@ class _LocalVideoPreviewCard extends StatelessWidget {
     required this.compact,
     required this.scheme,
     required this.onSwitchCamera,
+    this.localVideoTrack,
   });
 
   final CallSession session;
+  final lk.LocalVideoTrack? localVideoTrack;
   final double width;
   final double height;
   final bool compact;
@@ -469,7 +485,14 @@ class _LocalVideoPreviewCard extends StatelessWidget {
                       duration: const Duration(milliseconds: 220),
                       switchInCurve: Curves.easeOutCubic,
                       switchOutCurve: Curves.easeInCubic,
-                      child: session.isLocalVideoEnabled
+                      child: localVideoTrack != null &&
+                              session.isLocalVideoEnabled
+                          ? ClipRRect(
+                              key: const Key('call_local_video_surface'),
+                              borderRadius: borderRadius,
+                              child: lk.VideoTrackRenderer(localVideoTrack!),
+                            )
+                          : session.isLocalVideoEnabled
                           ? Icon(
                               key: const Key('call_local_video_enabled_icon'),
                               Icons.person_pin_circle_outlined,

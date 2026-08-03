@@ -22,6 +22,7 @@ class CommunityContact {
     this.appInviteSent = false,
     this.memberCommunityIds = const <String>[],
     this.pendingCommunityInviteIds = const <String>[],
+    this.matchedUid,
   });
 
   final String id;
@@ -34,6 +35,11 @@ class CommunityContact {
   final bool appInviteSent;
   final List<String> memberCommunityIds;
   final List<String> pendingCommunityInviteIds;
+
+  /// This contact's real Firebase uid, if [isOnWhatsWave] and matched via
+  /// the phoneDirectory lookup -- null for local/demo contacts. Lets
+  /// features like Calls place a real call to a real registered user.
+  final String? matchedUid;
 
   CommunityMembershipState membershipStateFor(String communityId) {
     if (memberCommunityIds.contains(communityId)) {
@@ -56,6 +62,7 @@ class CommunityContact {
     bool? appInviteSent,
     List<String>? memberCommunityIds,
     List<String>? pendingCommunityInviteIds,
+    String? matchedUid,
   }) {
     return CommunityContact(
       id: id ?? this.id,
@@ -69,6 +76,7 @@ class CommunityContact {
       memberCommunityIds: memberCommunityIds ?? this.memberCommunityIds,
       pendingCommunityInviteIds:
           pendingCommunityInviteIds ?? this.pendingCommunityInviteIds,
+      matchedUid: matchedUid ?? this.matchedUid,
     );
   }
 }

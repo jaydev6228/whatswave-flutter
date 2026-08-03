@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:flutter/material.dart';
 
 import '../core/config/backend_runtime_config.dart';
@@ -18,6 +19,8 @@ import '../features/auth/presentation/auth_flow_screen.dart';
 import '../features/auth/presentation/session_splash_screen.dart';
 import '../features/calls/application/calls_controller.dart';
 import '../features/calls/data/calls_repository.dart';
+import '../features/calls/data/firestore_call_signaling_service.dart';
+import '../features/calls/data/livekit_token_service.dart';
 import '../features/chats/application/chats_controller.dart';
 import '../features/chats/data/chat_repository.dart';
 import '../features/communities/application/communities_controller.dart';
@@ -111,6 +114,9 @@ class _WhatsWaveAppState extends State<WhatsWaveApp> {
       localeCountryCode: widget.authLocaleCountryCode ??
           WidgetsBinding.instance.platformDispatcher.locale.countryCode,
     );
+    const liveKitUrl = String.fromEnvironment('LIVEKIT_URL');
+    const tokenServerUrl = String.fromEnvironment('LIVEKIT_TOKEN_SERVER_URL');
+    final prefersFirebase = _backendRuntimeConfig.prefersFirebase;
     _callsController = CallsController(
       repository: TrackedCallsRepository(
         delegate: widget.callsRepository ?? repositoryBundle.callsRepository,
@@ -118,6 +124,17 @@ class _WhatsWaveAppState extends State<WhatsWaveApp> {
       ),
       permissionService: _permissionService,
       telemetry: _telemetry,
+      signalingService:
+          prefersFirebase ? FirestoreCallSignalingService() : null,
+      tokenService: prefersFirebase && tokenServerUrl.isNotEmpty
+          ? LiveKitTokenService(tokenServerUrl: tokenServerUrl)
+          : null,
+      liveKitUrl: liveKitUrl.isEmpty ? null : liveKitUrl,
+      currentUserIdStream: prefersFirebase
+          ? fb_auth.FirebaseAuth.instance
+              .authStateChanges()
+              .map((user) => user?.uid)
+          : null,
     );
     _chatsController = ChatsController(
       repository: TrackedChatRepository(

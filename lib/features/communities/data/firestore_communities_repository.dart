@@ -129,7 +129,7 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
           if (matchedUid == null || matchedUid == currentUid) {
             return contact;
           }
-          return contact.copyWith(isOnWhatsWave: true);
+          return contact.copyWith(isOnWhatsWave: true, matchedUid: matchedUid);
         } on FirebaseException {
           return contact;
         }

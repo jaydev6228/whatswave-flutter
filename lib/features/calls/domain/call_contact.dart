@@ -8,6 +8,7 @@ class CallContact {
     required this.accentColor,
     this.isGroup = false,
     this.photoAssetPath,
+    this.uid,
   });
 
   final String id;
@@ -17,6 +18,11 @@ class CallContact {
   final bool isGroup;
   final String? photoAssetPath;
 
+  /// This contact's real Firebase uid, if known -- enables a real call via
+  /// [CallSignalingService]. Null for local/demo contacts, which fall back
+  /// to CallsController's simulated call flow.
+  final String? uid;
+
   CallContact copyWith({
     String? id,
     String? name,
@@ -24,6 +30,7 @@ class CallContact {
     Color? accentColor,
     bool? isGroup,
     String? photoAssetPath,
+    String? uid,
   }) {
     return CallContact(
       id: id ?? this.id,
@@ -32,6 +39,7 @@ class CallContact {
       accentColor: accentColor ?? this.accentColor,
       isGroup: isGroup ?? this.isGroup,
       photoAssetPath: photoAssetPath ?? this.photoAssetPath,
+      uid: uid ?? this.uid,
     );
   }
 }
