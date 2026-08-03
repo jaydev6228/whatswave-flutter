@@ -60,5 +60,12 @@ service cloud.firestore {
                       && request.resource.data.uid == request.auth.uid;
       allow delete: if false;
     }
+
+    match /pushTokens/{ownerUid} {
+      // Only the owner can read/write their own push token -- a future
+      // server-side sender would use the Admin SDK, which bypasses these
+      // rules entirely, so no client ever needs cross-user read access.
+      allow read, write: if request.auth != null && request.auth.uid == ownerUid;
+    }
   }
 }
