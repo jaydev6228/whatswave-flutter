@@ -22,6 +22,19 @@ import 'app_telemetry.dart';
 /// Not yet wired: tagging crashes with the signed-in user's uid via
 /// `FirebaseCrashlytics.instance.setUserIdentifier` -- would need a hook
 /// into AuthController's success path, out of scope for this slice.
+///
+/// Known gap: crash reports upload to Crashlytics successfully (verified
+/// manually via the "Send test crash" debug button), but show as
+/// "unprocessed" in the console -- automatic dSYM upload is disabled
+/// (`uploadDebugSymbols: false` in the gitignored firebase.json) because
+/// `flutterfire configure`'s generated Xcode build phase assumes Swift
+/// Package Manager checkouts live under
+/// `DerivedData/<target>/SourcePackages/checkouts/`, which didn't hold on
+/// this machine/Xcode version -- the script failed with "No such file or
+/// directory" and blocked builds entirely. Manual dSYM upload (`flutterfire
+/// upload-crashlytics-symbols` run by hand, or the `upload-symbols` script
+/// FlutterFire ships) remains a viable fallback if symbolicated stack
+/// traces are needed later.
 class FirebaseAppTelemetry implements AppTelemetry {
   FirebaseAppTelemetry({LocalAppTelemetry? local})
       : _local = local ?? LocalAppTelemetry();
