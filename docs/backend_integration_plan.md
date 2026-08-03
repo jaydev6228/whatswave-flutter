@@ -65,7 +65,7 @@ Keep the Flutter app ready for:
 5. [x] Add status/updates and communities repositories -- `FirestoreUpdatesRepository`, `FirestoreCommunitiesRepository` (not originally itemized here, but followed the same pattern)
 6. [ ] Add media upload/download -- deliberately deferred; status media stays device-local rather than Cloud Storage, to avoid requiring the Blaze billing plan (see `docs/handoff/03_firebase_dev_setup.md`)
 7. [ ] Add FCM token sync
-8. [ ] Add Crashlytics and Analytics
+8. [x] Add Crashlytics and Analytics -- `FirebaseAppTelemetry` (crash capture/upload confirmed working; automatic dSYM symbolication disabled, see the class doc comment for why)
 
 ## AWS escalation triggers
 
@@ -100,7 +100,8 @@ Auth, chats, updates, and communities are no longer scaffolds -- they run agains
 - **Chats**: `FirestoreChatRepository` (`lib/features/chats/data/firestore_chat_repository.dart`) -- `chatThreads/{id}` documents with a `messages` subcollection, gated by a `participantUids` array in both the query and `firestore.rules`.
 - **Updates**: `FirestoreUpdatesRepository` (`lib/features/updates/data/firestore_updates_repository.dart`) -- one `statusStories/{uid}` document per user (leverages `StatusStory.toJson()`/`fromJson()`, which already serialized the entire nested segment/overlay/transform model). Media stays local (see the checklist above).
 - **Communities**: `FirestoreCommunitiesRepository` (`lib/features/communities/data/firestore_communities_repository.dart`) -- communities only; contacts stay an in-memory fake list, since device contacts integration is a separate, unimplemented feature.
+- **Observability**: `FirebaseAppTelemetry` (`lib/core/observability/firebase_app_telemetry.dart`) -- a decorator around the existing `LocalAppTelemetry`, additionally forwarding errors to Crashlytics and screen views/interactions to Analytics. `main.dart` picks it over `LocalAppTelemetry` based on `WW_BACKEND_TARGET`, before `bootstrap()` runs. Crash capture/upload verified manually; automatic dSYM symbolication is disabled (see the class doc comment for the Swift Package Manager path issue that caused).
 
-Each repository documents its own scope decisions and known gaps in a class-level doc comment -- read those directly for the most current, precise picture rather than this summary.
+Each repository/service documents its own scope decisions and known gaps in a class-level doc comment -- read those directly for the most current, precise picture rather than this summary.
 
-Still fully local/simulated: **Calls** (own roadmap in `docs/calling_strategy.md`), **Settings/preferences** (no reason to move these to a backend yet), **push notifications**, **Crashlytics/Analytics**.
+Still fully local/simulated: **Calls** (own roadmap in `docs/calling_strategy.md`), **Settings/preferences** (no reason to move these to a backend yet), **push notifications**.
