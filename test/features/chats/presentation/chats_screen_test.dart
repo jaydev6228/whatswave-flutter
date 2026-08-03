@@ -161,9 +161,13 @@ void main() {
       tester.widget<TextField>(find.byKey(composerFieldKey)).controller!.text,
       isEmpty,
     );
+    // The composer must stay editable/focused through a send -- flipping it
+    // readOnly mid-send would dismiss the keyboard and re-present it once
+    // the send resolves, a jarring flicker on a real (non-zero-latency)
+    // send.
     expect(
       tester.widget<TextField>(find.byKey(composerFieldKey)).readOnly,
-      isTrue,
+      isFalse,
     );
     await tester.pumpAndSettle();
 

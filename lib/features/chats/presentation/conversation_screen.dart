@@ -822,7 +822,6 @@ class _ComposerBar extends StatelessWidget {
             child: TextField(
               key: const Key('conversation_composer_field'),
               controller: controller,
-              readOnly: isBusy,
               minLines: 1,
               maxLines: 4,
               keyboardType: TextInputType.multiline,
