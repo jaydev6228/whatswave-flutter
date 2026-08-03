@@ -60,7 +60,7 @@ The app runs in two modes, switched at launch via `WW_BACKEND_TARGET` (see `conf
 | Chats | Seeded fake threads | **Real Cloud Firestore** (per-thread participant security rules) |
 | Updates/Status | Seeded fake stories | **Real Cloud Firestore** for metadata; photo/video stay device-local (no Cloud Storage yet -- see below) |
 | Communities | Seeded fake communities + contacts | **Real Cloud Firestore** for communities; **real device contacts** (`flutter_contacts`) matched against registered accounts via a `phoneDirectory` collection |
-| Calls | Simulated (Timers, no real transport) | Same -- calling has its own documented roadmap in `docs/calling_strategy.md`, not started |
+| Calls | Simulated (Timers, no real transport) | Same for the real call flow -- a separate debug-only screen (Settings -> Backend and sync -> Debug tools -> "Test LiveKit connection") proves real LiveKit Cloud connectivity and mic capture work; full wiring is its own roadmap in `docs/calling_strategy.md`, not started |
 | Crashlytics / Analytics | Local in-memory breadcrumbs only | **Real Crashlytics + Analytics** (crash capture/upload verified; stack-trace symbolication disabled, see below) |
 | Push (FCM/APNs) | Not implemented | **Real FCM token registration** (permission request, token fetch, written to `pushTokens/{uid}`) -- see below for a Simulator-specific limitation |
 
@@ -70,6 +70,7 @@ Known, deliberate scope decisions (each documented in the relevant repository/se
 - Crashlytics crash reports upload successfully but aren't automatically symbolicated -- `flutterfire configure`'s generated Xcode build phase assumes a Swift Package Manager checkout layout that didn't match this machine's Xcode version and broke every build, so it was reverted. See `FirebaseAppTelemetry`'s doc comment for the full story and a manual fallback.
 - Device-contact phone matching is a best-effort trailing-digits comparison, not real E.164 parsing -- see `core/utils/phone_number_matching.dart`.
 - iOS Simulators cannot obtain a real APNs token (needs real hardware talking to Apple's push servers) -- push registration correctly reports "action required" there rather than crashing. Testing a real token needs a physical iOS device or the Android emulator. Sending pushes (not just registering for them) still needs a Cloud Function, which needs Blaze.
+- LiveKit's camera capture also needs real hardware -- the iOS Simulator has no `AVCaptureDevice`, so the debug test screen catches that failure as a non-fatal warning and still confirms the room connection and mic track. Video needs a physical iPhone. Production calling additionally needs per-user tokens minted server-side (a Cloud Function, needs Blaze), not the hardcoded test token this screen uses.
 
 For the full setup story (Firebase console steps, `flutterfire configure`, local secrets), see `docs/handoff/03_firebase_dev_setup.md` and `config/README.md`.
 
