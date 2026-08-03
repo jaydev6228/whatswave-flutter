@@ -17,5 +17,8 @@
   "WW_FCM_READY": false,
   "WW_APNS_READY": false,
   "WW_ANALYTICS_ENABLED": false,
-  "WW_CRASH_REPORTING_ENABLED": false
+  "WW_CRASH_REPORTING_ENABLED": false,
+
+  "LIVEKIT_URL": "",
+  "LIVEKIT_TEST_TOKEN": ""
 }

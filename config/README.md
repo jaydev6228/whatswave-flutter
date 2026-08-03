@@ -45,6 +45,8 @@ long list of `--dart-define=...` flags every time.
 | `WW_APNS_READY` | `true` \| `false` | `false` | Readiness-checklist flag for iOS push (Slice 5+). |
 | `WW_ANALYTICS_ENABLED` | `true` \| `false` | `false` | Readiness-checklist flag for Analytics (Slice 6+). |
 | `WW_CRASH_REPORTING_ENABLED` | `true` \| `false` | `false` | Readiness-checklist flag for Crashlytics (Slice 6+). |
+| `LIVEKIT_URL` | string (e.g. `wss://your-project.livekit.cloud`) | `""` | Your LiveKit Cloud project's WebSocket URL, used only by the debug-only LiveKit test screen. |
+| `LIVEKIT_TEST_TOKEN` | string | `""` | A manually-generated test token (`lk token create ...`) for the debug-only LiveKit test screen. Not used anywhere in the real call flow -- production calling needs per-user tokens minted server-side, not a hardcoded test token. |
 
 Most `*_READY` flags are currently just cosmetic labels surfaced on the
 Backend and sync settings screen — they don't gate real behavior yet (that's
