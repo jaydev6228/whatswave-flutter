@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 
@@ -19,12 +21,21 @@ import 'updates_repository.dart';
 /// This means a story's photo/video only displays correctly on the device
 /// that created it; captions and text-only statuses sync fully.
 ///
+/// Visibility is scoped to people you've chatted with at least once: a
+/// story is only readable by its owner or someone who shares a
+/// `chatThreads` document with them (see firestore.rules, which checks
+/// this via the same deterministic sorted-uid thread id
+/// `FirestoreChatRepository.startThread` uses). Firestore can't filter a
+/// blanket collection query by that rule, so this repository fetches the
+/// caller's chat partner uids first, then reads each of their (and its
+/// own) `statusStories/{uid}` document individually instead of scanning
+/// the whole collection.
+///
 /// Known gap: [markStoryViewed] can't actually write another user's "seen"
 /// state today -- security rules only let the owner write their own
 /// document. Real cross-user seen-tracking would need a per-viewer
 /// subcollection (e.g. `statusStories/{id}/views/{viewerUid}`) and its own
-/// rules; out of scope until real multi-user story visibility exists (there
-/// is currently only ever one signed-in test account).
+/// rules.
 class FirestoreUpdatesRepository implements UpdatesRepository {
   FirestoreUpdatesRepository({
     FirebaseFirestore? firestore,
@@ -41,6 +52,9 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
   CollectionReference<Map<String, dynamic>> get _storiesRef =>
       _firestore.collection('statusStories');
 
+  CollectionReference<Map<String, dynamic>> get _threadsRef =>
+      _firestore.collection('chatThreads');
+
   String get _requireCurrentUid {
     final uid = _firebaseAuth.currentUser?.uid;
     if (uid == null) {
@@ -51,24 +65,96 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
     return uid;
   }
 
+  /// The uids of everyone the caller has an existing chat thread with --
+  /// i.e. everyone whose story is visible to them, besides themself. See
+  /// FirestoreChatRepository.startThread for how a thread's participants
+  /// are stored.
+  Future<Set<String>> _chatPartnerUids(String uid) async {
+    final snapshot =
+        await _threadsRef.where('participantUids', arrayContains: uid).get();
+    final partners = <String>{};
+    for (final doc in snapshot.docs) {
+      final participantUids =
+          (doc.data()['participantUids'] as List<dynamic>?)?.cast<String>() ??
+              const <String>[];
+      partners.addAll(participantUids.where((entry) => entry != uid));
+    }
+    return partners;
+  }
+
   @override
   Stream<UpdatesFeed> watchUpdates() {
     final uid = _requireCurrentUid;
-    return _storiesRef.snapshots().map((snapshot) {
-      final stories = snapshot.docs
-          .map((doc) => _storyFromDoc(doc, currentUid: uid))
-          .whereType<StatusStory>()
-          .toList(growable: false);
-      return UpdatesFeed(stories: stories, channels: const <ChannelPreview>[]);
+    final controller = StreamController<UpdatesFeed>.broadcast();
+    final storySubscriptions =
+        <String, StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>>{};
+    final latestStories = <String, StatusStory>{};
+
+    void emit() {
+      if (controller.isClosed) {
+        return;
+      }
+      controller.add(
+        UpdatesFeed(
+          stories: latestStories.values.toList(growable: false),
+          channels: const <ChannelPreview>[],
+        ),
+      );
+    }
+
+    void watchStoryFor(String ownerUid) {
+      if (storySubscriptions.containsKey(ownerUid)) {
+        return;
+      }
+      storySubscriptions[ownerUid] =
+          _storiesRef.doc(ownerUid).snapshots().listen((doc) {
+        final story = _storyFromDoc(doc, currentUid: uid);
+        if (story == null) {
+          latestStories.remove(ownerUid);
+        } else {
+          latestStories[ownerUid] = story;
+        }
+        emit();
+      });
+    }
+
+    watchStoryFor(uid);
+    final threadsSubscription = _threadsRef
+        .where('participantUids', arrayContains: uid)
+        .snapshots()
+        .listen((snapshot) {
+      for (final doc in snapshot.docs) {
+        final participantUids =
+            (doc.data()['participantUids'] as List<dynamic>?)
+                    ?.cast<String>() ??
+                const <String>[];
+        for (final participantUid in participantUids) {
+          if (participantUid != uid) {
+            watchStoryFor(participantUid);
+          }
+        }
+      }
     });
+
+    controller.onCancel = () async {
+      await threadsSubscription.cancel();
+      for (final subscription in storySubscriptions.values) {
+        await subscription.cancel();
+      }
+    };
+
+    return controller.stream;
   }
 
   @override
   Future<UpdatesFeed> fetchUpdates() async {
     final uid = _requireCurrentUid;
     try {
-      final snapshot = await _storiesRef.get();
-      final stories = snapshot.docs
+      final partnerUids = await _chatPartnerUids(uid);
+      final docs = await Future.wait(
+        <String>{uid, ...partnerUids}.map((ownerUid) => _storiesRef.doc(ownerUid).get()),
+      );
+      final stories = docs
           .map((doc) => _storyFromDoc(doc, currentUid: uid))
           .whereType<StatusStory>()
           .toList(growable: false);

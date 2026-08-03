@@ -24,10 +24,21 @@ service cloud.firestore {
     }
 
     match /statusStories/{ownerUid} {
-      // Any signed-in user can read any status story (like a real Status
-      // feature) -- only the owner (document id == their own uid) can
-      // write it.
-      allow read: if request.auth != null;
+      // A story is only visible to its owner or someone who has chatted
+      // with them at least once -- checked via exists() against the same
+      // deterministic sorted-uid chatThreads id
+      // FirestoreChatRepository.startThread uses, since Firestore can't
+      // filter a collection-wide query by this rule (the repository reads
+      // each visible story individually instead of scanning the whole
+      // collection; see FirestoreUpdatesRepository's class doc comment).
+      // Only the owner (document id == their own uid) can write it.
+      allow read: if request.auth != null
+                    && (request.auth.uid == ownerUid
+                        || exists(/databases/$(database)/documents/chatThreads/$(
+                             request.auth.uid < ownerUid
+                               ? request.auth.uid + '_' + ownerUid
+                               : ownerUid + '_' + request.auth.uid
+                           )));
       allow write: if request.auth != null && request.auth.uid == ownerUid;
     }
 
