@@ -1,3 +1,5 @@
+import 'package:flutter/material.dart';
+
 import '../../../core/sample/demo_data.dart';
 import '../domain/chat_attachment.dart';
 import '../domain/chat_message.dart';
@@ -26,6 +28,32 @@ class FakeChatRepository implements ChatRepository {
   Future<List<ChatThread>> fetchThreads() async {
     await _wait();
     return _deepCopyThreads(_threads);
+  }
+
+  @override
+  Future<ChatThread> startThread({
+    required String participantUid,
+    required String participantName,
+    required String avatarLabel,
+    required Color accentColor,
+  }) async {
+    await _wait();
+    final existing = _threads
+        .cast<ChatThread?>()
+        .firstWhere((entry) => entry?.id == participantUid, orElse: () => null);
+    if (existing != null) {
+      return existing;
+    }
+
+    final thread = ChatThread(
+      id: participantUid,
+      name: participantName,
+      avatarLabel: avatarLabel,
+      accentColor: accentColor,
+      messages: const [],
+    );
+    _threads = [thread, ..._threads];
+    return thread;
   }
 
   @override

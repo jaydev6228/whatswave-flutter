@@ -5,8 +5,11 @@ import '../../calls/application/calls_controller.dart';
 import '../../calls/domain/call_contact.dart';
 import '../../calls/domain/call_history_entry.dart';
 import '../../calls/presentation/call_experience_screen.dart';
+import '../../chats/application/chats_controller.dart';
+import '../../chats/presentation/conversation_screen.dart';
 import '../../shared/widgets/avatar_badge.dart';
 import '../../shared/widgets/empty_state_card.dart';
+import '../../updates/application/updates_controller.dart';
 import '../application/communities_controller.dart';
 import '../domain/app_invite_link.dart';
 import '../domain/community_contact.dart';
@@ -21,6 +24,8 @@ class CommunitiesScreen extends StatefulWidget {
   const CommunitiesScreen({
     required this.controller,
     this.callsController,
+    this.chatsController,
+    this.updatesController,
     super.key,
   });
 
@@ -30,6 +35,12 @@ class CommunitiesScreen extends StatefulWidget {
   /// see CommunityContact.matchedUid) get a real Call action. Null in
   /// contexts that don't wire Calls in (e.g. some tests).
   final CallsController? callsController;
+
+  /// When provided (together with [updatesController]), "on WhatsWave"
+  /// contacts also get a real Message action that starts/opens a chat
+  /// thread with them.
+  final ChatsController? chatsController;
+  final UpdatesController? updatesController;
 
   @override
   State<CommunitiesScreen> createState() => _CommunitiesScreenState();
@@ -233,6 +244,10 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
                           onCall: widget.callsController == null
                               ? null
                               : _callContact,
+                          onMessage: widget.chatsController == null ||
+                                  widget.updatesController == null
+                              ? null
+                              : _messageContact,
                         ),
                     ],
                   ),
@@ -268,6 +283,40 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
       builder: (context) {
         return _CreateCommunitySheet(controller: widget.controller);
       },
+    );
+  }
+
+  Future<void> _messageContact(CommunityContact contact) async {
+    final chatsController = widget.chatsController;
+    final updatesController = widget.updatesController;
+    final callsController = widget.callsController;
+    final matchedUid = contact.matchedUid;
+    if (chatsController == null ||
+        updatesController == null ||
+        callsController == null ||
+        matchedUid == null) {
+      return;
+    }
+
+    final threadId = await chatsController.startThreadWith(
+      participantUid: matchedUid,
+      participantName: contact.name,
+      avatarLabel: contact.avatarLabel,
+      accentColor: contact.accentColor,
+    );
+    if (threadId == null || !mounted) {
+      return;
+    }
+
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => ConversationScreen(
+          callsController: callsController,
+          controller: chatsController,
+          updatesController: updatesController,
+          threadId: threadId,
+        ),
+      ),
     );
   }
 
@@ -541,6 +590,7 @@ class _ContactsPane extends StatelessWidget {
     required this.onRequestContactsAccess,
     required this.onOpenContactSettings,
     this.onCall,
+    this.onMessage,
   });
 
   final CommunitiesController controller;
@@ -551,6 +601,7 @@ class _ContactsPane extends StatelessWidget {
   final Future<void> Function() onOpenContactSettings;
   final Future<void> Function(CommunityContact contact, CallType type)?
       onCall;
+  final Future<void> Function(CommunityContact contact)? onMessage;
 
   @override
   Widget build(BuildContext context) {
@@ -737,6 +788,9 @@ class _ContactsPane extends StatelessWidget {
               onCall: onCall == null
                   ? null
                   : (type) => onCall!(contact, type),
+              onMessage: onMessage == null
+                  ? null
+                  : () => onMessage!(contact),
             );
           }),
       ],
@@ -893,12 +947,14 @@ class _ContactCard extends StatelessWidget {
     required this.onShareInvite,
     required this.onSelectCommunity,
     this.onCall,
+    this.onMessage,
   });
 
   final CommunitiesController controller;
   final CommunityContact contact;
   final VoidCallback onShareInvite;
   final VoidCallback onSelectCommunity;
+  final VoidCallback? onMessage;
   final Future<void> Function(CallType type)? onCall;
 
   @override
@@ -1048,6 +1104,19 @@ class _ContactCard extends StatelessWidget {
                                     : 'Share app',
                               ),
                             ),
+                        if (onMessage != null &&
+                            contact.isOnWhatsWave &&
+                            contact.matchedUid != null)
+                          IconButton.filledTonal(
+                            key: Key('contact_message_${contact.id}'),
+                            tooltip: 'Message',
+                            visualDensity: VisualDensity.compact,
+                            onPressed: isBusy ? null : onMessage,
+                            icon: const Icon(
+                              Icons.chat_bubble_outline_rounded,
+                              size: 18,
+                            ),
+                          ),
                         if (onCall != null &&
                             contact.isOnWhatsWave &&
                             contact.matchedUid != null) ...[

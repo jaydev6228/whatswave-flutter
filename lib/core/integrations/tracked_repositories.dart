@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:flutter/material.dart' show Color;
+
 import '../../features/auth/data/auth_repository.dart';
 import '../../features/calls/data/calls_overview.dart';
 import '../../features/calls/data/calls_repository.dart';
@@ -220,6 +222,21 @@ class TrackedChatRepository implements ChatRepository {
 
   @override
   Future<List<ChatThread>> fetchThreads() => _delegate.fetchThreads();
+
+  @override
+  Future<ChatThread> startThread({
+    required String participantUid,
+    required String participantName,
+    required String avatarLabel,
+    required Color accentColor,
+  }) {
+    return _delegate.startThread(
+      participantUid: participantUid,
+      participantName: participantName,
+      avatarLabel: avatarLabel,
+      accentColor: accentColor,
+    );
+  }
 
   @override
   Future<List<ChatThread>> setThreadArchived({

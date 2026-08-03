@@ -51,6 +51,49 @@ class FirestoreChatRepository implements ChatRepository {
   }
 
   @override
+  Future<ChatThread> startThread({
+    required String participantUid,
+    required String participantName,
+    required String avatarLabel,
+    required Color accentColor,
+  }) async {
+    final uid = _requireCurrentUid;
+    if (participantUid == uid) {
+      throw const ChatRepositoryException('You cannot start a chat with yourself.');
+    }
+
+    // Deterministic id from the sorted pair of uids -- repeated calls for
+    // the same two people always resolve to the same thread instead of
+    // creating duplicates, with no query/race needed to check first.
+    final threadId = ([uid, participantUid]..sort()).join('_');
+    final docRef = _threadsRef.doc(threadId);
+
+    try {
+      final existing = await docRef.get();
+      if (!existing.exists) {
+        await docRef.set(<String, Object?>{
+          'name': participantName,
+          'avatarLabel': avatarLabel,
+          'accentColorArgb': accentColor.toARGB32(),
+          'participantUids': [uid, participantUid],
+          'unreadCount': 0,
+          'isMuted': false,
+          'isPinned': false,
+          'isGroup': false,
+          'hasStory': false,
+          'isArchived': false,
+        });
+      }
+      final doc = await docRef.get();
+      return _threadFromDoc(doc, currentUid: uid);
+    } on FirebaseException catch (e) {
+      throw ChatRepositoryException(
+        e.message ?? 'Could not start that chat right now.',
+      );
+    }
+  }
+
+  @override
   Future<List<ChatThread>> setThreadArchived({
     required String threadId,
     required bool isArchived,
@@ -134,10 +177,10 @@ class FirestoreChatRepository implements ChatRepository {
   }
 
   Future<ChatThread> _threadFromDoc(
-    QueryDocumentSnapshot<Map<String, dynamic>> doc, {
+    DocumentSnapshot<Map<String, dynamic>> doc, {
     required String currentUid,
   }) async {
-    final data = doc.data();
+    final data = doc.data() ?? const <String, dynamic>{};
 
     final messagesSnapshot =
         await doc.reference.collection('messages').orderBy('sentAt').get();

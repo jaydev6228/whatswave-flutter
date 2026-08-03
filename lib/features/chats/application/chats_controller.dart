@@ -202,6 +202,38 @@ class ChatsController extends ChangeNotifier {
     );
   }
 
+  /// Starts (or finds an existing) 1:1 thread with [participantUid] and
+  /// returns its id, or null on failure (see [errorMessage]).
+  Future<String?> startThreadWith({
+    required String participantUid,
+    required String participantName,
+    required String avatarLabel,
+    required Color accentColor,
+  }) async {
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      final thread = await _repository.startThread(
+        participantUid: participantUid,
+        participantName: participantName,
+        avatarLabel: avatarLabel,
+        accentColor: accentColor,
+      );
+      _threads = await _repository.fetchThreads();
+      notifyListeners();
+      return thread.id;
+    } on ChatRepositoryException catch (error) {
+      _errorMessage = error.message;
+      notifyListeners();
+      return null;
+    } catch (_) {
+      _errorMessage = 'We could not start that chat right now.';
+      notifyListeners();
+      return null;
+    }
+  }
+
   Future<void> openThread(String threadId) async {
     final thread = threadById(threadId);
     if (thread == null || thread.unreadCount == 0) {
