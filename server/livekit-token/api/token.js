@@ -1,4 +1,5 @@
-const admin = require('firebase-admin');
+const { initializeApp, getApps, cert } = require('firebase-admin/app');
+const { getAuth } = require('firebase-admin/auth');
 const { AccessToken } = require('livekit-server-sdk');
 
 // Room names are caller-supplied; keep them to a safe, predictable shape
@@ -6,8 +7,9 @@ const { AccessToken } = require('livekit-server-sdk');
 const ROOM_NAME_PATTERN = /^[a-zA-Z0-9_-]{1,128}$/;
 
 function getFirebaseApp() {
-  if (admin.apps.length) {
-    return admin.apps[0];
+  const apps = getApps();
+  if (apps.length) {
+    return apps[0];
   }
 
   const encoded = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
@@ -19,8 +21,8 @@ function getFirebaseApp() {
     Buffer.from(encoded, 'base64').toString('utf8'),
   );
 
-  return admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
+  return initializeApp({
+    credential: cert(serviceAccount),
   });
 }
 
@@ -48,10 +50,11 @@ module.exports = async (req, res) => {
 
   let uid;
   try {
-    getFirebaseApp();
-    const decoded = await admin.auth().verifyIdToken(idToken);
+    const app = getFirebaseApp();
+    const decoded = await getAuth(app).verifyIdToken(idToken);
     uid = decoded.uid;
   } catch (error) {
+    console.error('ID token verification failed:', error);
     res.status(401).json({ error: 'Invalid or expired Firebase ID token' });
     return;
   }
