@@ -132,6 +132,20 @@ class _ConversationScreenState extends State<ConversationScreen> {
             if (wasNearLatest) {
               _scheduleScrollToLatestMessage(animated: true);
             }
+            if (thread.unreadCount > 0) {
+              // The reader is already looking at this thread, so a message
+              // landing live must not sit there as "unread" until they back
+              // out and back in -- mark it read now instead of leaving the
+              // chat list/tab badge to over-count something already seen.
+              // Deferred: openThread() -> notifyListeners() synchronously,
+              // and calling that mid-build would rebuild this same widget
+              // while it's still building.
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted) {
+                  widget.controller.openThread(thread.id);
+                }
+              });
+            }
           }
         }
 
