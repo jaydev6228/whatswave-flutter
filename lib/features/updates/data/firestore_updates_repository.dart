@@ -52,6 +52,18 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
   }
 
   @override
+  Stream<UpdatesFeed> watchUpdates() {
+    final uid = _requireCurrentUid;
+    return _storiesRef.snapshots().map((snapshot) {
+      final stories = snapshot.docs
+          .map((doc) => _storyFromDoc(doc, currentUid: uid))
+          .whereType<StatusStory>()
+          .toList(growable: false);
+      return UpdatesFeed(stories: stories, channels: const <ChannelPreview>[]);
+    });
+  }
+
+  @override
   Future<UpdatesFeed> fetchUpdates() async {
     final uid = _requireCurrentUid;
     try {

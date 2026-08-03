@@ -14,6 +14,13 @@ class UpdatesFeed {
 abstract class UpdatesRepository {
   Future<UpdatesFeed> fetchUpdates();
 
+  /// Live updates, so a change made on another device (e.g. someone else
+  /// deleting their status) is reflected without needing to relaunch or
+  /// manually refresh. Null for implementations with no real-time backing
+  /// (e.g. the local/fake repository) -- callers should fall back to
+  /// [fetchUpdates] alone in that case.
+  Stream<UpdatesFeed>? watchUpdates();
+
   Future<List<StatusStory>> createStatus({
     required StatusStoryType type,
     String? caption,

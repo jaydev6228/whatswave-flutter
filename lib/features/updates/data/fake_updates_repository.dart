@@ -44,6 +44,9 @@ class FakeUpdatesRepository implements UpdatesRepository {
   }
 
   @override
+  Stream<UpdatesFeed>? watchUpdates() => null;
+
+  @override
   Future<UpdatesFeed> fetchUpdates() async {
     await _hydratePersistedState();
     await _backfillSeededStoriesIfNeeded();

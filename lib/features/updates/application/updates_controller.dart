@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -11,6 +12,7 @@ class UpdatesController extends ChangeNotifier {
       : _repository = repository;
 
   final UpdatesRepository _repository;
+  StreamSubscription<UpdatesFeed>? _liveUpdatesSubscription;
 
   bool _hasLoaded = false;
   bool _isLoading = false;
@@ -106,6 +108,7 @@ class UpdatesController extends ChangeNotifier {
       _stories = feed.stories;
       _channels = feed.channels;
       _hasLoaded = true;
+      _listenForLiveUpdates();
     } on UpdatesRepositoryException catch (error) {
       _errorMessage = error.message;
     } catch (_) {
@@ -114,6 +117,31 @@ class UpdatesController extends ChangeNotifier {
 
     _isLoading = false;
     notifyListeners();
+  }
+
+  /// Keeps [_stories]/[_channels] in sync with changes made anywhere else
+  /// (e.g. another user deleting their status), so the UI updates on its
+  /// own instead of needing a manual refresh or relaunch. No-op for
+  /// repositories with no real-time backing (see [UpdatesRepository.watchUpdates]).
+  void _listenForLiveUpdates() {
+    if (_liveUpdatesSubscription != null) {
+      return;
+    }
+    final stream = _repository.watchUpdates();
+    if (stream == null) {
+      return;
+    }
+    _liveUpdatesSubscription = stream.listen((feed) {
+      _stories = _mergeStoriesPreservingLocalProgress(feed.stories);
+      _channels = feed.channels;
+      notifyListeners();
+    });
+  }
+
+  @override
+  void dispose() {
+    _liveUpdatesSubscription?.cancel();
+    super.dispose();
   }
 
   void clearError() {

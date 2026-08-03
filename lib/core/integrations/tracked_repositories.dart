@@ -358,6 +358,9 @@ class TrackedUpdatesRepository implements UpdatesRepository {
   Future<updates_data.UpdatesFeed> fetchUpdates() => _delegate.fetchUpdates();
 
   @override
+  Stream<updates_data.UpdatesFeed>? watchUpdates() => _delegate.watchUpdates();
+
+  @override
   Future<List<StatusStory>> createStatus({
     required StatusStoryType type,
     String? caption,

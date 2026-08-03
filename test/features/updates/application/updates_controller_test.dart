@@ -200,6 +200,9 @@ class _PassThroughStatusMediaStore implements StatusMediaStore {
 
 class _FailingUpdatesRepository implements UpdatesRepository {
   @override
+  Stream<UpdatesFeed>? watchUpdates() => null;
+
+  @override
   Future<UpdatesFeed> fetchUpdates() {
     throw const UpdatesRepositoryException('Updates backend unavailable');
   }

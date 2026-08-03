@@ -312,6 +312,9 @@ class _FlakyUpdatesRepository implements UpdatesRepository {
   bool _hasFailed = false;
 
   @override
+  Stream<UpdatesFeed>? watchUpdates() => _delegate.watchUpdates();
+
+  @override
   Future<UpdatesFeed> fetchUpdates() {
     if (!_hasFailed) {
       _hasFailed = true;
