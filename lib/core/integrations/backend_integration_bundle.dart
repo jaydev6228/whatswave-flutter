@@ -1,3 +1,8 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart';
+
 import '../config/backend_runtime_config.dart';
 import 'integration_hub_controller.dart';
 
@@ -22,8 +27,7 @@ class BackendIntegrationBundleFactory {
     switch (runtimeConfig.backendMode) {
       case BackendMode.firebaseFirst:
         return BackendIntegrationBundle(
-          pushRegistrationService:
-              FirebaseScaffoldPushRegistrationService(runtimeConfig),
+          pushRegistrationService: FirebaseMessagingPushRegistrationService(),
           mediaTransferService:
               FirebaseScaffoldMediaTransferService(runtimeConfig),
           providerCatalog:
@@ -49,19 +53,40 @@ class BackendIntegrationBundleFactory {
   }
 }
 
-class FirebaseScaffoldPushRegistrationService
+/// Real Firebase Cloud Messaging implementation of [PushRegistrationService].
+///
+/// Requests notification permission, fetches a real FCM token, and writes
+/// it to `pushTokens/{uid}` in Firestore so a future server-side component
+/// (a Cloud Function, once Blaze is available) can actually send pushes to
+/// this device -- this class only registers the token, it doesn't send or
+/// receive pushes itself.
+///
+/// Known limitation, not fixable client-side: iOS Simulators cannot obtain
+/// a real APNs device token -- that requires real hardware talking to
+/// Apple's push servers. On iOS, [getAPNSToken] is checked first and, if
+/// null (always true on Simulator), this returns `actionRequired` with a
+/// message explaining why, rather than crashing or silently failing.
+/// Testing a real token requires a physical iOS device or the Android
+/// emulator (which has no equivalent restriction).
+class FirebaseMessagingPushRegistrationService
     implements PushRegistrationService {
-  const FirebaseScaffoldPushRegistrationService(this.runtimeConfig);
+  FirebaseMessagingPushRegistrationService({
+    FirebaseMessaging? messaging,
+    fb_auth.FirebaseAuth? firebaseAuth,
+    FirebaseFirestore? firestore,
+  })  : _messaging = messaging ?? FirebaseMessaging.instance,
+        _firebaseAuth = firebaseAuth ?? fb_auth.FirebaseAuth.instance,
+        _firestore = firestore ?? FirebaseFirestore.instance;
 
-  final BackendRuntimeConfig runtimeConfig;
+  final FirebaseMessaging _messaging;
+  final fb_auth.FirebaseAuth _firebaseAuth;
+  final FirebaseFirestore _firestore;
 
   @override
   DeliveryTarget get target => DeliveryTarget.firebaseReady;
 
   @override
-  String get providerName => runtimeConfig.useFirebaseEmulators
-      ? 'Firebase push scaffold (emulators)'
-      : 'Firebase push scaffold';
+  String get providerName => 'Firebase Cloud Messaging';
 
   @override
   Future<PushRegistrationSyncResult> syncRegistration({
@@ -97,41 +122,88 @@ class FirebaseScaffoldPushRegistrationService
         activityTitle: 'Firebase push sync failed',
         activityDetails:
             'Check FCM, APNs, and your server token registration flow.',
-        errorMessage: 'Firebase push scaffolding reported a sync failure.',
+        errorMessage: 'Firebase push sync reported a failure.',
       );
     }
 
-    if (!runtimeConfig.hasFirebasePushScaffold) {
-      final detail = runtimeConfig.firebaseMissingSteps.isNotEmpty
-          ? runtimeConfig.firebaseMissingSteps.first
-          : 'Complete the Firebase messaging setup before syncing live device tokens.';
+    try {
+      final settings = await _messaging.requestPermission();
+      final authorized = settings.authorizationStatus ==
+              AuthorizationStatus.authorized ||
+          settings.authorizationStatus == AuthorizationStatus.provisional;
+      if (!authorized) {
+        return const PushRegistrationSyncResult(
+          registration: PushRegistration(
+            state: PushRegistrationState.actionRequired,
+          ),
+          activityStatus: SyncActivityStatus.failed,
+          activityTitle: 'Notification permission not granted',
+          activityDetails:
+              'Allow notifications for this app in system settings, then sync again.',
+        );
+      }
+
+      if (defaultTargetPlatform == TargetPlatform.iOS) {
+        final apnsToken = await _messaging.getAPNSToken();
+        if (apnsToken == null) {
+          return const PushRegistrationSyncResult(
+            registration: PushRegistration(
+              state: PushRegistrationState.actionRequired,
+            ),
+            activityStatus: SyncActivityStatus.failed,
+            activityTitle: 'No APNs token available',
+            activityDetails:
+                'iOS Simulators cannot obtain a real APNs token -- this needs a physical iOS device to register for real push delivery.',
+          );
+        }
+      }
+
+      final token = await _messaging.getToken();
+      if (token == null || token.isEmpty) {
+        return const PushRegistrationSyncResult(
+          registration: PushRegistration(
+            state: PushRegistrationState.failed,
+          ),
+          activityStatus: SyncActivityStatus.failed,
+          activityTitle: 'Firebase push sync failed',
+          activityDetails: 'FCM did not return a device token.',
+          errorMessage: 'FCM did not return a device token.',
+        );
+      }
+
+      final uid = _firebaseAuth.currentUser?.uid;
+      if (uid != null) {
+        await _firestore.collection('pushTokens').doc(uid).set({
+          'token': token,
+          'platform': defaultTargetPlatform.name,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
+
+      final tokenPreview =
+          token.length > 12 ? '${token.substring(0, 12)}...' : token;
+      return PushRegistrationSyncResult(
+        registration: PushRegistration(
+          state: PushRegistrationState.registered,
+          tokenPreview: tokenPreview,
+          lastSyncedAt: DateTime.now(),
+        ),
+        activityStatus: SyncActivityStatus.synced,
+        activityTitle: 'Firebase push token registered',
+        activityDetails:
+            'Real FCM token synced to Firestore, ready for a server-side sender.',
+      );
+    } catch (e) {
       return PushRegistrationSyncResult(
         registration: const PushRegistration(
-          state: PushRegistrationState.actionRequired,
+          state: PushRegistrationState.failed,
         ),
         activityStatus: SyncActivityStatus.failed,
-        activityTitle: 'Firebase push setup incomplete',
-        activityDetails: detail,
-        errorMessage:
-            'Complete the Firebase messaging setup before syncing live device tokens.',
+        activityTitle: 'Firebase push sync failed',
+        activityDetails: e.toString(),
+        errorMessage: 'We could not sync this device token right now.',
       );
     }
-
-    final tokenPrefix =
-        runtimeConfig.useFirebaseEmulators ? 'fcm_emu' : 'fcm_scaffold';
-    final tokenPreview =
-        '${tokenPrefix}_${DateTime.now().millisecondsSinceEpoch.toRadixString(36)}';
-    return PushRegistrationSyncResult(
-      registration: PushRegistration(
-        state: PushRegistrationState.registered,
-        tokenPreview: tokenPreview,
-        lastSyncedAt: DateTime.now(),
-      ),
-      activityStatus: SyncActivityStatus.synced,
-      activityTitle: 'Firebase push token prepared',
-      activityDetails:
-          'FCM scaffold is ready to hand this token to your backend delivery path.',
-    );
   }
 }
 
