@@ -79,7 +79,8 @@ class UpdatesController extends ChangeNotifier {
       .toList(growable: false);
 
   List<StatusStory> get viewedStories => _stories
-      .where((story) => !story.isMine && !story.hasUnseenSegments)
+      .where((story) =>
+          !story.isMine && story.hasSegments && !story.hasUnseenSegments)
       .toList(growable: false);
 
   bool isStoryBusy(String storyId) => _busyStoryIds.contains(storyId);
