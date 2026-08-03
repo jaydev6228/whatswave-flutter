@@ -795,6 +795,14 @@ class CallsController extends ChangeNotifier {
       _room = room;
       _roomListener = roomListener;
       _localVideoTrack = cameraPub?.track as lk.LocalVideoTrack?;
+      // Session defaults isSpeakerOn based on call type, but that's only
+      // ever applied to the native audio route here, on connect -- toggling
+      // it later (toggleSpeaker) is the only other place this gets set.
+      // Without this, audio plays through the earpiece by default, which
+      // is easy to mistake for "no audio" unless the phone is held up.
+      unawaited(
+        lk.AudioManager.instance.setSpeakerOutputPreferred(current.isSpeakerOn),
+      );
       _currentSession = current.copyWith(
         phase: CallSessionPhase.connected,
         connectedAt: _now(),

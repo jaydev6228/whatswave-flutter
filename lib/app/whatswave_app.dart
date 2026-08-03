@@ -21,6 +21,8 @@ import '../features/calls/application/calls_controller.dart';
 import '../features/calls/data/calls_repository.dart';
 import '../features/calls/data/firestore_call_signaling_service.dart';
 import '../features/calls/data/livekit_token_service.dart';
+import '../features/calls/domain/call_history_entry.dart';
+import '../features/calls/presentation/call_experience_screen.dart';
 import '../features/chats/application/chats_controller.dart';
 import '../features/chats/data/chat_repository.dart';
 import '../features/communities/application/communities_controller.dart';
@@ -64,6 +66,9 @@ class WhatsWaveApp extends StatefulWidget {
 }
 
 class _WhatsWaveAppState extends State<WhatsWaveApp> {
+  final GlobalKey<NavigatorState> _rootNavigatorKey = GlobalKey<NavigatorState>();
+  String? _presentedIncomingCallSessionId;
+
   late final AuthController _authController;
   late final CallsController _callsController;
   late final ChatsController _chatsController;
@@ -136,6 +141,7 @@ class _WhatsWaveAppState extends State<WhatsWaveApp> {
               .map((user) => user?.uid)
           : null,
     );
+    _callsController.addListener(_handleIncomingCallSession);
     _chatsController = ChatsController(
       repository: TrackedChatRepository(
         delegate: widget.chatRepository ?? repositoryBundle.chatRepository,
@@ -163,6 +169,38 @@ class _WhatsWaveAppState extends State<WhatsWaveApp> {
     _authController.restoreSession();
   }
 
+  /// Auto-opens the call screen for a real incoming call, which -- unlike
+  /// every other way of starting a call in this app -- has no button press
+  /// to navigate from (call_flow.dart's helpers push explicitly for
+  /// outgoing calls and the debug "simulate incoming call" flow; this
+  /// covers the one case those can't: a call arriving via
+  /// CallSignalingService while the user is on some unrelated screen).
+  /// Scoped tightly to real incoming calls so it never double-pushes over
+  /// an explicit push elsewhere.
+  void _handleIncomingCallSession() {
+    final session = _callsController.currentSession;
+    if (session == null) {
+      _presentedIncomingCallSessionId = null;
+      return;
+    }
+
+    final isUnhandledRealIncomingCall = session.direction ==
+            CallDirection.incoming &&
+        session.isReal &&
+        _presentedIncomingCallSessionId != session.id;
+    if (!isUnhandledRealIncomingCall) {
+      return;
+    }
+
+    _presentedIncomingCallSessionId = session.id;
+    _rootNavigatorKey.currentState?.push(
+      MaterialPageRoute<void>(
+        builder: (_) => CallExperienceScreen(controller: _callsController),
+        fullscreenDialog: true,
+      ),
+    );
+  }
+
   void _handleIntegrationContextChanged() {
     unawaited(
       _integrationController.applyRuntimeContext(
@@ -176,6 +214,7 @@ class _WhatsWaveAppState extends State<WhatsWaveApp> {
   void dispose() {
     _authController.removeListener(_handleIntegrationContextChanged);
     _preferencesController.removeListener(_handleIntegrationContextChanged);
+    _callsController.removeListener(_handleIncomingCallSession);
     _authController.dispose();
     _callsController.dispose();
     _chatsController.dispose();
@@ -198,6 +237,7 @@ class _WhatsWaveAppState extends State<WhatsWaveApp> {
         return AppTelemetryScope(
           telemetry: _telemetry,
           child: MaterialApp(
+            navigatorKey: _rootNavigatorKey,
             debugShowCheckedModeBanner: false,
             title: 'WhatsWave',
             theme: AppTheme.lightTheme(),
