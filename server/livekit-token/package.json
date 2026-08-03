@@ -1,0 +1,11 @@
+{
+  "name": "whatswave-livekit-token-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Mints per-user LiveKit access tokens for WhatsWave calling. Verifies the caller's Firebase ID token before issuing a token, so callers can only ever get a token identifying themselves. Deployed to Vercel as a serverless function.",
+  "main": "api/token.js",
+  "dependencies": {
+    "firebase-admin": "^14.2.0",
+    "livekit-server-sdk": "^2.17.0"
+  }
+}

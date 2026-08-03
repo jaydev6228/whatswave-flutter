@@ -44,3 +44,10 @@ firebase.json
 .firebase/
 firebase-debug.log
 firebase-debug.*.log
+
+# LiveKit token server (server/livekit-token) -- Node/Vercel project
+server/livekit-token/node_modules/
+server/livekit-token/.vercel/
+server/livekit-token/.env
+server/livekit-token/.env.*
+!server/livekit-token/.env.example
