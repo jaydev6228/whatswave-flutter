@@ -1,11 +1,13 @@
 import 'dart:async';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../app/theme/app_palette.dart';
 import '../../../core/models/app_user.dart';
+import '../../../core/utils/phone_number_matching.dart';
 import 'auth_repository.dart';
 
 /// Real Firebase Phone Auth implementation of [AuthRepository].
@@ -14,11 +16,20 @@ import 'auth_repository.dart';
 /// concept of our app's "about" field, so that's stored locally in
 /// SharedPreferences keyed by uid until a Slice 3 Firestore adapter takes
 /// over full profile storage.
+///
+/// Also registers the user's phone number in a `phoneDirectory` collection
+/// on profile save, so [DeviceContactsService]-sourced contacts can be
+/// matched against real registered accounts (see
+/// FirestoreCommunitiesRepository).
 class FirebaseAuthRepository implements AuthRepository {
-  FirebaseAuthRepository({fb_auth.FirebaseAuth? firebaseAuth})
-      : _firebaseAuth = firebaseAuth ?? fb_auth.FirebaseAuth.instance;
+  FirebaseAuthRepository({
+    fb_auth.FirebaseAuth? firebaseAuth,
+    FirebaseFirestore? firestore,
+  })  : _firebaseAuth = firebaseAuth ?? fb_auth.FirebaseAuth.instance,
+        _firestore = firestore ?? FirebaseFirestore.instance;
 
   final fb_auth.FirebaseAuth _firebaseAuth;
+  final FirebaseFirestore _firestore;
 
   static const _aboutKeyPrefix = 'firebase_auth_about_v1_';
 
@@ -140,9 +151,30 @@ class FirebaseAuthRepository implements AuthRepository {
 
     await user.updateDisplayName(name.trim());
     await _writeAbout(user.uid, about.trim());
+    await _registerInPhoneDirectory(user.uid, user.phoneNumber);
     await user.reload();
 
     return _appUserFromFirebaseUser(_firebaseAuth.currentUser ?? user);
+  }
+
+  /// Registers this user's phone number so device contacts can be matched
+  /// against real accounts. Best-effort: a failure here shouldn't block
+  /// profile save, since the user is already signed in either way.
+  Future<void> _registerInPhoneDirectory(String uid, String? phoneNumber) async {
+    if (phoneNumber == null || phoneNumber.trim().isEmpty) {
+      return;
+    }
+    final key = phoneMatchKey(phoneNumber);
+    if (key.isEmpty) {
+      return;
+    }
+    try {
+      await _firestore.collection('phoneDirectory').doc(key).set({
+        'uid': uid,
+      });
+    } on FirebaseException {
+      // Best-effort -- see doc comment above.
+    }
   }
 
   Future<AppUser> _appUserFromFirebaseUser(fb_auth.User user) async {

@@ -3,23 +3,33 @@ import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:flutter/material.dart';
 
 import '../../../core/sample/demo_data.dart';
+import '../../../core/utils/phone_number_matching.dart';
 import '../domain/community_announcement.dart';
 import '../domain/community_contact.dart';
 import '../domain/community_group_preview.dart';
 import '../domain/community_hub.dart';
 import 'communities_overview.dart';
 import 'communities_repository.dart';
+import 'device_contacts_service.dart';
 
-/// Firestore-backed [CommunitiesRepository] -- communities only.
+/// Firestore-backed [CommunitiesRepository].
 ///
-/// Deliberate scope decision: contacts stay an in-memory fake list seeded
-/// from [DemoData.buildCommunityContacts], exactly like
-/// [FakeCommunitiesRepository]. "Contacts" represents the device's address
-/// book, which is a fundamentally different (and unimplemented) concern --
-/// real device contacts integration would be a separate feature, not part
-/// of moving *community* data to a real backend. Contact mutations
-/// (shareAppInvite, invite bookkeeping) are session-only and never
-/// persisted anywhere.
+/// Communities are real Firestore documents (see the class doc below for
+/// the write-authorization simplification). Contacts are real device
+/// contacts (via [DeviceContactsService]), enriched with "on WhatsWave"
+/// status by checking each contact's [phoneMatchKey] against a
+/// `phoneDirectory` collection that [FirebaseAuthRepository] populates on
+/// profile save. This is a best-effort, approximate match (see
+/// `phone_number_matching.dart`), and does an individual Firestore read per
+/// contact -- fine at demo/personal-address-book scale, not something that
+/// would scale to thousands of contacts without a batched/indexed approach.
+///
+/// Device contacts are fetched once per repository instance (on first
+/// access) and cached in [_contacts] from then on, exactly like
+/// [FakeCommunitiesRepository]'s in-memory list -- this preserves session
+/// mutations (shareAppInvite, invite bookkeeping) across repeated
+/// `fetchOverview()` calls instead of re-reading the address book (and
+/// losing that state) every time.
 ///
 /// Known simplification, same pattern as the auth/chats/updates slices:
 /// only the community's creator (`ownerUid`) can write it. Any signed-in
@@ -32,16 +42,22 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
   FirestoreCommunitiesRepository({
     FirebaseFirestore? firestore,
     fb_auth.FirebaseAuth? firebaseAuth,
+    DeviceContactsService? deviceContactsService,
     List<CommunityContact>? initialContacts,
   })  : _firestore = firestore ?? FirebaseFirestore.instance,
         _firebaseAuth = firebaseAuth ?? fb_auth.FirebaseAuth.instance,
-        _contacts = List<CommunityContact>.unmodifiable(
-          initialContacts ?? DemoData.buildCommunityContacts(),
-        );
+        _deviceContactsService =
+            deviceContactsService ?? const NativeDeviceContactsService(),
+        _contacts = initialContacts == null
+            ? const <CommunityContact>[]
+            : List<CommunityContact>.unmodifiable(initialContacts),
+        _hasLoadedContacts = initialContacts != null;
 
   final FirebaseFirestore _firestore;
   final fb_auth.FirebaseAuth _firebaseAuth;
+  final DeviceContactsService _deviceContactsService;
   List<CommunityContact> _contacts;
+  bool _hasLoadedContacts;
 
   CollectionReference<Map<String, dynamic>> get _communitiesRef =>
       _firestore.collection('communities');
@@ -59,6 +75,7 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
   @override
   Future<CommunitiesOverview> fetchOverview() async {
     _requireCurrentUid;
+    await _ensureContactsLoaded();
     try {
       final snapshot = await _communitiesRef.get();
       final communities = snapshot.docs
@@ -74,6 +91,51 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
         e.message ?? 'We could not load your communities right now.',
       );
     }
+  }
+
+  /// Fetches real device contacts and enriches them with "on WhatsWave"
+  /// status, once per repository instance. Degrades gracefully to an empty
+  /// contact list on failure (e.g. permission not actually granted at the
+  /// OS level) rather than blocking the whole Communities screen -- the app
+  /// already gates the contacts UI behind its own permission flow before
+  /// this is ever called in practice.
+  Future<void> _ensureContactsLoaded() async {
+    if (_hasLoadedContacts) {
+      return;
+    }
+    _hasLoadedContacts = true;
+
+    try {
+      final deviceContacts = await _deviceContactsService.fetchDeviceContacts();
+      _contacts = await _enrichWithWhatsWaveStatus(deviceContacts);
+    } catch (_) {
+      _contacts = const <CommunityContact>[];
+    }
+  }
+
+  Future<List<CommunityContact>> _enrichWithWhatsWaveStatus(
+    List<CommunityContact> contacts,
+  ) async {
+    final currentUid = _firebaseAuth.currentUser?.uid;
+    final enriched = await Future.wait(
+      contacts.map((contact) async {
+        final key = phoneMatchKey(contact.phoneNumber);
+        if (key.isEmpty) {
+          return contact;
+        }
+        try {
+          final doc = await _firestore.collection('phoneDirectory').doc(key).get();
+          final matchedUid = doc.data()?['uid'] as String?;
+          if (matchedUid == null || matchedUid == currentUid) {
+            return contact;
+          }
+          return contact.copyWith(isOnWhatsWave: true);
+        } on FirebaseException {
+          return contact;
+        }
+      }),
+    );
+    return List<CommunityContact>.unmodifiable(enriched);
   }
 
   @override
@@ -126,6 +188,7 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
     required String contactId,
   }) async {
     _requireCurrentUid;
+    await _ensureContactsLoaded();
     final contact = _contactById(contactId);
     if (!contact.isOnWhatsWave) {
       throw const CommunitiesRepositoryException(
@@ -176,6 +239,7 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
   @override
   Future<CommunitiesOverview> shareAppInvite(String contactId) async {
     _requireCurrentUid;
+    await _ensureContactsLoaded();
     final contact = _contactById(contactId);
     if (contact.isOnWhatsWave) {
       return fetchOverview();
