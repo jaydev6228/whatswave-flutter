@@ -27,12 +27,13 @@ import 'chat_repository.dart';
 /// messaged), falls back to a generic placeholder rather than guessing
 /// wrong.
 ///
-/// Known simplification: unreadCount/isMuted/isPinned/isArchived live
-/// directly on the thread document rather than per-participant. This
-/// matches how [ChatRepository] already behaves -- there is no per-user
-/// parameter anywhere in this interface, it implicitly means "for whoever
-/// is signed in" (same assumption FakeChatRepository makes). A real
-/// multi-user product would need per-participant state instead.
+/// unreadCounts and hiddenFor are per-participant maps/arrays (learned from
+/// the same mistake as name resolution above -- a single shared
+/// `unreadCount` field meant sending a message reset it to 0 for everyone,
+/// including the person who was supposed to now have an unread message).
+/// isMuted/isPinned/isArchived are still single shared fields -- a real
+/// multi-user product would need those to be per-participant too, but
+/// nothing has actually surfaced that as wrong yet.
 class FirestoreChatRepository implements ChatRepository {
   FirestoreChatRepository({
     FirebaseFirestore? firestore,
@@ -61,11 +62,41 @@ class FirestoreChatRepository implements ChatRepository {
       final snapshot =
           await _threadsRef.where('participantUids', arrayContains: uid).get();
       return Future.wait(
-        snapshot.docs.map((doc) => _threadFromDoc(doc, currentUid: uid)),
+        _visibleDocs(snapshot.docs, uid)
+            .map((doc) => _threadFromDoc(doc, currentUid: uid)),
       );
     } on FirebaseException catch (e) {
       throw ChatRepositoryException(e.message ?? 'Could not load your chats.');
     }
+  }
+
+  @override
+  Stream<List<ChatThread>> watchThreads() {
+    final uid = _requireCurrentUid;
+    return _threadsRef
+        .where('participantUids', arrayContains: uid)
+        .snapshots()
+        .asyncMap(
+          (snapshot) => Future.wait(
+            _visibleDocs(snapshot.docs, uid)
+                .map((doc) => _threadFromDoc(doc, currentUid: uid)),
+          ),
+        );
+  }
+
+  /// Excludes threads the caller deleted from their own list (see
+  /// [deleteThread]) -- Firestore can't express "arrayContains is false" in
+  /// a query, so this filters client-side after the fact instead.
+  Iterable<QueryDocumentSnapshot<Map<String, dynamic>>> _visibleDocs(
+    Iterable<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+    String uid,
+  ) {
+    return docs.where((doc) {
+      final hiddenFor =
+          (doc.data()['hiddenFor'] as List<dynamic>?)?.cast<String>() ??
+              const <String>[];
+      return !hiddenFor.contains(uid);
+    });
   }
 
   @override
@@ -100,7 +131,8 @@ class FirestoreChatRepository implements ChatRepository {
             },
           },
           'participantUids': [uid, participantUid],
-          'unreadCount': 0,
+          'unreadCounts': {uid: 0, participantUid: 0},
+          'hiddenFor': <String>[],
           'isMuted': false,
           'isPinned': false,
           'isGroup': false,
@@ -136,10 +168,24 @@ class FirestoreChatRepository implements ChatRepository {
 
   @override
   Future<List<ChatThread>> markThreadRead(String threadId) async {
+    final uid = _requireCurrentUid;
     try {
-      await _threadsRef.doc(threadId).update({'unreadCount': 0});
+      await _threadsRef.doc(threadId).update({'unreadCounts.$uid': 0});
     } on FirebaseException catch (e) {
       throw ChatRepositoryException(e.message ?? 'Could not update that chat.');
+    }
+    return fetchThreads();
+  }
+
+  @override
+  Future<List<ChatThread>> deleteThread(String threadId) async {
+    final uid = _requireCurrentUid;
+    try {
+      await _threadsRef.doc(threadId).update({
+        'hiddenFor': FieldValue.arrayUnion([uid]),
+      });
+    } on FirebaseException catch (e) {
+      throw ChatRepositoryException(e.message ?? 'Could not delete that chat.');
     }
     return fetchThreads();
   }
@@ -176,6 +222,12 @@ class FirestoreChatRepository implements ChatRepository {
     final senderName = _firebaseAuth.currentUser?.displayName ?? 'You';
 
     try {
+      final threadDoc = await _threadsRef.doc(threadId).get();
+      final participantUids =
+          (threadDoc.data()?['participantUids'] as List<dynamic>?)
+                  ?.cast<String>() ??
+              const <String>[];
+
       final batch = _firestore.batch();
       final messageRef = _threadsRef.doc(threadId).collection('messages').doc();
 
@@ -188,10 +240,20 @@ class FirestoreChatRepository implements ChatRepository {
         'deliveryState': MessageDeliveryState.delivered.name,
       });
 
-      batch.update(_threadsRef.doc(threadId), {
-        'unreadCount': 0,
+      final threadUpdate = <String, Object?>{
         'isArchived': false,
-      });
+        // A new message un-hides the thread for everyone, matching how a
+        // "deleted" chat reappears if the other person messages you again.
+        'hiddenFor': <String>[],
+        'unreadCounts.$uid': 0,
+      };
+      for (final participantUid in participantUids) {
+        if (participantUid != uid) {
+          threadUpdate['unreadCounts.$participantUid'] =
+              FieldValue.increment(1);
+        }
+      }
+      batch.update(_threadsRef.doc(threadId), threadUpdate);
 
       await batch.commit();
     } on FirebaseException catch (e) {
@@ -266,7 +328,10 @@ class FirestoreChatRepository implements ChatRepository {
       avatarLabel: avatarLabel,
       accentColor: accentColor,
       messages: messages,
-      unreadCount: (data['unreadCount'] as int?) ?? 0,
+      unreadCount:
+          (data['unreadCounts'] as Map<String, dynamic>?)?[currentUid]
+                  as int? ??
+              0,
       isMuted: (data['isMuted'] as bool?) ?? false,
       isPinned: (data['isPinned'] as bool?) ?? false,
       isGroup: (data['isGroup'] as bool?) ?? false,

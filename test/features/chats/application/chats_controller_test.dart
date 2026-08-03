@@ -155,6 +155,14 @@ class _FailingChatRepository implements ChatRepository {
   }
 
   @override
+  Stream<List<ChatThread>>? watchThreads() => null;
+
+  @override
+  Future<List<ChatThread>> deleteThread(String threadId) {
+    throw UnimplementedError();
+  }
+
+  @override
   Future<ChatThread> startThread({
     required String participantUid,
     required String participantName,
@@ -206,6 +214,13 @@ class _SendFailingChatRepository implements ChatRepository {
 
   @override
   Future<List<ChatThread>> fetchThreads() => _delegate.fetchThreads();
+
+  @override
+  Stream<List<ChatThread>>? watchThreads() => _delegate.watchThreads();
+
+  @override
+  Future<List<ChatThread>> deleteThread(String threadId) =>
+      _delegate.deleteThread(threadId);
 
   @override
   Future<ChatThread> startThread({

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../data/chat_repository.dart';
@@ -11,6 +13,7 @@ class ChatsController extends ChangeNotifier {
       : _repository = repository;
 
   final ChatRepository _repository;
+  StreamSubscription<List<ChatThread>>? _liveThreadsSubscription;
 
   bool _hasLoaded = false;
   bool _isLoading = false;
@@ -30,6 +33,12 @@ class ChatsController extends ChangeNotifier {
   List<ChatThread> get threads => List<ChatThread>.unmodifiable(_threads);
   int get archivedCount => _threads.where((thread) => thread.isArchived).length;
   int get activeCount => _threads.where((thread) => !thread.isArchived).length;
+
+  /// Count of non-archived chats with at least one unread message -- drives
+  /// the Chats tab's bottom-nav badge.
+  int get unreadThreadCount => _threads
+      .where((thread) => !thread.isArchived && thread.unreadCount > 0)
+      .length;
 
   List<ChatThread> get visibleThreads => threadsForView(
         archivedOnly: _showArchivedOnly,
@@ -147,6 +156,7 @@ class ChatsController extends ChangeNotifier {
     try {
       _threads = await _repository.fetchThreads();
       _hasLoaded = true;
+      _listenForLiveThreads();
     } on ChatRepositoryException catch (error) {
       _errorMessage = error.message;
     } catch (_) {
@@ -155,6 +165,31 @@ class ChatsController extends ChangeNotifier {
 
     _isLoading = false;
     notifyListeners();
+  }
+
+  /// Keeps [_threads] in sync with messages/reads/deletes happening
+  /// elsewhere (e.g. the other participant sending a message), so previews,
+  /// unread counts, and list position update on their own instead of
+  /// needing a manual refresh or relaunch. No-op for repositories with no
+  /// real-time backing (see [ChatRepository.watchThreads]).
+  void _listenForLiveThreads() {
+    if (_liveThreadsSubscription != null) {
+      return;
+    }
+    final stream = _repository.watchThreads();
+    if (stream == null) {
+      return;
+    }
+    _liveThreadsSubscription = stream.listen((threads) {
+      _threads = threads;
+      notifyListeners();
+    });
+  }
+
+  @override
+  void dispose() {
+    _liveThreadsSubscription?.cancel();
+    super.dispose();
   }
 
   void updateSearchQuery(String value) {
@@ -208,6 +243,14 @@ class ChatsController extends ChangeNotifier {
           _showArchivedOnly = false;
         }
       },
+    );
+  }
+
+  Future<bool> deleteThread(String threadId) async {
+    return _runThreadMutation(
+      threadId,
+      () => _repository.deleteThread(threadId),
+      fallbackError: 'We could not delete that chat right now.',
     );
   }
 

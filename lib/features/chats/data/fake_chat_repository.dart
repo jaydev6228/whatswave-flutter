@@ -31,6 +31,17 @@ class FakeChatRepository implements ChatRepository {
   }
 
   @override
+  Stream<List<ChatThread>>? watchThreads() => null;
+
+  @override
+  Future<List<ChatThread>> deleteThread(String threadId) async {
+    await _wait();
+    _threads =
+        _threads.where((entry) => entry.id != threadId).toList(growable: false);
+    return _deepCopyThreads(_threads);
+  }
+
+  @override
   Future<ChatThread> startThread({
     required String participantUid,
     required String participantName,
