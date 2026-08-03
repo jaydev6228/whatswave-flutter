@@ -1063,106 +1063,83 @@ class _ContactCard extends StatelessWidget {
                       ),
                     ],
                     const SizedBox(height: 10),
-                    SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
+                    Row(
+                      children: [
                         contact.isOnWhatsWave
-                          ? FilledButton.tonalIcon(
-                              key: Key('contact_primary_action_${contact.id}'),
-                              onPressed: isBusy ? null : onSelectCommunity,
-                              style: FilledButton.styleFrom(
+                            ? IconButton.filledTonal(
+                                key: Key(
+                                    'contact_primary_action_${contact.id}'),
+                                tooltip: 'Add to community',
                                 visualDensity: VisualDensity.compact,
-                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 8,
-                                ),
-                              ),
-                              icon: isBusy
-                                  ? const SizedBox(
-                                      width: 14,
-                                      height: 14,
-                                      child: CircularProgressIndicator(
-                                          strokeWidth: 2),
-                                    )
-                                  : const Icon(
-                                      Icons.group_add_outlined,
-                                      size: 18,
-                                    ),
-                              label: const Text('Add to community'),
-                            )
-                          : FilledButton.tonalIcon(
-                              key: Key('contact_primary_action_${contact.id}'),
-                              onPressed: isBusy || contact.appInviteSent
-                                  ? null
-                                  : onShareInvite,
-                              style: FilledButton.styleFrom(
-                                visualDensity: VisualDensity.compact,
-                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 8,
-                                ),
-                              ),
-                              icon: const Icon(
-                                Icons.send_to_mobile_rounded,
-                                size: 18,
-                              ),
-                              label: Text(
-                                contact.appInviteSent
+                                onPressed: isBusy ? null : onSelectCommunity,
+                                icon: isBusy
+                                    ? const SizedBox(
+                                        width: 14,
+                                        height: 14,
+                                        child: CircularProgressIndicator(
+                                            strokeWidth: 2),
+                                      )
+                                    : const Icon(
+                                        Icons.group_add_outlined,
+                                        size: 18,
+                                      ),
+                              )
+                            : IconButton.filledTonal(
+                                key: Key(
+                                    'contact_primary_action_${contact.id}'),
+                                tooltip: contact.appInviteSent
                                     ? 'Invite sent'
                                     : 'Share app',
+                                visualDensity: VisualDensity.compact,
+                                onPressed: isBusy || contact.appInviteSent
+                                    ? null
+                                    : onShareInvite,
+                                icon: Icon(
+                                  contact.appInviteSent
+                                      ? Icons.check_circle_outline_rounded
+                                      : Icons.send_to_mobile_rounded,
+                                  size: 18,
+                                ),
                               ),
-                            ),
-                        if ((onMessage != null || onCall != null) &&
+                        if (onMessage != null &&
                             contact.isOnWhatsWave &&
                             contact.matchedUid != null) ...[
                           const SizedBox(width: 8),
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              if (onMessage != null)
-                                IconButton.filledTonal(
-                                  key: Key('contact_message_${contact.id}'),
-                                  tooltip: 'Message',
-                                  visualDensity: VisualDensity.compact,
-                                  onPressed: isBusy ? null : onMessage,
-                                  icon: const Icon(
-                                    Icons.chat_bubble_outline_rounded,
-                                    size: 18,
-                                  ),
-                                ),
-                              if (onCall != null) ...[
-                                const SizedBox(width: 8),
-                                IconButton.filledTonal(
-                                  key: Key('contact_call_audio_${contact.id}'),
-                                  tooltip: 'Voice call',
-                                  visualDensity: VisualDensity.compact,
-                                  onPressed: isBusy
-                                      ? null
-                                      : () => onCall!(CallType.audio),
-                                  icon: const Icon(Icons.call_outlined,
-                                      size: 18),
-                                ),
-                                const SizedBox(width: 8),
-                                IconButton.filledTonal(
-                                  key: Key('contact_call_video_${contact.id}'),
-                                  tooltip: 'Video call',
-                                  visualDensity: VisualDensity.compact,
-                                  onPressed: isBusy
-                                      ? null
-                                      : () => onCall!(CallType.video),
-                                  icon: const Icon(Icons.videocam_outlined,
-                                      size: 18),
-                                ),
-                              ],
-                            ],
+                          IconButton.filledTonal(
+                            key: Key('contact_message_${contact.id}'),
+                            tooltip: 'Message',
+                            visualDensity: VisualDensity.compact,
+                            onPressed: isBusy ? null : onMessage,
+                            icon: const Icon(
+                              Icons.chat_bubble_outline_rounded,
+                              size: 18,
+                            ),
                           ),
                         ],
+                        if (onCall != null &&
+                            contact.isOnWhatsWave &&
+                            contact.matchedUid != null) ...[
+                          const SizedBox(width: 8),
+                          IconButton.filledTonal(
+                            key: Key('contact_call_audio_${contact.id}'),
+                            tooltip: 'Voice call',
+                            visualDensity: VisualDensity.compact,
+                            onPressed:
+                                isBusy ? null : () => onCall!(CallType.audio),
+                            icon: const Icon(Icons.call_outlined, size: 18),
+                          ),
+                          const SizedBox(width: 8),
+                          IconButton.filledTonal(
+                            key: Key('contact_call_video_${contact.id}'),
+                            tooltip: 'Video call',
+                            visualDensity: VisualDensity.compact,
+                            onPressed:
+                                isBusy ? null : () => onCall!(CallType.video),
+                            icon:
+                                const Icon(Icons.videocam_outlined, size: 18),
+                          ),
                         ],
-                      ),
+                      ],
                     ),
                   ],
                 ),

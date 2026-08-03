@@ -3,8 +3,15 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /chatThreads/{threadId} {
+      // The !exists() branch lets startThread() check "does this thread
+      // already exist" before creating one (deterministic sorted-uid id,
+      // see FirestoreChatRepository.startThread) -- without it, reading a
+      // not-yet-created thread errors on resource.data being null and gets
+      // denied outright, blocking the very first message between two
+      // people. A non-existent doc has nothing to expose either way.
       allow read: if request.auth != null
-                   && request.auth.uid in resource.data.participantUids;
+                   && (!exists(/databases/$(database)/documents/chatThreads/$(threadId))
+                       || request.auth.uid in resource.data.participantUids);
       allow create: if request.auth != null
                      && request.auth.uid in request.resource.data.participantUids;
       allow update: if request.auth != null
