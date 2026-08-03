@@ -74,14 +74,19 @@ service cloud.firestore {
     match /calls/{callId} {
       // Only the two participants can ever read a call doc. Only the
       // caller can create one (the callee doesn't need write access to be
-      // invited). Either side can update status (accept/decline/end), but
-      // can't change who's on the call or which room it points to --
-      // those fields are fixed at creation.
+      // invited), and callerUid/calleeUid must differ -- self-calls were
+      // briefly allowed to smoke-test the debug call-signaling screen on
+      // one device, now reverted since real calling is wired up and
+      // self-calls have no legitimate use. Either side can update status
+      // (accept/decline/end), but can't change who's on the call or which
+      // room it points to -- those fields are fixed at creation.
       allow read: if request.auth != null
                     && (request.auth.uid == resource.data.callerUid
                         || request.auth.uid == resource.data.calleeUid);
       allow create: if request.auth != null
-                      && request.auth.uid == request.resource.data.callerUid;
+                      && request.auth.uid == request.resource.data.callerUid
+                      && request.resource.data.callerUid
+                          != request.resource.data.calleeUid;
       allow update: if request.auth != null
                       && (request.auth.uid == resource.data.callerUid
                           || request.auth.uid == resource.data.calleeUid)
