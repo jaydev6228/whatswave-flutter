@@ -1,5 +1,7 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../core/config/backend_runtime_config.dart';
 import '../../../core/config/runtime_flags.dart';
@@ -26,6 +28,30 @@ class _BackendSyncScreenState extends State<BackendSyncScreen> {
   void initState() {
     super.initState();
     widget.controller.ensureLoaded();
+  }
+
+  Future<void> _copyIdToken() async {
+    final user = FirebaseAuth.instance.currentUser;
+    final messenger = ScaffoldMessenger.of(context);
+    if (user == null) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Not signed in.')),
+      );
+      return;
+    }
+
+    final token = await user.getIdToken();
+    if (token == null) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Could not fetch an ID token.')),
+      );
+      return;
+    }
+
+    await Clipboard.setData(ClipboardData(text: token));
+    messenger.showSnackBar(
+      const SnackBar(content: Text('ID token copied to clipboard.')),
+    );
   }
 
   @override
@@ -185,6 +211,14 @@ class _BackendSyncScreenState extends State<BackendSyncScreen> {
                                     ),
                                     icon: const Icon(Icons.videocam_outlined),
                                     label: const Text('Test LiveKit connection'),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  OutlinedButton.icon(
+                                    key: const Key(
+                                        'backend_sync_copy_id_token_button'),
+                                    onPressed: _copyIdToken,
+                                    icon: const Icon(Icons.key_outlined),
+                                    label: const Text('Copy Firebase ID token'),
                                   ),
                                 ],
                               ),
