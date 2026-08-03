@@ -60,7 +60,7 @@ The app runs in two modes, switched at launch via `WW_BACKEND_TARGET` (see `conf
 | Chats | Seeded fake threads | **Real Cloud Firestore** (per-thread participant security rules) |
 | Updates/Status | Seeded fake stories | **Real Cloud Firestore** for metadata; photo/video stay device-local (no Cloud Storage yet -- see below) |
 | Communities | Seeded fake communities + contacts | **Real Cloud Firestore** for communities; **real device contacts** (`flutter_contacts`) matched against registered accounts via a `phoneDirectory` collection |
-| Calls | Simulated (Timers, no real transport) | Same for the real call flow -- a separate debug-only screen (Settings -> Backend and sync -> Debug tools -> "Test LiveKit connection") proves real LiveKit Cloud connectivity and mic capture work; full wiring is its own roadmap in `docs/calling_strategy.md`, not started |
+| Calls | Simulated (Timers, no real transport) | Same for the real call flow -- but the underlying pieces are proven separately via debug-only screens: LiveKit media connectivity ("Test LiveKit connection") and **real cross-device Firestore call signaling**, verified with a physical two-device test ("Test call signaling"). Wiring both into `CallsController` is its own roadmap in `docs/calling_strategy.md`, not started |
 | Crashlytics / Analytics | Local in-memory breadcrumbs only | **Real Crashlytics + Analytics** (crash capture/upload verified; stack-trace symbolication disabled, see below) |
 | Push (FCM/APNs) | Not implemented | **Real FCM token registration** (permission request, token fetch, written to `pushTokens/{uid}`) -- see below for a Simulator-specific limitation |
 
