@@ -46,6 +46,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
   double? _composerLockedMinHeight;
   String? _lastRenderedThreadId;
   String? _lastKnownLatestMessageId;
+  double? _lastKnownBottomInset;
   String? _animatedMessageId;
   final List<ChatMessage> _localMessages = <ChatMessage>[];
   Timer? _composerUnlockTimer;
@@ -133,6 +134,19 @@ class _ConversationScreenState extends State<ConversationScreen> {
             }
           }
         }
+
+        // The keyboard showing/hiding resizes this Scaffold's body (default
+        // resizeToAvoidBottomInset), which shrinks or grows the message
+        // list's viewport without moving its scroll offset -- so the latest
+        // message ends up stranded behind the keyboard on open, or leaves a
+        // gap at the bottom on close. Re-pin to the latest message on every
+        // inset change so it always sits just above the keyboard/composer.
+        final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+        if (_lastKnownBottomInset != null &&
+            bottomInset != _lastKnownBottomInset) {
+          _scheduleScrollToLatestMessage(animated: true);
+        }
+        _lastKnownBottomInset = bottomInset;
 
         final visibleMessages = _visibleMessagesForThread(thread);
 
