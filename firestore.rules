@@ -82,6 +82,16 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /userProfiles/{uid} {
+      // Any signed-in user can look up another user's public display
+      // name/avatar/color -- e.g. FirestoreChatRepository uses this so
+      // each side of a 1:1 chat shows the *other* person's real name,
+      // instead of whatever got baked into the thread doc once by
+      // whoever created it. Only the owner can write their own profile.
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == uid;
+    }
+
     match /pushTokens/{ownerUid} {
       // Only the owner can read/write their own push token -- a future
       // server-side sender would use the Admin SDK, which bypasses these

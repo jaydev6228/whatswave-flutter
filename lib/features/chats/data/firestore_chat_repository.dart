@@ -9,6 +9,19 @@ import 'chat_repository.dart';
 
 /// Firestore-backed [ChatRepository].
 ///
+/// A thread's displayed name/avatar/color always prefers the *other*
+/// participant's own `userProfiles/{uid}` document (see
+/// FirebaseAuthRepository, which publishes it on profile save) over
+/// whatever got written onto the thread doc itself at creation --
+/// otherwise both sides of a 1:1 chat would see the same static name
+/// (whoever created the thread's chosen label for the other person),
+/// which is wrong for a chat. The thread doc's own name/avatarLabel/
+/// accentColorArgb still exist as a fallback for when the other person
+/// hasn't saved a profile yet (e.g. brand new account) -- normally seeded
+/// from the caller's own local contact-book name for them, same as a real
+/// messaging app showing a saved contact name until the other side sets
+/// their own.
+///
 /// Known simplification: unreadCount/isMuted/isPinned/isArchived live
 /// directly on the thread document rather than per-participant. This
 /// matches how [ChatRepository] already behaves -- there is no per-user
@@ -182,6 +195,37 @@ class FirestoreChatRepository implements ChatRepository {
   }) async {
     final data = doc.data() ?? const <String, dynamic>{};
 
+    var name = (data['name'] as String?) ?? '';
+    var avatarLabel = (data['avatarLabel'] as String?) ?? '';
+    var accentColor = Color((data['accentColorArgb'] as int?) ?? 0xFF000000);
+
+    final participantUids =
+        (data['participantUids'] as List<dynamic>?)?.cast<String>() ??
+            const <String>[];
+    final otherUid = participantUids
+        .cast<String?>()
+        .firstWhere((entry) => entry != null && entry != currentUid,
+            orElse: () => null);
+
+    if (otherUid != null) {
+      try {
+        final profileDoc =
+            await _firestore.collection('userProfiles').doc(otherUid).get();
+        final profileName = profileDoc.data()?['name'] as String?;
+        if (profileName != null && profileName.isNotEmpty) {
+          name = profileName;
+          avatarLabel =
+              (profileDoc.data()?['avatarLabel'] as String?) ?? avatarLabel;
+          accentColor = Color(
+            (profileDoc.data()?['accentColorArgb'] as int?) ??
+                accentColor.toARGB32(),
+          );
+        }
+      } on FirebaseException {
+        // Fall back to whatever's already on the thread doc.
+      }
+    }
+
     final messagesSnapshot =
         await doc.reference.collection('messages').orderBy('sentAt').get();
 
@@ -192,9 +236,9 @@ class FirestoreChatRepository implements ChatRepository {
 
     return ChatThread(
       id: doc.id,
-      name: (data['name'] as String?) ?? '',
-      avatarLabel: (data['avatarLabel'] as String?) ?? '',
-      accentColor: Color((data['accentColorArgb'] as int?) ?? 0xFF000000),
+      name: name,
+      avatarLabel: avatarLabel,
+      accentColor: accentColor,
       messages: messages,
       unreadCount: (data['unreadCount'] as int?) ?? 0,
       isMuted: (data['isMuted'] as bool?) ?? false,

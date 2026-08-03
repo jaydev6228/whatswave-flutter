@@ -149,12 +149,35 @@ class FirebaseAuthRepository implements AuthRepository {
       throw const AuthException('Sign in again before editing your profile.');
     }
 
-    await user.updateDisplayName(name.trim());
+    final trimmedName = name.trim();
+    await user.updateDisplayName(trimmedName);
     await _writeAbout(user.uid, about.trim());
     await _registerInPhoneDirectory(user.uid, user.phoneNumber);
+    await _registerUserProfile(user.uid, trimmedName);
     await user.reload();
 
     return _appUserFromFirebaseUser(_firebaseAuth.currentUser ?? user);
+  }
+
+  /// Publishes this user's display name/avatar/color to a `userProfiles`
+  /// document any other signed-in user can read -- e.g. so
+  /// FirestoreChatRepository can show each side of a 1:1 chat the *other*
+  /// person's real name, instead of whichever name got baked into the
+  /// thread doc by whoever happened to create it. Best-effort, same
+  /// reasoning as [_registerInPhoneDirectory].
+  Future<void> _registerUserProfile(String uid, String name) async {
+    if (name.isEmpty) {
+      return;
+    }
+    try {
+      await _firestore.collection('userProfiles').doc(uid).set({
+        'name': name,
+        'avatarLabel': _avatarLabelForName(name),
+        'accentColorArgb': _accentColorForName(name).toARGB32(),
+      });
+    } on FirebaseException {
+      // Best-effort -- see doc comment above.
+    }
   }
 
   /// Registers this user's phone number so device contacts can be matched
