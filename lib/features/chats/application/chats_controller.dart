@@ -65,6 +65,15 @@ class ChatsController extends ChangeNotifier {
     final normalizedQuery = (query ?? _searchQuery).trim().toLowerCase();
     final activeFilter = filter ?? _selectedFilter;
     final filteredThreads = _threads.where((thread) {
+      // A thread startThreadWith() just created (or one someone opened
+      // and never messaged) has no messages yet -- keep it out of every
+      // list view until there's an actual conversation, same idea as an
+      // empty status not showing up as a real update. threadById() still
+      // finds it directly, so the conversation screen it was just opened
+      // from keeps working.
+      if (thread.messages.isEmpty) {
+        return false;
+      }
       if (thread.isArchived != archivedOnly) {
         return false;
       }

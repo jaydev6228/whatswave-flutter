@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:flutter/material.dart';
 
+import '../../../app/theme/app_palette.dart';
 import '../domain/chat_attachment.dart';
 import '../domain/chat_message.dart';
 import '../domain/chat_thread.dart';
@@ -11,16 +12,20 @@ import 'chat_repository.dart';
 ///
 /// A thread's displayed name/avatar/color always prefers the *other*
 /// participant's own `userProfiles/{uid}` document (see
-/// FirebaseAuthRepository, which publishes it on profile save) over
-/// whatever got written onto the thread doc itself at creation --
-/// otherwise both sides of a 1:1 chat would see the same static name
-/// (whoever created the thread's chosen label for the other person),
-/// which is wrong for a chat. The thread doc's own name/avatarLabel/
-/// accentColorArgb still exist as a fallback for when the other person
-/// hasn't saved a profile yet (e.g. brand new account) -- normally seeded
-/// from the caller's own local contact-book name for them, same as a real
-/// messaging app showing a saved contact name until the other side sets
-/// their own.
+/// FirebaseAuthRepository, which publishes it on profile save). Falling
+/// back to a single shared name/avatarLabel/accentColorArgb field on the
+/// thread doc itself (an earlier version of this class did that) is wrong:
+/// that field only ever holds a guess about *one specific uid* (whoever
+/// startThread's caller was messaging), so using it as a blind fallback
+/// for BOTH sides showed each of them the callee's name -- including the
+/// callee looking at their own chat and seeing their own name. Fixed by
+/// keying the fallback per-uid instead: seedProfiles is a
+/// `{uid: {name, avatarLabel, accentColorArgb}}` map, so each viewer's
+/// fallback lookup (seedProfiles[otherUid]) can only ever resolve to data
+/// that's actually about the other person. If neither the live profile nor
+/// a seed entry exists yet (e.g. viewing from the side nobody has
+/// messaged), falls back to a generic placeholder rather than guessing
+/// wrong.
 ///
 /// Known simplification: unreadCount/isMuted/isPinned/isArchived live
 /// directly on the thread document rather than per-participant. This
@@ -85,9 +90,15 @@ class FirestoreChatRepository implements ChatRepository {
       final existing = await docRef.get();
       if (!existing.exists) {
         await docRef.set(<String, Object?>{
-          'name': participantName,
-          'avatarLabel': avatarLabel,
-          'accentColorArgb': accentColor.toARGB32(),
+          // Keyed by uid, not a flat field -- see the class doc comment
+          // for why a single shared name/avatar/color is wrong here.
+          'seedProfiles': {
+            participantUid: {
+              'name': participantName,
+              'avatarLabel': avatarLabel,
+              'accentColorArgb': accentColor.toARGB32(),
+            },
+          },
           'participantUids': [uid, participantUid],
           'unreadCount': 0,
           'isMuted': false,
@@ -195,9 +206,9 @@ class FirestoreChatRepository implements ChatRepository {
   }) async {
     final data = doc.data() ?? const <String, dynamic>{};
 
-    var name = (data['name'] as String?) ?? '';
-    var avatarLabel = (data['avatarLabel'] as String?) ?? '';
-    var accentColor = Color((data['accentColorArgb'] as int?) ?? 0xFF000000);
+    var name = 'WhatsWave user';
+    var avatarLabel = '?';
+    var accentColor = AppPalette.slate;
 
     final participantUids =
         (data['participantUids'] as List<dynamic>?)?.cast<String>() ??
@@ -208,6 +219,21 @@ class FirestoreChatRepository implements ChatRepository {
             orElse: () => null);
 
     if (otherUid != null) {
+      // A per-uid seed guess from whoever created the thread -- only ever
+      // valid as a fallback for looking up THIS specific otherUid (see the
+      // class doc comment for why a single shared field was wrong).
+      final seedProfiles = data['seedProfiles'] as Map<String, dynamic>?;
+      final seed = seedProfiles?[otherUid] as Map<String, dynamic>?;
+      if (seed != null) {
+        final seedName = seed['name'] as String?;
+        if (seedName != null && seedName.isNotEmpty) {
+          name = seedName;
+          avatarLabel = (seed['avatarLabel'] as String?) ?? avatarLabel;
+          accentColor =
+              Color((seed['accentColorArgb'] as int?) ?? accentColor.toARGB32());
+        }
+      }
+
       try {
         final profileDoc =
             await _firestore.collection('userProfiles').doc(otherUid).get();
@@ -222,7 +248,7 @@ class FirestoreChatRepository implements ChatRepository {
           );
         }
       } on FirebaseException {
-        // Fall back to whatever's already on the thread doc.
+        // Fall back to the seed guess (or the generic placeholder) above.
       }
     }
 
