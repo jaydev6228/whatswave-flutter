@@ -359,7 +359,10 @@ class _VideoAmbientStage extends StatelessWidget {
         if (showRemoteVideo)
           Positioned.fill(
             key: const Key('call_remote_video_surface'),
-            child: lk.VideoTrackRenderer(remoteTrack),
+            child: lk.VideoTrackRenderer(
+              remoteTrack,
+              fit: lk.VideoViewFit.cover,
+            ),
           )
         else if (session.phase != CallSessionPhase.connected)
           Center(
@@ -460,25 +463,10 @@ class _LocalVideoPreviewCard extends StatelessWidget {
               ),
               child: Stack(
                 children: [
-                  Align(
-                    alignment: Alignment.bottomRight,
-                    child: _PreviewControlButton(
-                      buttonKey: const Key('call_switch_camera_button'),
-                      icon: Icons.flip_camera_ios_rounded,
-                      size: compact ? 34 : 38,
-                      backgroundColor: scheme.miniControlBackground,
-                      foregroundColor: scheme.miniControlForeground,
-                      borderColor: scheme.isDark
-                          ? Colors.white.withValues(alpha: 0.14)
-                          : scheme.miniControlForeground.withValues(
-                              alpha: 0.12,
-                            ),
-                      shadowColor: Colors.black.withValues(
-                        alpha: scheme.isDark ? 0.14 : 0.05,
-                      ),
-                      onPressed: onSwitchCamera,
-                    ),
-                  ),
+                  // Video (or its fallback icon) painted first, so the
+                  // switch-camera button below always stays on top and
+                  // tappable -- Stack children paint in order, and a
+                  // full-bleed video here would otherwise cover it.
                   Align(
                     alignment: Alignment.center,
                     child: AnimatedSwitcher(
@@ -490,7 +478,10 @@ class _LocalVideoPreviewCard extends StatelessWidget {
                           ? ClipRRect(
                               key: const Key('call_local_video_surface'),
                               borderRadius: borderRadius,
-                              child: lk.VideoTrackRenderer(localVideoTrack!),
+                              child: lk.VideoTrackRenderer(
+                                localVideoTrack!,
+                                fit: lk.VideoViewFit.cover,
+                              ),
                             )
                           : session.isLocalVideoEnabled
                           ? Icon(
@@ -527,6 +518,25 @@ class _LocalVideoPreviewCard extends StatelessWidget {
                                 ),
                               ],
                             ),
+                    ),
+                  ),
+                  Align(
+                    alignment: Alignment.bottomRight,
+                    child: _PreviewControlButton(
+                      buttonKey: const Key('call_switch_camera_button'),
+                      icon: Icons.flip_camera_ios_rounded,
+                      size: compact ? 34 : 38,
+                      backgroundColor: scheme.miniControlBackground,
+                      foregroundColor: scheme.miniControlForeground,
+                      borderColor: scheme.isDark
+                          ? Colors.white.withValues(alpha: 0.14)
+                          : scheme.miniControlForeground.withValues(
+                              alpha: 0.12,
+                            ),
+                      shadowColor: Colors.black.withValues(
+                        alpha: scheme.isDark ? 0.14 : 0.05,
+                      ),
+                      onPressed: onSwitchCamera,
                     ),
                   ),
                 ],
