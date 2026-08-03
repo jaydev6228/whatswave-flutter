@@ -45,6 +45,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
   late final ScrollController _messageListController;
   double? _composerLockedMinHeight;
   String? _lastRenderedThreadId;
+  String? _lastKnownLatestMessageId;
   String? _animatedMessageId;
   final List<ChatMessage> _localMessages = <ChatMessage>[];
   Timer? _composerUnlockTimer;
@@ -75,6 +76,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
     _localMessages.clear();
     _lastRenderedThreadId = null;
+    _lastKnownLatestMessageId = null;
     _animatedMessageId = null;
   }
 
@@ -113,7 +115,23 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
         if (_lastRenderedThreadId != thread.id) {
           _lastRenderedThreadId = thread.id;
+          _lastKnownLatestMessageId = thread.latestMessage?.id;
           _scheduleScrollToLatestMessage(animated: false);
+        } else {
+          // A message landed in this already-open thread -- either our own
+          // send confirming, or (the previously-missing case) the other
+          // participant's message arriving over the live watchThreads()
+          // stream. Follow it to the bottom only if the reader was already
+          // near the latest message, same convention as _retryFailedMessage.
+          final latestMessageId = thread.latestMessage?.id;
+          if (latestMessageId != null &&
+              latestMessageId != _lastKnownLatestMessageId) {
+            final wasNearLatest = _isNearLatestMessage();
+            _lastKnownLatestMessageId = latestMessageId;
+            if (wasNearLatest) {
+              _scheduleScrollToLatestMessage(animated: true);
+            }
+          }
         }
 
         final visibleMessages = _visibleMessagesForThread(thread);
