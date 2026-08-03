@@ -31,13 +31,15 @@ import 'device_contacts_service.dart';
 /// `fetchOverview()` calls instead of re-reading the address book (and
 /// losing that state) every time.
 ///
-/// Known simplification, same pattern as the auth/chats/updates slices:
-/// only the community's creator (`ownerUid`) can write it. Any signed-in
-/// user can read any community (like a real community directory). Since
-/// there's only ever one real test account today, every community that
-/// exists was created by -- and is therefore writable by -- the current
-/// user; this would need real membership-based write rules for genuine
-/// multi-user communities.
+/// Communities are membership-gated: a `memberUids` array on the document
+/// (seeded with just the creator at `createCommunity`) is what
+/// `firestore.rules` checks for read access -- only members can see a
+/// community at all, matching a real private group. Only the owner
+/// (`ownerUid`) can write the document, including adding members, so
+/// joining today only happens via the owner inviting a contact (see
+/// `inviteContactToCommunity`) -- there's no self-service join/invite-link
+/// flow yet, and no separate pending-invite/accept step: being invited by
+/// the owner immediately grants membership.
 class FirestoreCommunitiesRepository implements CommunitiesRepository {
   FirestoreCommunitiesRepository({
     FirebaseFirestore? firestore,
@@ -74,10 +76,12 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
 
   @override
   Future<CommunitiesOverview> fetchOverview() async {
-    _requireCurrentUid;
+    final uid = _requireCurrentUid;
     await _ensureContactsLoaded();
     try {
-      final snapshot = await _communitiesRef.get();
+      final snapshot = await _communitiesRef
+          .where('memberUids', arrayContains: uid)
+          .get();
       final communities = snapshot.docs
           .map(_communityFromDoc)
           .whereType<CommunityHub>()
@@ -159,7 +163,11 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
         title: normalizedTitle,
         description: normalizedDescription,
       );
-      await docRef.set({..._communityToJson(draft), 'ownerUid': uid});
+      await docRef.set({
+        ..._communityToJson(draft),
+        'ownerUid': uid,
+        'memberUids': [uid],
+      });
     } on FirebaseException catch (e) {
       throw CommunitiesRepositoryException(
         e.message ?? 'We could not create that community right now.',
@@ -190,7 +198,7 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
     _requireCurrentUid;
     await _ensureContactsLoaded();
     final contact = _contactById(contactId);
-    if (!contact.isOnWhatsWave) {
+    if (!contact.isOnWhatsWave || contact.matchedUid == null) {
       throw const CommunitiesRepositoryException(
         'That person needs an app invite before they can join a community.',
       );
@@ -210,8 +218,12 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
         );
       }
 
+      // "Inviting" grants membership immediately -- only the owner can
+      // write this document at all (see the class doc comment), so there's
+      // no separate pending/accept step yet.
       await _communitiesRef.doc(communityId).update({
         'invitedContactIds': FieldValue.arrayUnion([contactId]),
+        'memberUids': FieldValue.arrayUnion([contact.matchedUid]),
       });
     } on FirebaseException catch (e) {
       throw CommunitiesRepositoryException(
@@ -225,8 +237,8 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
           return entry;
         }
         return entry.copyWith(
-          pendingCommunityInviteIds: List<String>.unmodifiable([
-            ...entry.pendingCommunityInviteIds,
+          memberCommunityIds: List<String>.unmodifiable([
+            ...entry.memberCommunityIds,
             communityId,
           ]),
         );
@@ -291,13 +303,17 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
         .map(_groupFromMap)
         .toList(growable: false);
 
+    final memberUids = (data['memberUids'] as List<dynamic>?)?.cast<String>();
+
     return CommunityHub(
       id: doc.id,
       title: (data['title'] as String?) ?? '',
       description: (data['description'] as String?) ?? '',
       avatarLabel: (data['avatarLabel'] as String?) ?? '',
       accentColor: Color((data['accentColorArgb'] as int?) ?? 0xFF000000),
-      memberCount: (data['memberCount'] as int?) ?? 1,
+      memberCount: memberUids != null && memberUids.isNotEmpty
+          ? memberUids.length
+          : (data['memberCount'] as int?) ?? 1,
       announcement: announcement,
       groups: groups,
       unreadCount: (data['unreadCount'] as int?) ?? 0,

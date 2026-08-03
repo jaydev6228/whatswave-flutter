@@ -32,14 +32,17 @@ service cloud.firestore {
     }
 
     match /communities/{communityId} {
-      // Any signed-in user can read any community (like a real community
-      // directory) -- only the creator (ownerUid) can create/update it.
-      // A genuine multi-user community would need membership-based write
-      // rules instead; out of scope while there's only one real test
-      // account.
-      allow read: if request.auth != null;
+      // Membership-gated, like a real private group: only uids in
+      // memberUids can read the document at all. Only the owner can write
+      // it -- including adding members -- so joining today only happens
+      // via the owner inviting someone (no self-service join/invite-link
+      // flow yet). A new community must start with only its own creator as
+      // a member.
+      allow read: if request.auth != null
+                    && request.auth.uid in resource.data.memberUids;
       allow create: if request.auth != null
-                      && request.auth.uid == request.resource.data.ownerUid;
+                      && request.auth.uid == request.resource.data.ownerUid
+                      && request.resource.data.memberUids == [request.auth.uid];
       allow update: if request.auth != null
                       && request.auth.uid == resource.data.ownerUid;
       allow delete: if false;
