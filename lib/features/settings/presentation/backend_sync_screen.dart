@@ -5,6 +5,7 @@ import '../../../core/config/backend_runtime_config.dart';
 import '../../../core/config/runtime_flags.dart';
 import '../../../core/integrations/backend_repository_bundle.dart';
 import '../../../core/integrations/integration_hub_controller.dart';
+import '../../calls/presentation/livekit_test_screen.dart';
 import '../../shared/widgets/empty_state_card.dart';
 import '../../shared/widgets/section_heading.dart';
 
@@ -171,6 +172,19 @@ class _BackendSyncScreenState extends State<BackendSyncScreen> {
                                     icon: const Icon(
                                         Icons.bug_report_outlined),
                                     label: const Text('Send test crash'),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  OutlinedButton.icon(
+                                    key: const Key(
+                                        'backend_sync_livekit_test_button'),
+                                    onPressed: () => Navigator.of(context).push(
+                                      MaterialPageRoute<void>(
+                                        builder: (_) =>
+                                            const LiveKitTestScreen(),
+                                      ),
+                                    ),
+                                    icon: const Icon(Icons.videocam_outlined),
+                                    label: const Text('Test LiveKit connection'),
                                   ),
                                 ],
                               ),
