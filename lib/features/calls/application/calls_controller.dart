@@ -469,8 +469,17 @@ class CallsController extends ChangeNotifier {
     final isSpeakerOn = !session.isSpeakerOn;
     _currentSession = session.copyWith(isSpeakerOn: isSpeakerOn);
     if (session.isReal) {
+      // force: true -- on at least one real device tested, LiveKit's
+      // Android audio-switch routing picked earpiece over speaker despite
+      // the (non-forced) preference, even with no headset/Bluetooth
+      // connected. Confirmed via adb logcat: audio was flowing the whole
+      // call (~1.17M frames delivered, matching call duration), just
+      // routed to the earpiece. Only force towards speaker, not away from
+      // it, so a real headset can still naturally win when going back to
+      // earpiece/default.
       unawaited(
-        lk.AudioManager.instance.setSpeakerOutputPreferred(isSpeakerOn),
+        lk.AudioManager.instance
+            .setSpeakerOutputPreferred(isSpeakerOn, force: isSpeakerOn),
       );
     }
     _telemetry.recordInteraction(
@@ -798,10 +807,16 @@ class CallsController extends ChangeNotifier {
       // Session defaults isSpeakerOn based on call type, but that's only
       // ever applied to the native audio route here, on connect -- toggling
       // it later (toggleSpeaker) is the only other place this gets set.
-      // Without this, audio plays through the earpiece by default, which
-      // is easy to mistake for "no audio" unless the phone is held up.
+      // force: true when preferring speaker -- confirmed via adb logcat on
+      // a real device that LiveKit's Android audio-switch routing picked
+      // earpiece over a non-forced speaker preference, with audio actually
+      // flowing the whole call (~1.17M frames, matching call duration) just
+      // inaudibly quiet through the earpiece.
       unawaited(
-        lk.AudioManager.instance.setSpeakerOutputPreferred(current.isSpeakerOn),
+        lk.AudioManager.instance.setSpeakerOutputPreferred(
+          current.isSpeakerOn,
+          force: current.isSpeakerOn,
+        ),
       );
       _currentSession = current.copyWith(
         phase: CallSessionPhase.connected,
