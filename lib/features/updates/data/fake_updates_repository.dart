@@ -126,10 +126,11 @@ class FakeUpdatesRepository implements UpdatesRepository {
         : _stories[myStatusIndex];
     final storedMediaPath =
         await _maybeImportMedia(type: type, localMediaPath: localMediaPath);
+    final postedAt = DateTime.now();
     final nextSegments = List<StatusStorySegment>.unmodifiable([
       ..._segmentsFor(currentMyStatus),
       StatusStorySegment(
-        id: 'status-${DateTime.now().microsecondsSinceEpoch}',
+        id: 'status-${postedAt.microsecondsSinceEpoch}',
         type: type,
         previewText: previewText,
         localMediaPath: storedMediaPath,
@@ -142,6 +143,7 @@ class FakeUpdatesRepository implements UpdatesRepository {
         stickers: normalizedStickers,
         musicTrack: musicTrack,
         overlayItems: normalizedOverlayItems,
+        postedAt: postedAt,
       ),
     ]);
 
@@ -152,6 +154,7 @@ class FakeUpdatesRepository implements UpdatesRepository {
       totalSegments: nextSegments.length,
       seenSegments: 0,
       segments: nextSegments,
+      postedAt: postedAt,
     );
 
     if (myStatusIndex == -1) {
@@ -396,6 +399,7 @@ class FakeUpdatesRepository implements UpdatesRepository {
       totalSegments: remainingSegments.length,
       seenSegments: 0,
       segments: remainingSegments,
+      postedAt: latestSegment.postedAt,
     );
   }
 
@@ -514,7 +518,31 @@ class FakeUpdatesRepository implements UpdatesRepository {
 
   static List<StatusStory> _cloneStories(List<StatusStory> stories) {
     return List<StatusStory>.unmodifiable(
-      stories.map((story) => story.copyWith()),
+      stories.map(_withLiveSegments).map((story) => story.copyWith()),
+    );
+  }
+
+  // WhatsApp-style 24h status lifetime, mirroring
+  // FirestoreUpdatesRepository._storyFromDoc. A segment with no postedAt is
+  // legacy/demo data written before this existed -- keep it rather than
+  // guess whether it's expired.
+  static StatusStory _withLiveSegments(StatusStory story) {
+    final liveSegments = story.segments.where((segment) {
+      final postedAt = segment.postedAt;
+      if (postedAt == null) {
+        return true;
+      }
+      return DateTime.now().difference(postedAt) < const Duration(hours: 24);
+    }).toList(growable: false);
+    if (liveSegments.length == story.segments.length) {
+      return story;
+    }
+    return story.copyWith(
+      segments: liveSegments,
+      totalSegments: liveSegments.length,
+      seenSegments: liveSegments.isEmpty
+          ? 0
+          : story.seenSegments.clamp(0, liveSegments.length).toInt(),
     );
   }
 

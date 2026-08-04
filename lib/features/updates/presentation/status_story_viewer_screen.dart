@@ -795,7 +795,7 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                story.timeLabel,
+                                story.relativeTimeLabel,
                                 style: theme.textTheme.bodySmall?.copyWith(
                                   color: Colors.white.withValues(alpha: 0.72),
                                 ),

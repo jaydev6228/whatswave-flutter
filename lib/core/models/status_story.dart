@@ -412,6 +412,7 @@ class StatusStorySegment {
     this.stickers = const <String>[],
     this.musicTrack,
     this.overlayItems = const <StatusMediaOverlayItem>[],
+    this.postedAt,
   });
 
   final String id;
@@ -425,6 +426,7 @@ class StatusStorySegment {
   final List<String> stickers;
   final StatusMusicTrack? musicTrack;
   final List<StatusMediaOverlayItem> overlayItems;
+  final DateTime? postedAt;
 
   bool get hasLocalMedia => localMediaPath?.trim().isNotEmpty == true;
   bool get hasRichOverlays => overlayItems.isNotEmpty;
@@ -444,6 +446,7 @@ class StatusStorySegment {
     StatusMusicTrack? musicTrack,
     bool clearMusicTrack = false,
     List<StatusMediaOverlayItem>? overlayItems,
+    DateTime? postedAt,
   }) {
     return StatusStorySegment(
       id: id ?? this.id,
@@ -459,6 +462,7 @@ class StatusStorySegment {
       overlayItems: List<StatusMediaOverlayItem>.unmodifiable(
         overlayItems ?? this.overlayItems,
       ),
+      postedAt: postedAt ?? this.postedAt,
     );
   }
 
@@ -477,6 +481,7 @@ class StatusStorySegment {
       'overlayItems': overlayItems
           .map((overlay) => overlay.toJson())
           .toList(growable: false),
+      'postedAt': postedAt?.millisecondsSinceEpoch,
     };
   }
 
@@ -525,6 +530,9 @@ class StatusStorySegment {
       stickers: List<String>.unmodifiable(stickers),
       musicTrack: musicTrack,
       overlayItems: List<StatusMediaOverlayItem>.unmodifiable(overlayItems),
+      postedAt: raw['postedAt'] is int
+          ? DateTime.fromMillisecondsSinceEpoch(raw['postedAt'] as int)
+          : null,
     );
   }
 }
@@ -542,6 +550,7 @@ class StatusStory {
     this.totalSegments = 1,
     this.seenSegments = 0,
     this.segments = const <StatusStorySegment>[],
+    this.postedAt,
   });
 
   final String id;
@@ -556,6 +565,13 @@ class StatusStory {
   final int seenSegments;
   final List<StatusStorySegment> segments;
 
+  /// When the latest segment was posted -- kept in sync with
+  /// latestSegment.postedAt wherever a story is built/updated. Mirrored
+  /// here (rather than only reading latestSegment.postedAt on demand) so
+  /// it survives round-tripping through toJson/fromJson even for a story
+  /// view that doesn't carry its full segments list.
+  final DateTime? postedAt;
+
   bool get hasSegments => totalSegments > 0;
   int get clampedSeenSegments =>
       hasSegments ? seenSegments.clamp(0, totalSegments).toInt() : 0;
@@ -563,6 +579,20 @@ class StatusStory {
       hasSegments && clampedSeenSegments < totalSegments;
   StatusStorySegment? get latestSegment =>
       segments.isEmpty ? null : segments.last;
+
+  /// Computed live from the latest segment's postedAt, not the stored
+  /// timeLabel snapshot -- that only ever reflected the moment it was
+  /// written, so it never advanced past "Just now"/"Add now".
+  String get relativeTimeLabel {
+    final postedAt = latestSegment?.postedAt;
+    if (postedAt == null) {
+      return timeLabel; // legacy story with no timestamp -- fall back
+    }
+    final elapsed = DateTime.now().difference(postedAt);
+    if (elapsed.inMinutes < 1) return 'Just now';
+    if (elapsed.inMinutes < 60) return '${elapsed.inMinutes}m ago';
+    return '${elapsed.inHours}h ago';
+  }
 
   StatusStorySegment? segmentAt(int index) {
     if (index < 0 || index >= totalSegments) {
@@ -592,6 +622,7 @@ class StatusStory {
     int? totalSegments,
     int? seenSegments,
     List<StatusStorySegment>? segments,
+    DateTime? postedAt,
   }) {
     return StatusStory(
       id: id ?? this.id,
@@ -607,6 +638,7 @@ class StatusStory {
       segments: List<StatusStorySegment>.unmodifiable(
         segments ?? this.segments,
       ),
+      postedAt: postedAt ?? this.postedAt,
     );
   }
 
@@ -624,6 +656,7 @@ class StatusStory {
       'seenSegments': seenSegments,
       'segments':
           segments.map((segment) => segment.toJson()).toList(growable: false),
+      'postedAt': postedAt?.millisecondsSinceEpoch,
     };
   }
 
@@ -671,6 +704,9 @@ class StatusStory {
           .clamp(0, totalSegments)
           .toInt(),
       segments: List<StatusStorySegment>.unmodifiable(segments),
+      postedAt: raw['postedAt'] is int
+          ? DateTime.fromMillisecondsSinceEpoch(raw['postedAt'] as int)
+          : null,
     );
   }
 }

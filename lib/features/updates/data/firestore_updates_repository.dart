@@ -223,10 +223,11 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
 
       final storedMediaPath =
           await _maybeImportMedia(type: type, localMediaPath: localMediaPath);
+      final postedAt = DateTime.now();
       final nextSegments = List<StatusStorySegment>.unmodifiable([
         ..._segmentsFor(currentStory),
         StatusStorySegment(
-          id: 'status-${DateTime.now().microsecondsSinceEpoch}',
+          id: 'status-${postedAt.microsecondsSinceEpoch}',
           type: type,
           previewText: previewText,
           localMediaPath: storedMediaPath,
@@ -239,6 +240,7 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
           stickers: normalizedStickers,
           musicTrack: musicTrack,
           overlayItems: normalizedOverlayItems,
+          postedAt: postedAt,
         ),
       ]);
 
@@ -249,6 +251,7 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
         totalSegments: nextSegments.length,
         seenSegments: 0,
         segments: nextSegments,
+        postedAt: postedAt,
       );
 
       await docRef.set(updatedStory.toJson());
@@ -418,9 +421,27 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
     if (story == null) {
       return null;
     }
+
+    // WhatsApp-style 24h status lifetime. A segment with no postedAt is
+    // legacy data written before this existed -- keep it rather than
+    // guess whether it's expired.
+    final liveSegments = story.segments.where((segment) {
+      final postedAt = segment.postedAt;
+      if (postedAt == null) {
+        return true;
+      }
+      return DateTime.now().difference(postedAt) < const Duration(hours: 24);
+    }).toList(growable: false);
+    final freshStory = story.copyWith(
+      segments: liveSegments,
+      totalSegments: liveSegments.length,
+      seenSegments:
+          liveSegments.isEmpty ? 0 : story.seenSegments.clamp(0, liveSegments.length).toInt(),
+    );
+
     final profile =
         await UserProfileLookup(firestore: _firestore).fetch(doc.id);
-    return story.copyWith(
+    return freshStory.copyWith(
       id: doc.id,
       isMine: doc.id == currentUid,
       name: profile?.name,
@@ -479,6 +500,7 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
       totalSegments: remainingSegments.length,
       seenSegments: 0,
       segments: remainingSegments,
+      postedAt: latestSegment.postedAt,
     );
   }
 

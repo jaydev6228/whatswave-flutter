@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../app/theme/app_palette.dart';
-import '../../../core/models/channel_preview.dart';
 import '../../../core/models/status_story.dart';
 import '../../shared/widgets/avatar_badge.dart';
 import '../../shared/widgets/empty_state_card.dart';
@@ -32,7 +31,6 @@ class UpdatesScreen extends StatefulWidget {
 }
 
 class _UpdatesScreenState extends State<UpdatesScreen> {
-  final Set<String> _followedChannelIds = <String>{};
   final ImagePicker _imagePicker = ImagePicker();
 
   @override
@@ -172,69 +170,26 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
                               actionLabel: recentStories.isEmpty
                                   ? 'Caught up'
                                   : '${recentStories.length} new',
-                              emptyTitle: 'You are caught up',
-                              emptyMessage: 'New statuses will show up here.',
                               stories: recentStories,
                               onStoryTap: (story) =>
                                   _openStoryViewer(story: story),
                             ),
-                            const SizedBox(height: 18),
+                            if (recentStories.isNotEmpty &&
+                                viewedStories.isNotEmpty)
+                              const SizedBox(height: 18),
                             _StorySection(
                               title: 'Viewed updates',
                               actionLabel: viewedStories.isEmpty
                                   ? 'Nothing yet'
                                   : '${viewedStories.length} seen',
-                              emptyTitle: 'Nothing viewed yet',
-                              emptyMessage:
-                                  'Statuses you open will move here.',
                               stories: viewedStories,
                               onStoryTap: (story) =>
                                   _openStoryViewer(story: story),
                             ),
-                            const SizedBox(height: 20),
-                            Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: _kUpdatesScreenHorizontalPadding,
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  _UpdatesSectionLabel(
-                                    title: 'Channels to explore',
-                                    actionLabel:
-                                        '${widget.controller.channels.length} picks',
-                                  ),
-                                  const SizedBox(height: 10),
-                                  if (widget.controller.channels.isEmpty)
-                                    const EmptyStateCard(
-                                      dense: true,
-                                      margin: EdgeInsets.zero,
-                                      icon: Icons.campaign_outlined,
-                                      title: 'No channels yet',
-                                      message:
-                                          'Discovery channels will appear here in a later integration slice.',
-                                    ),
-                                ],
-                              ),
-                            ),
-                            if (widget.controller.channels.isNotEmpty)
-                              ...widget.controller.channels.map((channel) {
-                                final isFollowed =
-                                    _followedChannelIds.contains(channel.id);
-                                return _ChannelDiscoveryCard(
-                                  channel: channel,
-                                  isFollowed: isFollowed,
-                                  onFollowTap: () {
-                                    setState(() {
-                                      if (isFollowed) {
-                                        _followedChannelIds.remove(channel.id);
-                                      } else {
-                                        _followedChannelIds.add(channel.id);
-                                      }
-                                    });
-                                  },
-                                );
-                              }),
+                            // Channels aren't implemented yet -- hidden
+                            // entirely rather than showing an empty
+                            // "Channels to explore" section with nothing
+                            // real behind it.
                           ],
                         ],
                       ),
@@ -673,14 +628,16 @@ class _MyStatusCard extends StatelessWidget {
                             height: 1.28,
                           ),
                         ),
-                        const SizedBox(height: 5),
-                        Text(
-                          status?.timeLabel ?? 'Tap to add',
-                          style: theme.textTheme.labelMedium?.copyWith(
-                            color: theme.colorScheme.primary,
-                            fontWeight: FontWeight.w800,
+                        if (status != null && status.hasSegments) ...[
+                          const SizedBox(height: 5),
+                          Text(
+                            status.relativeTimeLabel,
+                            style: theme.textTheme.labelMedium?.copyWith(
+                              color: theme.colorScheme.primary,
+                              fontWeight: FontWeight.w800,
+                            ),
                           ),
-                        ),
+                        ],
                       ],
                     ),
                   ),
@@ -1094,21 +1051,20 @@ class _StorySection extends StatelessWidget {
   const _StorySection({
     required this.title,
     required this.actionLabel,
-    required this.emptyTitle,
-    required this.emptyMessage,
     required this.stories,
     required this.onStoryTap,
   });
 
   final String title;
   final String actionLabel;
-  final String emptyTitle;
-  final String emptyMessage;
   final List<StatusStory> stories;
   final ValueChanged<StatusStory> onStoryTap;
 
   @override
   Widget build(BuildContext context) {
+    if (stories.isEmpty) {
+      return const SizedBox.shrink();
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1124,87 +1080,13 @@ class _StorySection extends StatelessWidget {
             ],
           ),
         ),
-        if (stories.isEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: _kUpdatesScreenHorizontalPadding,
-            ),
-            child: _InlineStoryEmptyState(
-              icon: Icons.motion_photos_off_outlined,
-              title: emptyTitle,
-              message: emptyMessage,
-            ),
-          )
-        else
-          ...stories.map(
-            (story) => _StatusStoryTile(
-              story: story,
-              onTap: () => onStoryTap(story),
-            ),
+        ...stories.map(
+          (story) => _StatusStoryTile(
+            story: story,
+            onTap: () => onStoryTap(story),
           ),
+        ),
       ],
-    );
-  }
-}
-
-class _InlineStoryEmptyState extends StatelessWidget {
-  const _InlineStoryEmptyState({
-    required this.icon,
-    required this.title,
-    required this.message,
-  });
-
-  final IconData icon;
-  final String title;
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest.withValues(
-          alpha: 0.18,
-        ),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.18),
-        ),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            icon,
-            size: 18,
-            color: theme.colorScheme.onSurface.withValues(alpha: 0.54),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  title,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  message,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.64),
-                    height: 1.25,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
@@ -1300,7 +1182,7 @@ class _StatusStoryTile extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
-                        story.timeLabel,
+                        story.relativeTimeLabel,
                         style: theme.textTheme.labelSmall?.copyWith(
                           color: theme.colorScheme.onSurface
                               .withValues(alpha: 0.62),
@@ -1341,128 +1223,6 @@ class _StatusStoryTile extends StatelessWidget {
             Divider(
               height: 1,
               indent: _kUpdatesRowHorizontalPadding + 70,
-              color: theme.colorScheme.outlineVariant.withValues(alpha: 0.22),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ChannelDiscoveryCard extends StatelessWidget {
-  const _ChannelDiscoveryCard({
-    required this.channel,
-    required this.isFollowed,
-    required this.onFollowTap,
-  });
-
-  final ChannelPreview channel;
-  final bool isFollowed;
-  final VoidCallback onFollowTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        key: Key('updates_channel_card_${channel.id}'),
-        onTap: onFollowTap,
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                _kUpdatesRowHorizontalPadding,
-                10,
-                _kUpdatesRowHorizontalPadding,
-                10,
-              ),
-              child: Row(
-                children: [
-                  CircleAvatar(
-                    radius: 22,
-                    backgroundColor:
-                        channel.accentColor.withValues(alpha: 0.16),
-                    child: Text(
-                      channel.avatarLabel,
-                      style: theme.textTheme.titleSmall?.copyWith(
-                        color: channel.accentColor,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Row(
-                          children: [
-                            Flexible(
-                              child: Text(
-                                channel.name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.titleSmall?.copyWith(
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                            ),
-                            if (channel.isVerified) ...[
-                              const SizedBox(width: 6),
-                              Icon(
-                                Icons.verified_rounded,
-                                size: 16,
-                                color: theme.colorScheme.primary,
-                              ),
-                            ],
-                          ],
-                        ),
-                        const SizedBox(height: 3),
-                        Text(
-                          '${channel.category} • ${channel.followersLabel}',
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: theme.colorScheme.onSurface
-                                .withValues(alpha: 0.62),
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 5),
-                        Text(
-                          channel.description,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurface
-                                .withValues(alpha: 0.76),
-                            height: 1.3,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  FilledButton.tonal(
-                    onPressed: onFollowTap,
-                    style: FilledButton.styleFrom(
-                      visualDensity: VisualDensity.compact,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                    ),
-                    child: Text(isFollowed ? 'Following' : 'Follow'),
-                  ),
-                ],
-              ),
-            ),
-            Divider(
-              height: 1,
-              indent: _kUpdatesRowHorizontalPadding + 56,
               color: theme.colorScheme.outlineVariant.withValues(alpha: 0.22),
             ),
           ],
