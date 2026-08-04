@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:flutter/material.dart';
 
 import '../../../app/theme/app_palette.dart';
+import '../../../core/utils/user_profile_lookup.dart';
 import '../domain/call_contact.dart';
 import '../domain/call_history_entry.dart';
 import 'calls_overview.dart';
@@ -64,7 +65,7 @@ class FirestoreCallsRepository implements CallsRepository {
     try {
       final snapshot =
           await _historyRef.where('ownerUid', isEqualTo: uid).get();
-      final entries = snapshot.docs.map(_entryFromDoc).toList();
+      final entries = await Future.wait(snapshot.docs.map(_entryFromDoc));
       entries.sort(
         (left, right) => right.startedAt.compareTo(left.startedAt),
       );
@@ -123,17 +124,30 @@ class FirestoreCallsRepository implements CallsRepository {
     return const <CallHistoryEntry>[];
   }
 
-  CallHistoryEntry _entryFromDoc(
+  // The name/avatar/color stored on a callHistory doc are a snapshot from
+  // whenever that call happened -- if the other party has since renamed
+  // themselves in WhatsWave, prefer their current userProfiles identity
+  // (keyed by the entry's own uid field) over that frozen snapshot, same
+  // as every other feature that shows someone else's identity.
+  Future<CallHistoryEntry> _entryFromDoc(
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
-  ) {
+  ) async {
     final data = doc.data();
+    final uid = data['uid'] as String?;
+    final profile = uid == null
+        ? null
+        : await UserProfileLookup(firestore: _firestore).fetch(uid);
     return CallHistoryEntry(
       id: doc.id,
       contactId: (data['contactId'] as String?) ?? doc.id,
-      name: (data['name'] as String?) ?? 'WhatsWave user',
-      avatarLabel: (data['avatarLabel'] as String?) ?? '?',
+      name: profile?.name ?? (data['name'] as String?) ?? 'WhatsWave user',
+      avatarLabel: profile?.avatarLabel ??
+          (data['avatarLabel'] as String?) ??
+          '?',
       accentColor: Color(
-        (data['accentColorArgb'] as int?) ?? AppPalette.slate.toARGB32(),
+        profile?.accentColorArgb ??
+            (data['accentColorArgb'] as int?) ??
+            AppPalette.slate.toARGB32(),
       ),
       startedAt: (data['startedAt'] as Timestamp).toDate(),
       type: CallType.values.byName(data['type'] as String),
@@ -141,7 +155,7 @@ class FirestoreCallsRepository implements CallsRepository {
       status: CallHistoryStatus.values.byName(data['status'] as String),
       durationSeconds: (data['durationSeconds'] as int?) ?? 0,
       isGroup: (data['isGroup'] as bool?) ?? false,
-      uid: data['uid'] as String?,
+      uid: uid,
     );
   }
 }

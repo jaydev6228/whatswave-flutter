@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/sample/demo_data.dart';
 import '../../../core/utils/phone_number_matching.dart';
+import '../../../core/utils/user_profile_lookup.dart';
 import '../domain/community_announcement.dart';
 import '../domain/community_contact.dart';
 import '../domain/community_group_preview.dart';
@@ -121,6 +122,7 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
     List<CommunityContact> contacts,
   ) async {
     final currentUid = _firebaseAuth.currentUser?.uid;
+    final profileLookup = UserProfileLookup(firestore: _firestore);
     final enriched = await Future.wait(
       contacts.map((contact) async {
         final key = phoneMatchKey(contact.phoneNumber);
@@ -133,7 +135,21 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
           if (matchedUid == null || matchedUid == currentUid) {
             return contact;
           }
-          return contact.copyWith(isOnWhatsWave: true, matchedUid: matchedUid);
+          // Prefer the matched account's own current WhatsWave name/avatar
+          // over whatever this device's address book has saved for them --
+          // otherwise a contact who renames themselves in WhatsWave keeps
+          // showing their old (or just their plain phone-book) name here
+          // forever.
+          final profile = await profileLookup.fetch(matchedUid);
+          return contact.copyWith(
+            isOnWhatsWave: true,
+            matchedUid: matchedUid,
+            name: profile?.name,
+            avatarLabel: profile?.avatarLabel,
+            accentColor: profile?.accentColorArgb == null
+                ? null
+                : Color(profile!.accentColorArgb!),
+          );
         } on FirebaseException {
           return contact;
         }

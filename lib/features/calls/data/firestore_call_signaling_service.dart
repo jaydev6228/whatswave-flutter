@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:flutter/material.dart';
 
 import '../../../app/theme/app_palette.dart';
+import '../../../core/utils/user_profile_lookup.dart';
 import '../domain/call_history_entry.dart';
 import '../domain/call_signal.dart';
 import 'call_signaling_service.dart';
@@ -79,19 +80,14 @@ class FirestoreCallSignalingService implements CallSignalingService {
   /// the brief window right after signup, before the fire-and-forget
   /// profile publish lands) -- best-effort, never blocks placing the call.
   Future<_CallerIdentity> _callerIdentity(String callerUid) async {
-    try {
-      final doc =
-          await _firestore.collection('userProfiles').doc(callerUid).get();
-      final name = doc.data()?['name'] as String?;
-      if (name != null && name.isNotEmpty) {
-        return _CallerIdentity(
-          name: name,
-          avatarLabel: doc.data()?['avatarLabel'] as String?,
-          accentColorArgb: doc.data()?['accentColorArgb'] as int?,
-        );
-      }
-    } on FirebaseException {
-      // Fall through to the local derivation below.
+    final profile =
+        await UserProfileLookup(firestore: _firestore).fetch(callerUid);
+    if (profile != null) {
+      return _CallerIdentity(
+        name: profile.name,
+        avatarLabel: profile.avatarLabel,
+        accentColorArgb: profile.accentColorArgb,
+      );
     }
 
     final displayName = _firebaseAuth.currentUser?.displayName?.trim() ?? '';

@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:flutter/material.dart';
 
 import '../../../app/theme/app_palette.dart';
+import '../../../core/utils/user_profile_lookup.dart';
 import '../domain/chat_attachment.dart';
 import '../domain/chat_message.dart';
 import '../domain/chat_thread.dart';
@@ -296,21 +297,12 @@ class FirestoreChatRepository implements ChatRepository {
         }
       }
 
-      try {
-        final profileDoc =
-            await _firestore.collection('userProfiles').doc(otherUid).get();
-        final profileName = profileDoc.data()?['name'] as String?;
-        if (profileName != null && profileName.isNotEmpty) {
-          name = profileName;
-          avatarLabel =
-              (profileDoc.data()?['avatarLabel'] as String?) ?? avatarLabel;
-          accentColor = Color(
-            (profileDoc.data()?['accentColorArgb'] as int?) ??
-                accentColor.toARGB32(),
-          );
-        }
-      } on FirebaseException {
-        // Fall back to the seed guess (or the generic placeholder) above.
+      final profile =
+          await UserProfileLookup(firestore: _firestore).fetch(otherUid);
+      if (profile != null) {
+        name = profile.name;
+        avatarLabel = profile.avatarLabel ?? avatarLabel;
+        accentColor = Color(profile.accentColorArgb ?? accentColor.toARGB32());
       }
     }
 

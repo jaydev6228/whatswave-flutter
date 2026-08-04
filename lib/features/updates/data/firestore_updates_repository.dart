@@ -2,10 +2,12 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
+import 'package:flutter/material.dart';
 
 import '../../../app/theme/app_palette.dart';
 import '../../../core/models/channel_preview.dart';
 import '../../../core/models/status_story.dart';
+import '../../../core/utils/user_profile_lookup.dart';
 import 'status_media_store.dart';
 import 'updates_repository.dart';
 
@@ -107,8 +109,8 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
         return;
       }
       storySubscriptions[ownerUid] =
-          _storiesRef.doc(ownerUid).snapshots().listen((doc) {
-        final story = _storyFromDoc(doc, currentUid: uid);
+          _storiesRef.doc(ownerUid).snapshots().listen((doc) async {
+        final story = await _storyFromDoc(doc, currentUid: uid);
         if (story == null) {
           latestStories.remove(ownerUid);
         } else {
@@ -154,8 +156,10 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
       final docs = await Future.wait(
         <String>{uid, ...partnerUids}.map((ownerUid) => _storiesRef.doc(ownerUid).get()),
       );
-      final stories = docs
-          .map((doc) => _storyFromDoc(doc, currentUid: uid))
+      final resolvedStories = await Future.wait(
+        docs.map((doc) => _storyFromDoc(doc, currentUid: uid)),
+      );
+      final stories = resolvedStories
           .whereType<StatusStory>()
           .toList(growable: false);
 
@@ -213,7 +217,7 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
       final docRef = _storiesRef.doc(uid);
       final existingDoc = await docRef.get();
       final currentStory = existingDoc.exists
-          ? (_storyFromDoc(existingDoc, currentUid: uid) ??
+          ? (await _storyFromDoc(existingDoc, currentUid: uid) ??
               _freshMyStatus(uid))
           : _freshMyStatus(uid);
 
@@ -273,7 +277,7 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
 
     try {
       final doc = await _storiesRef.doc(storyId).get();
-      final story = _storyFromDoc(doc, currentUid: uid);
+      final story = await _storyFromDoc(doc, currentUid: uid);
       if (story == null || !story.hasSegments) {
         return (await fetchUpdates()).stories;
       }
@@ -310,7 +314,7 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
 
     try {
       final doc = await _storiesRef.doc(uid).get();
-      final story = _storyFromDoc(doc, currentUid: uid);
+      final story = await _storyFromDoc(doc, currentUid: uid);
       if (story == null) {
         throw const UpdatesRepositoryException(
           'That status item could not be found anymore.',
@@ -358,7 +362,7 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
 
     try {
       final doc = await _storiesRef.doc(uid).get();
-      final story = _storyFromDoc(doc, currentUid: uid);
+      final story = await _storyFromDoc(doc, currentUid: uid);
       if (story == null) {
         throw const UpdatesRepositoryException(
           'That status item could not be found anymore.',
@@ -399,10 +403,14 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
     );
   }
 
-  StatusStory? _storyFromDoc(
+  // The story doc's own name/avatarLabel/accentColor are a snapshot from
+  // whenever it was last written -- the doc id IS the owner's uid, so this
+  // can look their current identity up directly and prefer it, same as
+  // every other feature that shows someone else's identity.
+  Future<StatusStory?> _storyFromDoc(
     DocumentSnapshot<Map<String, dynamic>> doc, {
     required String currentUid,
-  }) {
+  }) async {
     if (!doc.exists) {
       return null;
     }
@@ -410,7 +418,16 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
     if (story == null) {
       return null;
     }
-    return story.copyWith(id: doc.id, isMine: doc.id == currentUid);
+    final profile =
+        await UserProfileLookup(firestore: _firestore).fetch(doc.id);
+    return story.copyWith(
+      id: doc.id,
+      isMine: doc.id == currentUid,
+      name: profile?.name,
+      avatarLabel: profile?.avatarLabel,
+      accentColor:
+          profile?.accentColorArgb == null ? null : Color(profile!.accentColorArgb!),
+    );
   }
 
   Future<String?> _maybeImportMedia({
