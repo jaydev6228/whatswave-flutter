@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../chats/application/chats_controller.dart';
+import '../../chats/domain/chat_thread.dart';
 import '../../shared/widgets/avatar_badge.dart';
 import '../../shared/widgets/empty_state_card.dart';
 import '../application/calls_controller.dart';
@@ -14,10 +16,17 @@ const double _kCallsRowHorizontalPadding = 18;
 class CallsScreen extends StatefulWidget {
   const CallsScreen({
     required this.controller,
+    this.chatsController,
     super.key,
   });
 
   final CallsController controller;
+
+  /// Optional -- when provided, the "Your contacts" section is derived from
+  /// this controller's real, already-live-synced chat threads instead of
+  /// [CallsController.favorites]'s repository-sourced (demo, in Fake mode)
+  /// list. Mirrors CommunitiesScreen's chatsController pattern.
+  final ChatsController? chatsController;
 
   @override
   State<CallsScreen> createState() => _CallsScreenState();
@@ -28,14 +37,21 @@ class _CallsScreenState extends State<CallsScreen> {
   void initState() {
     super.initState();
     widget.controller.ensureLoaded();
+    widget.chatsController?.ensureLoaded();
   }
 
   @override
   Widget build(BuildContext context) {
+    final chatsController = widget.chatsController;
     return AnimatedBuilder(
-      animation: widget.controller,
+      animation: chatsController == null
+          ? widget.controller
+          : Listenable.merge([widget.controller, chatsController]),
       builder: (context, _) {
         final theme = Theme.of(context);
+        final contacts = chatsController == null
+            ? widget.controller.favorites
+            : _contactsFromThreads(chatsController.threads);
 
         if (!widget.controller.hasLoaded && widget.controller.isLoading) {
           return const SafeArea(
@@ -103,20 +119,20 @@ class _CallsScreenState extends State<CallsScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             _CallsSectionLabel(
-                              title: 'Favorites',
-                              actionLabel: widget.controller.favorites.isEmpty
+                              title: 'Your contacts',
+                              actionLabel: contacts.isEmpty
                                   ? null
-                                  : '${widget.controller.favorites.length}',
+                                  : '${contacts.length}',
                             ),
                             const SizedBox(height: 10),
-                            if (widget.controller.favorites.isEmpty)
+                            if (contacts.isEmpty)
                               const EmptyStateCard(
                                 dense: true,
                                 margin: EdgeInsets.zero,
                                 icon: Icons.favorite_border_rounded,
-                                title: 'No favorite contacts',
+                                title: 'No contacts yet',
                                 message:
-                                    'Pin important people here for one-tap calling.',
+                                    'People you message will appear here for one-tap calling.',
                               )
                             else
                               SizedBox(
@@ -124,8 +140,7 @@ class _CallsScreenState extends State<CallsScreen> {
                                 child: ListView.separated(
                                   scrollDirection: Axis.horizontal,
                                   itemBuilder: (context, index) {
-                                    final contact =
-                                        widget.controller.favorites[index];
+                                    final contact = contacts[index];
                                     return _FavoriteCallTile(
                                       contact: contact,
                                       onAudioPressed: () {
@@ -148,7 +163,7 @@ class _CallsScreenState extends State<CallsScreen> {
                                   },
                                   separatorBuilder: (_, __) =>
                                       const SizedBox(width: 12),
-                                  itemCount: widget.controller.favorites.length,
+                                  itemCount: contacts.length,
                                 ),
                               ),
                             const SizedBox(height: 20),
@@ -209,6 +224,7 @@ class _CallsScreenState extends State<CallsScreen> {
                                     avatarLabel: entry.avatarLabel,
                                     accentColor: entry.accentColor,
                                     isGroup: entry.isGroup,
+                                    uid: entry.uid,
                                   ),
                                   type: entry.type,
                                 );
@@ -292,6 +308,24 @@ class _CallsScreenState extends State<CallsScreen> {
   String _generateCallLink() {
     final code = DateTime.now().millisecondsSinceEpoch.toRadixString(36);
     return 'https://join.whatswave.app/call/$code';
+  }
+
+  /// Only threads with a real other-participant uid can actually be called
+  /// (see ChatThread.participantUid) -- a demo/local thread has none and is
+  /// filtered out rather than shown as a contact nothing can call for real.
+  List<CallContact> _contactsFromThreads(List<ChatThread> threads) {
+    return threads
+        .where((thread) => thread.participantUid != null && !thread.isGroup)
+        .map(
+          (thread) => CallContact(
+            id: thread.id,
+            name: thread.name,
+            avatarLabel: thread.avatarLabel,
+            accentColor: thread.accentColor,
+            uid: thread.participantUid,
+          ),
+        )
+        .toList(growable: false);
   }
 }
 

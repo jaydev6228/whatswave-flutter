@@ -7,6 +7,9 @@ import 'package:whatswave/features/calls/application/calls_controller.dart';
 import 'package:whatswave/features/calls/data/fake_calls_repository.dart';
 import 'package:whatswave/features/calls/domain/call_history_entry.dart';
 import 'package:whatswave/features/calls/presentation/calls_screen.dart';
+import 'package:whatswave/features/chats/application/chats_controller.dart';
+import 'package:whatswave/features/chats/data/fake_chat_repository.dart';
+import 'package:whatswave/features/chats/domain/chat_thread.dart';
 
 import '../../../support/device_matrix.dart';
 
@@ -48,6 +51,59 @@ void main() {
     expect(find.byKey(const Key('call_experience_screen')), findsNothing);
     expect(controller.history.first.contactId, 'ava-patel');
     expect(controller.history.first.status, CallHistoryStatus.completed);
+  });
+
+  testWidgets(
+      'derives "Your contacts" from real chat threads when a chatsController is provided',
+      (tester) async {
+    final controller = CallsController(
+      repository: FakeCallsRepository(latency: Duration.zero),
+      permissionService: MemoryAppPermissionService(),
+      outgoingRingDuration: Duration.zero,
+      outgoingConnectingDuration: Duration.zero,
+      durationTickInterval: Duration.zero,
+    );
+    final chatsController = ChatsController(
+      repository: FakeChatRepository(
+        initialThreads: const <ChatThread>[
+          ChatThread(
+            id: 'real-thread',
+            name: 'Priya Shah',
+            avatarLabel: 'PS',
+            accentColor: AppPalette.sky,
+            messages: [],
+            participantUid: 'priya-uid',
+          ),
+        ],
+        latency: Duration.zero,
+      ),
+    );
+
+    await _pumpCallsScreen(
+      tester,
+      device: iphoneSeProfile,
+      controller: controller,
+      chatsController: chatsController,
+    );
+
+    expect(find.text('Your contacts'), findsOneWidget);
+    expect(find.text('Priya Shah'), findsOneWidget);
+    // The fake calls repository's own demo favorites (e.g. its
+    // "ava-patel" contact, see the first test above) must not show once a
+    // real chatsController is wired -- it should fully replace them. Recent
+    // call history is a separate, untouched data source, so this checks
+    // the contacts-row button specifically rather than any text on screen.
+    expect(
+      find.byKey(const Key('calls_favorite_audio_ava-patel')),
+      findsNothing,
+    );
+
+    await tester.tap(
+      find.byKey(const Key('calls_favorite_audio_real-thread')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(controller.currentSession?.contact.uid, 'priya-uid');
   });
 
   testWidgets('shows a permission error when microphone access is denied',
@@ -659,7 +715,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('calls_error_card')), findsNothing);
-    expect(find.text('Favorites'), findsOneWidget);
+    expect(find.text('Your contacts'), findsOneWidget);
     expect(controller.favorites, isNotEmpty);
   });
 }
@@ -668,6 +724,7 @@ Future<void> _pumpCallsScreen(
   WidgetTester tester, {
   required TestDeviceProfile device,
   required CallsController controller,
+  ChatsController? chatsController,
   ThemeMode themeMode = ThemeMode.light,
 }) async {
   await tester.binding.setSurfaceSize(device.size);
@@ -680,7 +737,10 @@ Future<void> _pumpCallsScreen(
       theme: AppTheme.lightTheme(),
       darkTheme: AppTheme.darkTheme(),
       home: Scaffold(
-        body: CallsScreen(controller: controller),
+        body: CallsScreen(
+          controller: controller,
+          chatsController: chatsController,
+        ),
       ),
     ),
   );

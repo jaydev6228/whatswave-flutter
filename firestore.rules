@@ -106,8 +106,11 @@ service cloud.firestore {
       // briefly allowed to smoke-test the debug call-signaling screen on
       // one device, now reverted since real calling is wired up and
       // self-calls have no legitimate use. Either side can update status
-      // (accept/decline/end), but can't change who's on the call or which
-      // room it points to -- those fields are fixed at creation.
+      // (accept/decline/end), but can't change who's on the call, which
+      // room it points to, or the caller identity stamped at creation
+      // (callerName/callerAvatarLabel/callerAccentColorArgb, see
+      // FirestoreCallSignalingService.placeCall) -- those fields are all
+      // fixed at creation.
       allow read: if request.auth != null
                     && (request.auth.uid == resource.data.callerUid
                         || request.auth.uid == resource.data.calleeUid);
@@ -120,8 +123,35 @@ service cloud.firestore {
                           || request.auth.uid == resource.data.calleeUid)
                       && request.resource.data.callerUid == resource.data.callerUid
                       && request.resource.data.calleeUid == resource.data.calleeUid
-                      && request.resource.data.roomName == resource.data.roomName;
+                      && request.resource.data.roomName == resource.data.roomName
+                      && request.resource.data.get('callerName', null)
+                          == resource.data.get('callerName', null)
+                      && request.resource.data.get('callerAvatarLabel', null)
+                          == resource.data.get('callerAvatarLabel', null)
+                      && request.resource.data.get('callerAccentColorArgb', null)
+                          == resource.data.get('callerAccentColorArgb', null);
       allow delete: if false;
+    }
+
+    match /callHistory/{entryId} {
+      // A personal call log, one entry per side of a call (see
+      // FirestoreCallsRepository) -- ownerUid must always match the
+      // signed-in caller, so nobody can read, write, or enumerate anyone
+      // else's history. Unlike every other collection in this file (which
+      // deliberately never hard-deletes -- chatThreads/communities/
+      // phoneDirectory all use `allow delete: if false` and a soft-delete
+      // pattern instead, e.g. chatThreads' hiddenFor array), a real delete
+      // is allowed here: clearing call history removes only the owner's
+      // own private data, with no other participant's view of anything at
+      // risk the way there would be for a shared chat thread.
+      allow read: if request.auth != null
+                    && request.auth.uid == resource.data.ownerUid;
+      allow create: if request.auth != null
+                      && request.auth.uid == request.resource.data.ownerUid;
+      allow update: if request.auth != null
+                      && request.auth.uid == resource.data.ownerUid;
+      allow delete: if request.auth != null
+                      && request.auth.uid == resource.data.ownerUid;
     }
   }
 }

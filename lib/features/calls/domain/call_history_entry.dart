@@ -47,6 +47,7 @@ class CallHistoryEntry {
     required this.status,
     this.durationSeconds = 0,
     this.isGroup = false,
+    this.uid,
   });
 
   final String id;
@@ -61,6 +62,11 @@ class CallHistoryEntry {
   final int durationSeconds;
   final bool isGroup;
 
+  /// The other party's real Firebase uid, if known -- lets redialing from
+  /// history (see CallsScreen's recent-calls tap handler) place a real call
+  /// instead of silently falling back to the local simulated flow.
+  final String? uid;
+
   CallHistoryEntry copyWith({
     String? id,
     String? contactId,
@@ -73,6 +79,7 @@ class CallHistoryEntry {
     CallHistoryStatus? status,
     int? durationSeconds,
     bool? isGroup,
+    String? uid,
   }) {
     return CallHistoryEntry(
       id: id ?? this.id,
@@ -86,6 +93,7 @@ class CallHistoryEntry {
       status: status ?? this.status,
       durationSeconds: durationSeconds ?? this.durationSeconds,
       isGroup: isGroup ?? this.isGroup,
+      uid: uid ?? this.uid,
     );
   }
 }

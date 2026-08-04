@@ -16,6 +16,9 @@ class CallSignal {
     required this.status,
     required this.createdAt,
     required this.updatedAt,
+    this.callerName,
+    this.callerAvatarLabel,
+    this.callerAccentColorArgb,
   });
 
   final String id;
@@ -26,6 +29,16 @@ class CallSignal {
   final CallSignalStatus status;
   final DateTime createdAt;
   final DateTime updatedAt;
+
+  /// The caller's own identity, stamped onto the call doc at placeCall()
+  /// time (see FirestoreCallSignalingService) so the callee's incoming-call
+  /// UI can show a real name/avatar without a live lookup. Null for local
+  /// signaling, older-shaped call docs, or a caller with no published
+  /// profile -- callers should fall back to a placeholder identity in that
+  /// case (see CallsController._handleIncomingSignal).
+  final String? callerName;
+  final String? callerAvatarLabel;
+  final int? callerAccentColorArgb;
 
   CallSignal copyWith({
     CallSignalStatus? status,
@@ -40,6 +53,9 @@ class CallSignal {
       status: status ?? this.status,
       createdAt: createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      callerName: callerName,
+      callerAvatarLabel: callerAvatarLabel,
+      callerAccentColorArgb: callerAccentColorArgb,
     );
   }
 }

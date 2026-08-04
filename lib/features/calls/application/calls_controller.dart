@@ -680,16 +680,29 @@ class CallsController extends ChangeNotifier {
 
     _cancelTimers();
     _errorMessage = null;
-    // We only know the caller's uid at this point -- no contact-name
-    // resolution against device contacts/Firestore yet, so the incoming
-    // call surfaces with a placeholder identity. A known, documented gap.
-    final contact = CallContact(
-      id: signal.callerUid,
-      name: 'Caller ${signal.callerUid.substring(0, 4)}',
-      avatarLabel: signal.callerUid.substring(0, 2).toUpperCase(),
-      accentColor: Colors.teal,
-      uid: signal.callerUid,
-    );
+    // The caller stamps their own identity onto the call doc when placing
+    // it (see FirestoreCallSignalingService.placeCall), so this is
+    // usually real. Falls back to a placeholder only for an older-shaped
+    // call doc or a caller with no resolvable name -- a known, narrow gap.
+    final callerName = signal.callerName;
+    final contact = callerName != null && callerName.isNotEmpty
+        ? CallContact(
+            id: signal.callerUid,
+            name: callerName,
+            avatarLabel: signal.callerAvatarLabel ??
+                signal.callerUid.substring(0, 2).toUpperCase(),
+            accentColor: signal.callerAccentColorArgb != null
+                ? Color(signal.callerAccentColorArgb!)
+                : Colors.teal,
+            uid: signal.callerUid,
+          )
+        : CallContact(
+            id: signal.callerUid,
+            name: 'Caller ${signal.callerUid.substring(0, 4)}',
+            avatarLabel: signal.callerUid.substring(0, 2).toUpperCase(),
+            accentColor: Colors.teal,
+            uid: signal.callerUid,
+          );
     final session = CallSession(
       id: 'call-${_sessionSequence++}',
       contact: contact,
@@ -889,6 +902,7 @@ class CallsController extends ChangeNotifier {
           ? session.elapsedSeconds(finishedAt)
           : 0,
       isGroup: session.contact.isGroup,
+      uid: session.contact.uid,
     );
     final durationSeconds = historyEntry.durationSeconds;
 

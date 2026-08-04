@@ -1,6 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
+import 'package:flutter/material.dart';
 
+import '../../../app/theme/app_palette.dart';
 import '../domain/call_history_entry.dart';
 import '../domain/call_signal.dart';
 import 'call_signaling_service.dart';
@@ -9,7 +11,8 @@ import 'call_signaling_service.dart';
 /// collection. The room name is just the document id -- LiveKit doesn't
 /// need it to mean anything else. See firestore.rules for the matching
 /// security rules (only the two participants can read/write a call doc,
-/// and identity fields can't be changed after creation).
+/// and identity fields -- including callerName/callerAvatarLabel/
+/// callerAccentColorArgb -- can't be changed after creation).
 class FirestoreCallSignalingService implements CallSignalingService {
   FirestoreCallSignalingService({
     FirebaseFirestore? firestore,
@@ -33,6 +36,8 @@ class FirestoreCallSignalingService implements CallSignalingService {
       throw StateError('Must be signed in to place a call.');
     }
 
+    final identity = await _callerIdentity(callerUid);
+
     final docRef = _calls.doc();
     final now = DateTime.now();
     await docRef.set(<String, Object?>{
@@ -43,6 +48,9 @@ class FirestoreCallSignalingService implements CallSignalingService {
       'status': CallSignalStatus.ringing.name,
       'createdAt': Timestamp.fromDate(now),
       'updatedAt': Timestamp.fromDate(now),
+      'callerName': identity.name,
+      'callerAvatarLabel': identity.avatarLabel,
+      'callerAccentColorArgb': identity.accentColorArgb,
     });
 
     return CallSignal(
@@ -54,7 +62,79 @@ class FirestoreCallSignalingService implements CallSignalingService {
       status: CallSignalStatus.ringing,
       createdAt: now,
       updatedAt: now,
+      callerName: identity.name,
+      callerAvatarLabel: identity.avatarLabel,
+      callerAccentColorArgb: identity.accentColorArgb,
     );
+  }
+
+  /// Resolves the caller's own identity to stamp onto the call doc so the
+  /// callee can show a real name/avatar without a live lookup on their
+  /// side. Prefers the userProfiles registry -- the same source every
+  /// other feature already resolves identity from (see
+  /// FirebaseAuthRepository, which keeps it fresh on every sign-in, and
+  /// FirestoreChatRepository._threadFromDoc, which reads it the same way).
+  /// Falls back to deriving directly from the local Firebase Auth
+  /// displayName only if that doc isn't there yet (e.g. a call placed in
+  /// the brief window right after signup, before the fire-and-forget
+  /// profile publish lands) -- best-effort, never blocks placing the call.
+  Future<_CallerIdentity> _callerIdentity(String callerUid) async {
+    try {
+      final doc =
+          await _firestore.collection('userProfiles').doc(callerUid).get();
+      final name = doc.data()?['name'] as String?;
+      if (name != null && name.isNotEmpty) {
+        return _CallerIdentity(
+          name: name,
+          avatarLabel: doc.data()?['avatarLabel'] as String?,
+          accentColorArgb: doc.data()?['accentColorArgb'] as int?,
+        );
+      }
+    } on FirebaseException {
+      // Fall through to the local derivation below.
+    }
+
+    final displayName = _firebaseAuth.currentUser?.displayName?.trim() ?? '';
+    if (displayName.isEmpty) {
+      return const _CallerIdentity();
+    }
+    return _CallerIdentity(
+      name: displayName,
+      avatarLabel: _avatarLabelForName(displayName),
+      accentColorArgb: _accentColorForName(displayName).toARGB32(),
+    );
+  }
+
+  // Same deterministic avatar/color derivation as FirebaseAuthRepository
+  // and FakeAuthRepository, so a caller's stamped identity here looks
+  // visually consistent with how they appear everywhere else in the app.
+  String _avatarLabelForName(String name) {
+    final parts = name
+        .split(RegExp(r'\s+'))
+        .where((part) => part.isNotEmpty)
+        .toList(growable: false);
+    if (parts.isEmpty) {
+      return 'WW';
+    }
+    if (parts.length == 1) {
+      final clean = parts.first.replaceAll(RegExp(r'[^A-Za-z0-9]'), '');
+      return clean.isEmpty
+          ? 'WW'
+          : clean.substring(0, clean.length >= 2 ? 2 : 1).toUpperCase();
+    }
+    return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
+  }
+
+  Color _accentColorForName(String name) {
+    const palette = <Color>[
+      AppPalette.emerald,
+      AppPalette.green,
+      AppPalette.sky,
+      AppPalette.purple,
+      AppPalette.amber,
+    ];
+    final hash = name.codeUnits.fold<int>(0, (value, unit) => value + unit);
+    return palette[hash % palette.length];
   }
 
   @override
@@ -102,6 +182,25 @@ class FirestoreCallSignalingService implements CallSignalingService {
       status: CallSignalStatus.values.byName(data['status'] as String),
       createdAt: (data['createdAt'] as Timestamp).toDate(),
       updatedAt: (data['updatedAt'] as Timestamp).toDate(),
+      // Nullable on purpose -- an older-shaped call doc (written before
+      // this identity-stamping existed) simply won't have these fields,
+      // and that must not break watchCall()/watchIncomingCall() for a
+      // call already in flight.
+      callerName: data['callerName'] as String?,
+      callerAvatarLabel: data['callerAvatarLabel'] as String?,
+      callerAccentColorArgb: data['callerAccentColorArgb'] as int?,
     );
   }
+}
+
+class _CallerIdentity {
+  const _CallerIdentity({
+    this.name,
+    this.avatarLabel,
+    this.accentColorArgb,
+  });
+
+  final String? name;
+  final String? avatarLabel;
+  final int? accentColorArgb;
 }

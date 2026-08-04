@@ -16,6 +16,7 @@ class ChatThread {
     this.hasStory = false,
     this.isArchived = false,
     this.typingPreview,
+    this.participantUid,
   });
 
   final String id;
@@ -30,6 +31,12 @@ class ChatThread {
   final bool hasStory;
   final bool isArchived;
   final String? typingPreview;
+
+  /// The other participant's real Firebase uid, if known -- lets calling
+  /// (see CallsController.startOutgoingCall) place a real call instead of
+  /// silently falling back to the local simulated flow. Null for Fake/demo
+  /// threads, which have no real other-account uid to call.
+  final String? participantUid;
 
   ChatMessage? get latestMessage => messages.isEmpty ? null : messages.last;
 
@@ -113,6 +120,7 @@ class ChatThread {
     bool? isArchived,
     String? typingPreview,
     bool clearTypingPreview = false,
+    String? participantUid,
   }) {
     return ChatThread(
       id: id ?? this.id,
@@ -128,6 +136,7 @@ class ChatThread {
       isArchived: isArchived ?? this.isArchived,
       typingPreview:
           clearTypingPreview ? null : typingPreview ?? this.typingPreview,
+      participantUid: participantUid ?? this.participantUid,
     );
   }
 }

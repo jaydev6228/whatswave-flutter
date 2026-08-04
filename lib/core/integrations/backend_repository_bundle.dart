@@ -5,6 +5,7 @@ import '../../features/auth/data/fake_auth_repository.dart';
 import '../../features/auth/data/firebase_auth_repository.dart';
 import '../../features/calls/data/calls_repository.dart';
 import '../../features/calls/data/fake_calls_repository.dart';
+import '../../features/calls/data/firestore_calls_repository.dart';
 import '../../features/chats/data/chat_repository.dart';
 import '../../features/chats/data/fake_chat_repository.dart';
 import '../../features/chats/data/firestore_chat_repository.dart';
@@ -229,23 +230,21 @@ class RuntimeAwareRepositoryAdapterCatalog implements RepositoryAdapterCatalog {
       ),
       RepositoryAdapterReadiness(
         featureArea: 'Calls and recents',
-        providerName: runtimeConfig.callingProvider.isProductionReady
-            ? '${runtimeConfig.callingProvider.label} call scaffold'
-            : 'Calling scaffold',
-        status: RepositoryAdapterStatus.localFallback,
+        providerName: 'LiveKit + Firestore signaling',
+        status: RepositoryAdapterStatus.liveCloud,
         summary:
-            'Recent calls and active-call state are still written locally while push signaling and the real calling stack are selected.',
+            'Real-time audio/video calling runs on LiveKit. Call invites, accept/decline/end signaling, and the callee seeing the caller\'s real name/avatar are all backed by Cloud Firestore. Recent calls now persist to Cloud Firestore too (one entry per side, per call), instead of resetting to local demo data every launch.',
         capabilities: <String>[
-          'Local fallback recents',
+          'Firestore ready',
+          ...emulatorCapability,
+          ...projectCapability,
+          'LiveKit audio/video',
           if (runtimeConfig.hasFirebasePushScaffold) 'Push scaffold ready',
-          'Call provider: ${runtimeConfig.callingProvider.label}',
         ],
         nextSteps: <String>[
           if (!runtimeConfig.hasFirebasePushScaffold)
-            'Finish FCM and APNs setup before expecting real incoming call delivery.',
-          if (!runtimeConfig.callingProvider.isProductionReady)
-            'Pick LiveKit, Twilio, Agora, Stream, or a self-managed stack for production calling.',
-          'Move call invites, call history, and signaling metadata onto the live provider path.',
+            'Finish FCM and APNs setup so an incoming call can still be delivered while the app is backgrounded or fully killed -- right now it only arrives while the app is already running and watching for it.',
+          'Add group calling -- the real signaling path is 1:1 only (a single calleeUid per call doc).',
         ],
       ),
     ];
@@ -364,7 +363,8 @@ class BackendRepositoryBundleFactory {
     return BackendRepositoryBundle(
       authRepository:
           _buildAuthRepository(runtimeConfig, enableDemoRestoreSession),
-      callsRepository: _buildCallsRepository(enableDemoRestoreSession),
+      callsRepository:
+          _buildCallsRepository(runtimeConfig, enableDemoRestoreSession),
       chatRepository:
           _buildChatRepository(runtimeConfig, enableDemoRestoreSession),
       communitiesRepository:
@@ -394,7 +394,14 @@ class BackendRepositoryBundleFactory {
     return FakeAuthRepository(persistSession: true);
   }
 
-  CallsRepository _buildCallsRepository(bool enableDemoRestoreSession) {
+  CallsRepository _buildCallsRepository(
+    BackendRuntimeConfig runtimeConfig,
+    bool enableDemoRestoreSession,
+  ) {
+    if (runtimeConfig.backendMode == BackendMode.firebaseFirst) {
+      return FirestoreCallsRepository();
+    }
+
     return enableDemoRestoreSession
         ? FakeCallsRepository(latency: Duration.zero)
         : FakeCallsRepository();

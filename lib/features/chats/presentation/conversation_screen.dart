@@ -688,6 +688,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
       avatarLabel: thread.avatarLabel,
       accentColor: thread.accentColor,
       isGroup: thread.isGroup,
+      uid: thread.participantUid,
     );
   }
 

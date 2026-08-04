@@ -338,6 +338,7 @@ class FirestoreChatRepository implements ChatRepository {
       hasStory: (data['hasStory'] as bool?) ?? false,
       isArchived: (data['isArchived'] as bool?) ?? false,
       typingPreview: data['typingPreview'] as String?,
+      participantUid: otherUid,
     );
   }
 
