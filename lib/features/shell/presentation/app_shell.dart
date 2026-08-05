@@ -147,10 +147,16 @@ class _AppShellState extends State<AppShell> {
           // text-scale setting, which multiplies on top of it and can still
           // wrap/overflow a label like "Communities" even on a wide phone.
           // Clamping here (not disabling) keeps nav chrome usable while
-          // still growing somewhat for accessibility. See
+          // still growing somewhat for accessibility. Tighter than other
+          // chrome clamps (1.15 vs 1.3) because 5 destinations split the
+          // width far more tightly than a single app-bar title does, and
+          // NavigationDestination.label only takes a plain String -- there's
+          // no way to attach an explicit maxLines/overflow guarantee the
+          // way every other Text in this app now has, so this clamp is the
+          // only lever against "Communities" wrapping to 2 lines. See
           // docs/ui_layout_guidelines.md rule 4.
           return MediaQuery.withClampedTextScaling(
-            maxScaleFactor: 1.3,
+            maxScaleFactor: 1.15,
             child: NavigationBarTheme(
               data: navigationTheme.copyWith(
                 labelTextStyle: adaptiveLabelTextStyle,
