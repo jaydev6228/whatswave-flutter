@@ -347,6 +347,67 @@ void main() {
 
       await uidController.close();
     });
+
+    test(
+        'auto-declines an unanswered real incoming call and notifies the caller',
+        () async {
+      final signaling = FakeCallSignalingService();
+      final uidController = StreamController<String?>();
+      final controller = CallsController(
+        repository: FakeCallsRepository(latency: Duration.zero),
+        permissionService: MemoryAppPermissionService(),
+        signalingService: signaling,
+        currentUserIdStream: uidController.stream,
+        incomingMissedAfter: Duration.zero,
+        durationTickInterval: Duration.zero,
+      );
+
+      await controller.loadOverview();
+      uidController.add('my-uid');
+      await Future<void>.delayed(Duration.zero);
+
+      signaling.emitIncomingCall(
+        _testSignal(
+          id: 'incoming-timeout',
+          callerUid: 'caller-uid',
+          calleeUid: 'my-uid',
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(controller.currentSession, isNull);
+      expect(controller.history.first.status, CallHistoryStatus.missed);
+      expect(
+        signaling.statusOf('incoming-timeout'),
+        CallSignalStatus.declined,
+      );
+
+      await uidController.close();
+    });
+
+    test('marks the caller session remote-ringing once the callee signals it',
+        () async {
+      final signaling = FakeCallSignalingService();
+      final controller = CallsController(
+        repository: FakeCallsRepository(latency: Duration.zero),
+        permissionService: MemoryAppPermissionService(),
+        signalingService: signaling,
+        durationTickInterval: Duration.zero,
+      );
+
+      await controller.loadOverview();
+      await controller.startOutgoingCall(
+        contact: realContact,
+        type: CallType.audio,
+      );
+      final callId = controller.currentSession!.callId!;
+      expect(controller.currentSession?.isRemoteRinging, isFalse);
+
+      await signaling.markCalleeRinging(callId);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(controller.currentSession?.isRemoteRinging, isTrue);
+    });
   });
 
   group('ringing', () {
@@ -357,7 +418,6 @@ void main() {
         repository: FakeCallsRepository(latency: Duration.zero),
         permissionService: MemoryAppPermissionService(),
         ringtonePlayer: ringtonePlayer,
-        ringRepeatInterval: const Duration(seconds: 30),
         durationTickInterval: Duration.zero,
       );
 
@@ -381,7 +441,6 @@ void main() {
         repository: FakeCallsRepository(latency: Duration.zero),
         permissionService: MemoryAppPermissionService(),
         ringtonePlayer: ringtonePlayer,
-        ringRepeatInterval: const Duration(seconds: 30),
         durationTickInterval: Duration.zero,
       );
 
@@ -501,8 +560,24 @@ class FakeCallSignalingService implements CallSignalingService {
     _callControllers[callId]?.add(updated);
   }
 
+  @override
+  Future<void> markCalleeRinging(String callId) async {
+    final existing = _calls[callId];
+    if (existing == null) {
+      return;
+    }
+    final updated = existing.copyWith(
+      calleeRinging: true,
+      updatedAt: DateTime.now(),
+    );
+    _calls[callId] = updated;
+    _callControllers[callId]?.add(updated);
+  }
+
   void emitIncomingCall(CallSignal signal) {
     _calls[signal.id] = signal;
     _incomingController.add(signal);
   }
+
+  CallSignalStatus? statusOf(String callId) => _calls[callId]?.status;
 }

@@ -28,9 +28,8 @@ class CallsController extends ChangeNotifier {
     RingtonePlayer? ringtonePlayer,
     this.outgoingRingDuration = const Duration(milliseconds: 900),
     this.outgoingConnectingDuration = const Duration(milliseconds: 700),
-    this.incomingMissedAfter = const Duration(seconds: 18),
+    this.incomingMissedAfter = const Duration(seconds: 60),
     this.durationTickInterval = const Duration(seconds: 1),
-    this.ringRepeatInterval = const Duration(seconds: 3),
   })  : _repository = repository,
         _permissionService = permissionService ?? MemoryAppPermissionService(),
         _telemetry = telemetry ?? NoopAppTelemetry.instance,
@@ -57,13 +56,6 @@ class CallsController extends ChangeNotifier {
   final Duration incomingMissedAfter;
   final Duration durationTickInterval;
 
-  /// How often the incoming-call ring is re-triggered while still ringing.
-  /// flutter_ringtone_player's looping/stop() are Android-only, so this
-  /// timer is what actually makes the ring repeat and lets it be silenced
-  /// promptly (by simply not scheduling another play) on both platforms --
-  /// see RingtonePlayer's doc comment.
-  final Duration ringRepeatInterval;
-
   bool _hasLoaded = false;
   bool _isLoading = false;
   bool _isClearingHistory = false;
@@ -74,7 +66,6 @@ class CallsController extends ChangeNotifier {
   CallSession? _currentSession;
   Timer? _phaseTimer;
   Timer? _durationTicker;
-  Timer? _ringTimer;
   int _sessionSequence = 0;
 
   StreamSubscription<String?>? _authUidSubscription;
@@ -345,16 +336,7 @@ class CallsController extends ChangeNotifier {
     );
     notifyListeners();
     _startRinging();
-
-    _schedulePhaseTimer(incomingMissedAfter, () {
-      final current = _currentSession;
-      if (current == null ||
-          current.id != session.id ||
-          current.phase != CallSessionPhase.incoming) {
-        return;
-      }
-      _finishSession(status: CallHistoryStatus.missed);
-    });
+    _scheduleIncomingMissTimeout(session);
     return true;
   }
 
@@ -738,6 +720,35 @@ class CallsController extends ChangeNotifier {
     notifyListeners();
     _startRinging();
     _watchActiveSignal(signal.id);
+    unawaited(_signalingService!.markCalleeRinging(signal.id));
+    _scheduleIncomingMissTimeout(session);
+  }
+
+  /// Auto-declines an incoming call nobody answered within
+  /// [incomingMissedAfter], matching standard phone behavior instead of
+  /// ringing forever.
+  void _scheduleIncomingMissTimeout(CallSession session) {
+    _schedulePhaseTimer(incomingMissedAfter, () {
+      final current = _currentSession;
+      if (current == null ||
+          current.id != session.id ||
+          current.phase != CallSessionPhase.incoming) {
+        return;
+      }
+      unawaited(_missIncomingCall(current));
+    });
+  }
+
+  Future<void> _missIncomingCall(CallSession session) async {
+    if (session.isReal) {
+      try {
+        await _signalingService!
+            .updateStatus(session.callId!, CallSignalStatus.declined);
+      } catch (_) {
+        // Best-effort -- we're finishing the local session regardless.
+      }
+    }
+    await _finishSession(status: CallHistoryStatus.missed);
   }
 
   void _watchActiveSignal(String callId) {
@@ -750,6 +761,13 @@ class CallsController extends ChangeNotifier {
     final session = _currentSession;
     if (session == null || signal == null || signal.id != session.callId) {
       return;
+    }
+
+    if (signal.calleeRinging &&
+        !session.isRemoteRinging &&
+        session.phase == CallSessionPhase.ringing) {
+      _currentSession = session.copyWith(isRemoteRinging: true);
+      notifyListeners();
     }
 
     switch (signal.status) {
@@ -1048,16 +1066,10 @@ class CallsController extends ChangeNotifier {
   }
 
   void _startRinging() {
-    _ringTimer?.cancel();
     _ringtonePlayer.play();
-    _ringTimer = Timer.periodic(ringRepeatInterval, (_) {
-      _ringtonePlayer.play();
-    });
   }
 
   void _stopRinging() {
-    _ringTimer?.cancel();
-    _ringTimer = null;
     _ringtonePlayer.stop();
   }
 

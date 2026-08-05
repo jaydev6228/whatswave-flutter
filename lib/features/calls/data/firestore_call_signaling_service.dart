@@ -52,6 +52,7 @@ class FirestoreCallSignalingService implements CallSignalingService {
       'callerName': identity.name,
       'callerAvatarLabel': identity.avatarLabel,
       'callerAccentColorArgb': identity.accentColorArgb,
+      'calleeRinging': false,
     });
 
     return CallSignal(
@@ -167,6 +168,14 @@ class FirestoreCallSignalingService implements CallSignalingService {
     });
   }
 
+  @override
+  Future<void> markCalleeRinging(String callId) async {
+    await _calls.doc(callId).update(<String, Object?>{
+      'calleeRinging': true,
+      'updatedAt': Timestamp.fromDate(DateTime.now()),
+    });
+  }
+
   CallSignal _fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data()!;
     return CallSignal(
@@ -185,6 +194,7 @@ class FirestoreCallSignalingService implements CallSignalingService {
       callerName: data['callerName'] as String?,
       callerAvatarLabel: data['callerAvatarLabel'] as String?,
       callerAccentColorArgb: data['callerAccentColorArgb'] as int?,
+      calleeRinging: data['calleeRinging'] as bool? ?? false,
     );
   }
 }

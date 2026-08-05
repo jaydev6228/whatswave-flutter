@@ -19,6 +19,7 @@ class CallSignal {
     this.callerName,
     this.callerAvatarLabel,
     this.callerAccentColorArgb,
+    this.calleeRinging = false,
   });
 
   final String id;
@@ -29,6 +30,16 @@ class CallSignal {
   final CallSignalStatus status;
   final DateTime createdAt;
   final DateTime updatedAt;
+
+  /// Set once the callee's device has actually surfaced the incoming-call
+  /// UI and started ringing -- distinct from [status] staying `ringing`
+  /// the whole time the call is outstanding. Lets the caller's screen show
+  /// "Ringing..." instead of "Calling..." once it's true. A separate field
+  /// rather than a new [CallSignalStatus] value on purpose: watchIncomingCall
+  /// filters on `status == ringing`, so folding this into status would make
+  /// the callee's own incoming-call query stop matching the instant they
+  /// marked themselves as ringing.
+  final bool calleeRinging;
 
   /// The caller's own identity, stamped onto the call doc at placeCall()
   /// time (see FirestoreCallSignalingService) so the callee's incoming-call
@@ -43,6 +54,7 @@ class CallSignal {
   CallSignal copyWith({
     CallSignalStatus? status,
     DateTime? updatedAt,
+    bool? calleeRinging,
   }) {
     return CallSignal(
       id: id,
@@ -56,6 +68,7 @@ class CallSignal {
       callerName: callerName,
       callerAvatarLabel: callerAvatarLabel,
       callerAccentColorArgb: callerAccentColorArgb,
+      calleeRinging: calleeRinging ?? this.calleeRinging,
     );
   }
 }

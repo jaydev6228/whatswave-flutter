@@ -1532,7 +1532,8 @@ String _displayCallName(String fullName) {
 String _videoStatusText(CallSession session) {
   return switch (session.phase) {
     CallSessionPhase.incoming => 'Incoming call',
-    CallSessionPhase.ringing => 'Calling...',
+    CallSessionPhase.ringing =>
+      session.isRemoteRinging ? 'Ringing...' : 'Calling...',
     CallSessionPhase.connecting => 'Connecting...',
     CallSessionPhase.connected =>
       'Live • ${_formatDuration(session.elapsedSeconds(DateTime.now()))}',
@@ -1542,7 +1543,8 @@ String _videoStatusText(CallSession session) {
 String _audioStatusText(CallSession session) {
   return switch (session.phase) {
     CallSessionPhase.incoming => 'Incoming audio call',
-    CallSessionPhase.ringing => 'Calling...',
+    CallSessionPhase.ringing =>
+      session.isRemoteRinging ? 'Ringing...' : 'Calling...',
     CallSessionPhase.connecting => 'Connecting...',
     CallSessionPhase.connected => _formatDuration(
         session.elapsedSeconds(DateTime.now()),
@@ -1551,10 +1553,11 @@ String _audioStatusText(CallSession session) {
 }
 
 String _remoteVideoStageLabel(CallSession session) {
+  final callingVerb = session.isRemoteRinging ? 'Ringing' : 'Calling';
   return switch (session.phase) {
     CallSessionPhase.incoming => 'Incoming video call',
     CallSessionPhase.ringing =>
-      'Calling ${_displayCallName(session.contact.name)}',
+      '$callingVerb ${_displayCallName(session.contact.name)}',
     CallSessionPhase.connecting => 'Preparing video',
     CallSessionPhase.connected => '',
   };

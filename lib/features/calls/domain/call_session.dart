@@ -17,6 +17,7 @@ class CallSession {
     this.isLocalVideoEnabled = false,
     this.isFrontCamera = true,
     this.callId,
+    this.isRemoteRinging = false,
   });
 
   final String id;
@@ -30,6 +31,14 @@ class CallSession {
   final bool isSpeakerOn;
   final bool isLocalVideoEnabled;
   final bool isFrontCamera;
+
+  /// True once the callee's device has confirmed it's actually ringing --
+  /// only ever meaningful for an outgoing call still in
+  /// [CallSessionPhase.ringing] (see CallsController._handleSignalUpdate).
+  /// Lets the caller's screen show "Ringing..." instead of "Calling..."
+  /// once the other side's phone is really alerting them, not just the
+  /// instant the call was placed.
+  final bool isRemoteRinging;
 
   /// The backing CallSignal's id when this is a real call (see
   /// CallSignalingService), null for the local/simulated call flow.
@@ -61,6 +70,7 @@ class CallSession {
     bool? isLocalVideoEnabled,
     bool? isFrontCamera,
     String? callId,
+    bool? isRemoteRinging,
   }) {
     return CallSession(
       id: id ?? this.id,
@@ -76,6 +86,7 @@ class CallSession {
       isLocalVideoEnabled: isLocalVideoEnabled ?? this.isLocalVideoEnabled,
       isFrontCamera: isFrontCamera ?? this.isFrontCamera,
       callId: callId ?? this.callId,
+      isRemoteRinging: isRemoteRinging ?? this.isRemoteRinging,
     );
   }
 }

@@ -1,8 +1,16 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 
 /// Plays/stops the incoming-call ringtone. A seam so [CallsController] can
 /// be unit tested without touching real platform audio, mirroring the
 /// existing AppPermissionService/CallSignalingService injection pattern.
+///
+/// [play] is responsible for keeping the ringtone going continuously until
+/// [stop] is called -- callers should not need to re-invoke [play] on a
+/// timer themselves (see [SystemRingtonePlayer] for why that used to cut
+/// the ringtone off after only a couple of seconds).
 abstract class RingtonePlayer {
   void play();
   void stop();
@@ -31,26 +39,46 @@ class NoopRingtonePlayer implements RingtonePlayer {
 /// regardless of those settings.
 ///
 /// flutter_ringtone_player's `looping` option only takes effect on Android
-/// (API >= 28), and its `stop()` is documented as Android-only too -- so
-/// this can't just fire one looping play() call and trust stop() to cut it
-/// off cross-platform. Instead CallsController re-triggers play() on a
-/// repeating timer for as long as the call keeps ringing (see
-/// _startRinging/_stopRinging) and simply stops scheduling further plays
-/// once it's done; whatever's already sounding finishes naturally within a
-/// couple of seconds on either platform.
+/// (API >= 28); on Android it plays the ringtone through to completion and
+/// loops it natively, so a single `play()` call is enough. `looping` (and
+/// `stop()`) aren't reliably honored on iOS, where the plugin instead plays
+/// a short system sound effect -- there's no API here for looping a real,
+/// full-length ringtone on iOS, so this approximates continuous ringing by
+/// re-triggering that short effect on a repeating timer until [stop] is
+/// called. Previously that repeat-timer approach was used on *both*
+/// platforms, which on Android meant a fresh `play()` call (with
+/// `looping: false`) restarted and cut off whatever was already sounding
+/// every few seconds -- audibly choppy instead of a continuous ring.
 class SystemRingtonePlayer implements RingtonePlayer {
+  Timer? _iosRepeatTimer;
+
   @override
   void play() {
+    _iosRepeatTimer?.cancel();
+    _iosRepeatTimer = null;
+
     FlutterRingtonePlayer().play(
       android: AndroidSounds.ringtone,
       ios: IosSounds.electronic,
-      looping: false,
+      looping: true,
       asAlarm: false,
     );
+
+    if (!Platform.isAndroid) {
+      _iosRepeatTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+        FlutterRingtonePlayer().play(
+          ios: IosSounds.electronic,
+          looping: true,
+          asAlarm: false,
+        );
+      });
+    }
   }
 
   @override
   void stop() {
+    _iosRepeatTimer?.cancel();
+    _iosRepeatTimer = null;
     FlutterRingtonePlayer().stop();
   }
 }

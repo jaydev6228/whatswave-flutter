@@ -21,6 +21,11 @@ abstract class CallSignalingService {
   Stream<CallSignal?> watchCall(String callId);
 
   Future<void> updateStatus(String callId, CallSignalStatus status);
+
+  /// Tells the caller's side that this device has surfaced the incoming-call
+  /// UI and started ringing, so their screen can show "Ringing..." instead
+  /// of "Calling...".
+  Future<void> markCalleeRinging(String callId);
 }
 
 /// Local-only stand-in with no real cross-device delivery -- there's no
@@ -74,6 +79,20 @@ class MemoryCallSignalingService implements CallSignalingService {
       return;
     }
     final updated = existing.copyWith(status: status, updatedAt: DateTime.now());
+    _calls[callId] = updated;
+    _callControllers[callId]?.add(updated);
+  }
+
+  @override
+  Future<void> markCalleeRinging(String callId) async {
+    final existing = _calls[callId];
+    if (existing == null) {
+      return;
+    }
+    final updated = existing.copyWith(
+      calleeRinging: true,
+      updatedAt: DateTime.now(),
+    );
     _calls[callId] = updated;
     _callControllers[callId]?.add(updated);
   }
