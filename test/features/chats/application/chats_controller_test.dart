@@ -178,6 +178,14 @@ class _FailingChatRepository implements ChatRepository {
   }
 
   @override
+  Future<ChatThread> createGroup({
+    required String name,
+    required List<String> memberUids,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
   Future<List<ChatThread>> sendAttachmentMessage({
     required String threadId,
     required ChatAttachment attachment,
@@ -240,6 +248,13 @@ class _SendFailingChatRepository implements ChatRepository {
   @override
   Future<List<ChatThread>> markThreadRead(String threadId) =>
       _delegate.markThreadRead(threadId);
+
+  @override
+  Future<ChatThread> createGroup({
+    required String name,
+    required List<String> memberUids,
+  }) =>
+      _delegate.createGroup(name: name, memberUids: memberUids);
 
   @override
   Future<List<ChatThread>> sendAttachmentMessage({

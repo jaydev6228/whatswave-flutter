@@ -71,58 +71,6 @@ void main() {
     );
   });
 
-  testWidgets(
-      'shows contacts permission gate, allows access, and shares invite',
-      (tester) async {
-    final controller = CommunitiesController(
-      repository: FakeCommunitiesRepository(latency: Duration.zero),
-      permissionService: MemoryAppPermissionService(),
-    );
-
-    await _pumpCommunitiesScreen(
-      tester,
-      device: androidSmallProfile,
-      controller: controller,
-    );
-
-    await tester.tap(find.byKey(const Key('communities_surface_contacts')));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Contacts are hidden for now'), findsOneWidget);
-
-    await _scrollUntilVisible(
-      tester,
-      find.byKey(const Key('contacts_permission_allow')),
-    );
-    await tester.tap(find.byKey(const Key('contacts_permission_allow')));
-    await tester.pumpAndSettle();
-
-    await _scrollUntilVisible(
-      tester,
-      find.byKey(const Key('contacts_filter_invite')),
-    );
-    await tester.tap(find.byKey(const Key('contacts_filter_invite')));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Emi Tanaka'), findsOneWidget);
-    expect(find.text('Ava Patel'), findsNothing);
-
-    await _scrollUntilVisible(
-      tester,
-      find.byKey(const Key('contact_primary_action_emi-tanaka')),
-    );
-    await tester
-        .tap(find.byKey(const Key('contact_primary_action_emi-tanaka')));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Invite Emi Tanaka'), findsOneWidget);
-
-    await tester.tap(find.text('Done'));
-    await tester.pumpAndSettle();
-
-    expect(controller.contactById('emi-tanaka')?.appInviteSent, isTrue);
-  });
-
   testWidgets('shows an error card and retries after a failed load',
       (tester) async {
     final controller = CommunitiesController(

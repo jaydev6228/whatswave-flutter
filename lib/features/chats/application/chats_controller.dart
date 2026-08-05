@@ -286,6 +286,34 @@ class ChatsController extends ChangeNotifier {
     }
   }
 
+  /// Creates a new group thread with [memberUids] and returns its id, or
+  /// null on failure (see [errorMessage]).
+  Future<String?> createGroup({
+    required String name,
+    required List<String> memberUids,
+  }) async {
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      final thread = await _repository.createGroup(
+        name: name,
+        memberUids: memberUids,
+      );
+      _threads = await _repository.fetchThreads();
+      notifyListeners();
+      return thread.id;
+    } on ChatRepositoryException catch (error) {
+      _errorMessage = error.message;
+      notifyListeners();
+      return null;
+    } catch (_) {
+      _errorMessage = 'We could not create that group right now.';
+      notifyListeners();
+      return null;
+    }
+  }
+
   Future<void> openThread(String threadId) async {
     final thread = threadById(threadId);
     if (thread == null || thread.unreadCount == 0) {

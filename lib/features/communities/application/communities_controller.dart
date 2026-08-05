@@ -7,8 +7,6 @@ import '../domain/community_contact.dart';
 import '../domain/community_hub.dart';
 import '../domain/contact_access_status.dart';
 
-enum CommunitiesSurface { communities, contacts }
-
 enum CommunityListFilter { all, unread, announcements }
 
 enum ContactListFilter { all, onWhatsWave, invite }
@@ -29,7 +27,6 @@ class CommunitiesController extends ChangeNotifier {
   bool _isRequestingContactsAccess = false;
   String? _errorMessage;
   String _searchQuery = '';
-  CommunitiesSurface _selectedSurface = CommunitiesSurface.communities;
   CommunityListFilter _communityFilter = CommunityListFilter.all;
   ContactListFilter _contactFilter = ContactListFilter.all;
   ContactAccessStatus _contactAccessStatus = ContactAccessStatus.unknown;
@@ -44,7 +41,6 @@ class CommunitiesController extends ChangeNotifier {
   bool get isRequestingContactsAccess => _isRequestingContactsAccess;
   String? get errorMessage => _errorMessage;
   String get searchQuery => _searchQuery;
-  CommunitiesSurface get selectedSurface => _selectedSurface;
   CommunityListFilter get communityFilter => _communityFilter;
   ContactListFilter get contactFilter => _contactFilter;
   ContactAccessStatus get contactAccessStatus => _contactAccessStatus;
@@ -153,16 +149,6 @@ class CommunitiesController extends ChangeNotifier {
     }
 
     _contactAccessStatus = accessStatus;
-    notifyListeners();
-  }
-
-  void selectSurface(CommunitiesSurface surface) {
-    if (_selectedSurface == surface) {
-      return;
-    }
-
-    _selectedSurface = surface;
-    _errorMessage = null;
     notifyListeners();
   }
 

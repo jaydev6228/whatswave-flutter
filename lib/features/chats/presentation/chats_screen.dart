@@ -3,6 +3,7 @@ import 'package:flutter/rendering.dart';
 
 import '../../../core/models/status_story.dart';
 import '../../calls/application/calls_controller.dart';
+import '../../communities/application/communities_controller.dart';
 import '../../shared/widgets/avatar_badge.dart';
 import '../../shared/widgets/empty_state_card.dart';
 import '../../updates/application/updates_controller.dart';
@@ -12,6 +13,7 @@ import '../application/chats_controller.dart';
 import '../domain/chat_message.dart';
 import '../domain/chat_thread.dart';
 import 'conversation_screen.dart';
+import 'new_chat_screen.dart';
 
 const double _kChatsScreenHorizontalPadding = 16;
 const double _kChatsRowHorizontalPadding = 18;
@@ -19,6 +21,7 @@ const double _kChatsRowHorizontalPadding = 18;
 class ChatsScreen extends StatefulWidget {
   const ChatsScreen({
     required this.callsController,
+    required this.communitiesController,
     required this.controller,
     required this.updatesController,
     this.animateTypingIndicators,
@@ -26,6 +29,7 @@ class ChatsScreen extends StatefulWidget {
   });
 
   final CallsController callsController;
+  final CommunitiesController communitiesController;
   final ChatsController controller;
   final UpdatesController updatesController;
   final bool? animateTypingIndicators;
@@ -110,19 +114,9 @@ class _ChatsScreenState extends State<ChatsScreen> {
                               ),
                             ),
                             IconButton(
-                              tooltip: 'Camera',
-                              onPressed: () => _showComingSoon(
-                                context,
-                                'Camera capture will land in the media and status phases.',
-                              ),
-                              icon: const Icon(Icons.camera_alt_outlined),
-                            ),
-                            IconButton(
-                              tooltip: 'Compose',
-                              onPressed: () => _showComingSoon(
-                                context,
-                                'Use the Communities tab to manage contacts and invites while direct new-chat creation is still being wired.',
-                              ),
+                              key: const Key('chats_new_chat_button'),
+                              tooltip: 'New chat',
+                              onPressed: _openNewChat,
                               icon: const Icon(Icons.add_comment_outlined),
                             ),
                           ],
@@ -364,6 +358,33 @@ class _ChatsScreenState extends State<ChatsScreen> {
     );
 
     _dismissSearchFocus();
+  }
+
+  Future<void> _openNewChat() async {
+    _dismissSearchFocus();
+    final threadId = await Navigator.of(context).push<String>(
+      MaterialPageRoute<String>(
+        builder: (_) => NewChatScreen(
+          communitiesController: widget.communitiesController,
+          chatsController: widget.controller,
+          callsController: widget.callsController,
+        ),
+      ),
+    );
+    if (!mounted || threadId == null) {
+      return;
+    }
+
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ConversationScreen(
+          callsController: widget.callsController,
+          controller: widget.controller,
+          updatesController: widget.updatesController,
+          threadId: threadId,
+        ),
+      ),
+    );
   }
 
   Future<void> _openThreadStory(ChatThread thread) async {

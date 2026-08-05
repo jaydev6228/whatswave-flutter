@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../app/theme/app_palette.dart';
 import '../../../core/sample/demo_data.dart';
 import '../domain/chat_attachment.dart';
 import '../domain/chat_message.dart';
@@ -62,6 +63,32 @@ class FakeChatRepository implements ChatRepository {
       avatarLabel: avatarLabel,
       accentColor: accentColor,
       messages: const [],
+    );
+    _threads = [thread, ..._threads];
+    return thread;
+  }
+
+  @override
+  Future<ChatThread> createGroup({
+    required String name,
+    required List<String> memberUids,
+  }) async {
+    await _wait();
+    final trimmedName = name.trim();
+    if (trimmedName.isEmpty) {
+      throw const ChatRepositoryException('Give the group a name.');
+    }
+    if (memberUids.isEmpty) {
+      throw const ChatRepositoryException('Add at least one member.');
+    }
+
+    final thread = ChatThread(
+      id: 'group-${DateTime.now().microsecondsSinceEpoch}',
+      name: trimmedName,
+      avatarLabel: _avatarLabelForName(trimmedName),
+      accentColor: _accentColorForName(trimmedName),
+      messages: const [],
+      isGroup: true,
     );
     _threads = [thread, ..._threads];
     return thread;
@@ -174,6 +201,33 @@ class FakeChatRepository implements ChatRepository {
         )
         .toList(growable: false);
     return _deepCopyThreads(_threads);
+  }
+
+  String _avatarLabelForName(String name) {
+    final parts =
+        name.split(RegExp(r'\s+')).where((part) => part.isNotEmpty).toList();
+    if (parts.isEmpty) {
+      return 'GR';
+    }
+    if (parts.length == 1) {
+      final clean = parts.first.replaceAll(RegExp(r'[^A-Za-z0-9]'), '');
+      return clean.isEmpty
+          ? 'GR'
+          : clean.substring(0, clean.length >= 2 ? 2 : 1).toUpperCase();
+    }
+    return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
+  }
+
+  Color _accentColorForName(String name) {
+    const palette = <Color>[
+      AppPalette.emerald,
+      AppPalette.green,
+      AppPalette.sky,
+      AppPalette.purple,
+      AppPalette.amber,
+      AppPalette.rose,
+    ];
+    return palette[name.hashCode.abs() % palette.length];
   }
 
   ChatThread _threadForId(String threadId) {

@@ -3,6 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:whatswave/app/theme/app_theme.dart';
 import 'package:whatswave/features/calls/application/calls_controller.dart';
 import 'package:whatswave/features/calls/data/fake_calls_repository.dart';
+import 'package:whatswave/features/communities/application/communities_controller.dart';
+import 'package:whatswave/features/communities/data/fake_communities_repository.dart';
 import 'package:whatswave/features/updates/application/updates_controller.dart';
 import 'package:whatswave/features/updates/data/fake_updates_repository.dart';
 import 'package:whatswave/features/chats/application/chats_controller.dart';
@@ -622,6 +624,9 @@ Future<void> _pumpChatsScreen(
           callsController: CallsController(
             repository: FakeCallsRepository(latency: Duration.zero),
           ),
+          communitiesController: CommunitiesController(
+            repository: FakeCommunitiesRepository(latency: Duration.zero),
+          ),
           controller: controller,
           updatesController: resolvedUpdatesController,
           animateTypingIndicators: animateTypingIndicators,
@@ -670,6 +675,14 @@ class _FailingChatRepository implements ChatRepository {
 
   @override
   Future<List<Never>> markThreadRead(String threadId) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<ChatThread> createGroup({
+    required String name,
+    required List<String> memberUids,
+  }) {
     throw UnimplementedError();
   }
 
@@ -734,6 +747,13 @@ class _FlakySendChatRepository implements ChatRepository {
   @override
   Future<List<ChatThread>> markThreadRead(String threadId) =>
       _delegate.markThreadRead(threadId);
+
+  @override
+  Future<ChatThread> createGroup({
+    required String name,
+    required List<String> memberUids,
+  }) =>
+      _delegate.createGroup(name: name, memberUids: memberUids);
 
   @override
   Future<List<ChatThread>> sendAttachmentMessage({

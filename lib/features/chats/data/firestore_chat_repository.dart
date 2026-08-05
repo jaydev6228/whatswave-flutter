@@ -151,6 +151,73 @@ class FirestoreChatRepository implements ChatRepository {
   }
 
   @override
+  Future<ChatThread> createGroup({
+    required String name,
+    required List<String> memberUids,
+  }) async {
+    final uid = _requireCurrentUid;
+    final trimmedName = name.trim();
+    if (trimmedName.isEmpty) {
+      throw const ChatRepositoryException('Give the group a name.');
+    }
+    if (memberUids.isEmpty) {
+      throw const ChatRepositoryException('Add at least one member.');
+    }
+
+    final participantUids = <String>{uid, ...memberUids}.toList();
+    final docRef = _threadsRef.doc();
+
+    try {
+      await docRef.set(<String, Object?>{
+        'isGroup': true,
+        'groupName': trimmedName,
+        'groupAvatarLabel': _avatarLabelForName(trimmedName),
+        'groupAccentColorArgb': _accentColorForName(trimmedName).toARGB32(),
+        'participantUids': participantUids,
+        'unreadCounts': {for (final id in participantUids) id: 0},
+        'hiddenFor': <String>[],
+        'isMuted': false,
+        'isPinned': false,
+        'hasStory': false,
+        'isArchived': false,
+      });
+      final doc = await docRef.get();
+      return _threadFromDoc(doc, currentUid: uid);
+    } on FirebaseException catch (e) {
+      throw ChatRepositoryException(
+        e.message ?? 'Could not create that group right now.',
+      );
+    }
+  }
+
+  String _avatarLabelForName(String name) {
+    final parts =
+        name.split(RegExp(r'\s+')).where((part) => part.isNotEmpty).toList();
+    if (parts.isEmpty) {
+      return 'GR';
+    }
+    if (parts.length == 1) {
+      final clean = parts.first.replaceAll(RegExp(r'[^A-Za-z0-9]'), '');
+      return clean.isEmpty
+          ? 'GR'
+          : clean.substring(0, clean.length >= 2 ? 2 : 1).toUpperCase();
+    }
+    return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
+  }
+
+  Color _accentColorForName(String name) {
+    const palette = <Color>[
+      AppPalette.emerald,
+      AppPalette.green,
+      AppPalette.sky,
+      AppPalette.purple,
+      AppPalette.amber,
+      AppPalette.rose,
+    ];
+    return palette[name.hashCode.abs() % palette.length];
+  }
+
+  @override
   Future<List<ChatThread>> setThreadArchived({
     required String threadId,
     required bool isArchived,
@@ -272,16 +339,27 @@ class FirestoreChatRepository implements ChatRepository {
     var name = 'WhatsWave user';
     var avatarLabel = '?';
     var accentColor = AppPalette.slate;
+    final isGroup = (data['isGroup'] as bool?) ?? false;
 
     final participantUids =
         (data['participantUids'] as List<dynamic>?)?.cast<String>() ??
             const <String>[];
-    final otherUid = participantUids
-        .cast<String?>()
-        .firstWhere((entry) => entry != null && entry != currentUid,
-            orElse: () => null);
+    // A group has no single "other participant" -- it keeps its own
+    // name/avatar/color set at creation time (see createGroup) instead of
+    // borrowing another user's profile.
+    final otherUid = isGroup
+        ? null
+        : participantUids.cast<String?>().firstWhere(
+            (entry) => entry != null && entry != currentUid,
+            orElse: () => null,
+          );
 
-    if (otherUid != null) {
+    if (isGroup) {
+      name = (data['groupName'] as String?) ?? 'Group';
+      avatarLabel = (data['groupAvatarLabel'] as String?) ?? 'GR';
+      accentColor =
+          Color((data['groupAccentColorArgb'] as int?) ?? accentColor.toARGB32());
+    } else if (otherUid != null) {
       // A per-uid seed guess from whoever created the thread -- only ever
       // valid as a fallback for looking up THIS specific otherUid (see the
       // class doc comment for why a single shared field was wrong).

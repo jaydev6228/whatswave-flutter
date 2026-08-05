@@ -23,6 +23,15 @@ abstract class ChatRepository {
     required Color accentColor,
   });
 
+  /// Creates a new group thread with the caller plus [memberUids]. Always
+  /// creates a fresh thread (no dedup against an existing group with the
+  /// same members -- unlike [startThread], there's no natural deterministic
+  /// id for an N-person group).
+  Future<ChatThread> createGroup({
+    required String name,
+    required List<String> memberUids,
+  });
+
   Future<List<ChatThread>> setThreadArchived({
     required String threadId,
     required bool isArchived,

@@ -111,15 +111,13 @@ class _AppShellState extends State<AppShell> {
     final pages = [
       ChatsScreen(
         callsController: widget.callsController,
+        communitiesController: widget.communitiesController,
         controller: widget.chatsController,
         updatesController: widget.updatesController,
       ),
       UpdatesScreen(controller: widget.updatesController),
       CommunitiesScreen(
         controller: widget.communitiesController,
-        callsController: widget.callsController,
-        chatsController: widget.chatsController,
-        updatesController: widget.updatesController,
       ),
       CallsScreen(
         controller: widget.callsController,
