@@ -86,6 +86,8 @@ class _CallsScreenState extends State<CallsScreen> {
                                 Expanded(
                                   child: Text(
                                     'Calls',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
                                     style: theme.textTheme.headlineMedium
                                         ?.copyWith(
                                       fontWeight: FontWeight.w900,
