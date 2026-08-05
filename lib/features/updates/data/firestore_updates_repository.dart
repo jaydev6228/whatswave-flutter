@@ -33,11 +33,13 @@ import 'updates_repository.dart';
 /// own) `statusStories/{uid}` document individually instead of scanning
 /// the whole collection.
 ///
-/// Known gap: [markStoryViewed] can't actually write another user's "seen"
-/// state today -- security rules only let the owner write their own
-/// document. Real cross-user seen-tracking would need a per-viewer
-/// subcollection (e.g. `statusStories/{id}/views/{viewerUid}`) and its own
-/// rules.
+/// Seen-progress is per-viewer, stored at
+/// `statusStories/{ownerUid}/views/{viewerUid}` (see [markStoryViewed] and
+/// [_storyFromDoc]) rather than as a field on the story doc itself -- the
+/// story doc is owner-write-only, so a shared field could never actually
+/// persist another viewer's progress; every cross-user "seen" write
+/// silently failed, which is why the ring reverted to unseen once the app
+/// restarted and re-read the untouched story doc.
 class FirestoreUpdatesRepository implements UpdatesRepository {
   FirestoreUpdatesRepository({
     FirebaseFirestore? firestore,
@@ -291,13 +293,19 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
         return (await fetchUpdates()).stories;
       }
 
+      // Written to the viewer's own per-viewer doc, not the story doc
+      // itself -- security rules only let the owner write that (see
+      // firestore.rules), so a shared seenSegments field on the story doc
+      // could never actually persist another viewer's progress.
       await _storiesRef
           .doc(storyId)
-          .update({'seenSegments': normalizedSeenSegments});
-    } on FirebaseException {
-      // Security rules only allow the owner to write their own document
-      // today -- silently ignore, since there's no real second user to
-      // test this against yet. See the class doc comment.
+          .collection('views')
+          .doc(uid)
+          .set({'seenSegments': normalizedSeenSegments});
+    } on FirebaseException catch (e) {
+      throw UpdatesRepositoryException(
+        e.message ?? 'We could not update that story right now.',
+      );
     }
 
     return (await fetchUpdates()).stories;
@@ -421,6 +429,7 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
     if (story == null) {
       return null;
     }
+    final isMine = doc.id == currentUid;
 
     // WhatsApp-style 24h status lifetime. A segment with no postedAt is
     // legacy data written before this existed -- keep it rather than
@@ -432,18 +441,30 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
       }
       return DateTime.now().difference(postedAt) < const Duration(hours: 24);
     }).toList(growable: false);
+
+    // For someone else's story, the real seen-progress is this viewer's
+    // own per-viewer doc (see the class doc comment) -- the field on the
+    // story doc itself only ever reflects the owner's own writes (e.g.
+    // reset to 0 on a new segment), never another viewer's progress.
+    var seenSegments = story.seenSegments;
+    if (!isMine && liveSegments.isNotEmpty) {
+      final viewDoc =
+          await doc.reference.collection('views').doc(currentUid).get();
+      seenSegments = (viewDoc.data()?['seenSegments'] as num?)?.toInt() ?? 0;
+    }
+
     final freshStory = story.copyWith(
       segments: liveSegments,
       totalSegments: liveSegments.length,
       seenSegments:
-          liveSegments.isEmpty ? 0 : story.seenSegments.clamp(0, liveSegments.length).toInt(),
+          liveSegments.isEmpty ? 0 : seenSegments.clamp(0, liveSegments.length).toInt(),
     );
 
     final profile =
         await UserProfileLookup(firestore: _firestore).fetch(doc.id);
     return freshStory.copyWith(
       id: doc.id,
-      isMine: doc.id == currentUid,
+      isMine: isMine,
       name: profile?.name,
       avatarLabel: profile?.avatarLabel,
       accentColor:

@@ -47,6 +47,17 @@ service cloud.firestore {
                                : ownerUid + '_' + request.auth.uid
                            )));
       allow write: if request.auth != null && request.auth.uid == ownerUid;
+
+      match /views/{viewerUid} {
+        // Per-viewer seen-progress. The story doc above is owner-write-only,
+        // so a viewer's "how far have I watched" state can't live there --
+        // it never actually persisted for anyone but the owner, which is
+        // why seen state reverted after the app restarted and re-read the
+        // untouched story doc. Each viewer's own progress lives in their
+        // own doc here instead, readable and writable only by that viewer.
+        allow read, write: if request.auth != null
+                              && request.auth.uid == viewerUid;
+      }
     }
 
     match /communities/{communityId} {
