@@ -145,6 +145,8 @@ class _VideoCallLayout extends StatelessWidget {
                         Text(
                           _displayCallName(session.contact.name),
                           key: const Key('call_name_text'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.displaySmall?.copyWith(
                             color: textColor,
                             fontWeight: FontWeight.w900,
@@ -156,6 +158,8 @@ class _VideoCallLayout extends StatelessWidget {
                         Text(
                           _videoStatusText(session),
                           key: const Key('call_video_status_text'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.titleLarge?.copyWith(
                             color: scheme.secondaryText,
                             fontWeight: FontWeight.w700,
@@ -257,6 +261,8 @@ class _AudioCallLayout extends StatelessWidget {
                   _displayCallName(session.contact.name),
                   key: const Key('call_name_text'),
                   textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.displaySmall?.copyWith(
                     color: textColor,
                     fontWeight: FontWeight.w800,
@@ -267,6 +273,8 @@ class _AudioCallLayout extends StatelessWidget {
                 const SizedBox(height: 8),
                 Text(
                   'Audio call',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.titleLarge?.copyWith(
                     color: scheme.secondaryText,
                     fontWeight: FontWeight.w700,
@@ -277,6 +285,8 @@ class _AudioCallLayout extends StatelessWidget {
                 Text(
                   detailText,
                   textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: detailStyle,
                 ),
                 Expanded(
@@ -379,6 +389,8 @@ class _VideoAmbientStage extends StatelessWidget {
                 Text(
                   _remoteVideoStageLabel(session),
                   textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         color: scheme.secondaryText,
                         fontWeight: FontWeight.w700,
