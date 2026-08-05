@@ -102,6 +102,8 @@ class _ChatsScreenState extends State<ChatsScreen> {
                             Expanded(
                               child: Text(
                                 'Chats',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                                 style: theme.textTheme.headlineMedium?.copyWith(
                                   fontWeight: FontWeight.w900,
                                 ),
@@ -184,52 +186,52 @@ class _ChatsScreenState extends State<ChatsScreen> {
                           ),
                         ),
                         const SizedBox(height: 10),
-                        SizedBox(
-                          height: 34,
-                          child: SingleChildScrollView(
-                            scrollDirection: Axis.horizontal,
-                            child: Row(
-                              children: [
-                                _ChatFilterChip(
-                                  key: const Key('chat_filter_all'),
-                                  label: 'All',
-                                  isSelected:
-                                      widget.controller.selectedFilter ==
-                                          ChatListFilter.all,
-                                  onTap: () {
-                                    _dismissSearchFocus();
-                                    widget.controller
-                                        .updateFilter(ChatListFilter.all);
-                                  },
-                                ),
-                                const SizedBox(width: 8),
-                                _ChatFilterChip(
-                                  key: const Key('chat_filter_unread'),
-                                  label: 'Unread',
-                                  isSelected:
-                                      widget.controller.selectedFilter ==
-                                          ChatListFilter.unread,
-                                  onTap: () {
-                                    _dismissSearchFocus();
-                                    widget.controller
-                                        .updateFilter(ChatListFilter.unread);
-                                  },
-                                ),
-                                const SizedBox(width: 8),
-                                _ChatFilterChip(
-                                  key: const Key('chat_filter_groups'),
-                                  label: 'Groups',
-                                  isSelected:
-                                      widget.controller.selectedFilter ==
-                                          ChatListFilter.groups,
-                                  onTap: () {
-                                    _dismissSearchFocus();
-                                    widget.controller
-                                        .updateFilter(ChatListFilter.groups);
-                                  },
-                                ),
-                              ],
-                            ),
+                        // No fixed height here (was SizedBox(height: 34)) --
+                        // a text-containing chip row must size to its own
+                        // content or its label clips at large text scale.
+                        // A horizontal SingleChildScrollView already sizes
+                        // its cross axis to the child's natural height on
+                        // its own. See docs/ui_layout_guidelines.md rule 1.
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            children: [
+                              _ChatFilterChip(
+                                key: const Key('chat_filter_all'),
+                                label: 'All',
+                                isSelected: widget.controller.selectedFilter ==
+                                    ChatListFilter.all,
+                                onTap: () {
+                                  _dismissSearchFocus();
+                                  widget.controller
+                                      .updateFilter(ChatListFilter.all);
+                                },
+                              ),
+                              const SizedBox(width: 8),
+                              _ChatFilterChip(
+                                key: const Key('chat_filter_unread'),
+                                label: 'Unread',
+                                isSelected: widget.controller.selectedFilter ==
+                                    ChatListFilter.unread,
+                                onTap: () {
+                                  _dismissSearchFocus();
+                                  widget.controller
+                                      .updateFilter(ChatListFilter.unread);
+                                },
+                              ),
+                              const SizedBox(width: 8),
+                              _ChatFilterChip(
+                                key: const Key('chat_filter_groups'),
+                                label: 'Groups',
+                                isSelected: widget.controller.selectedFilter ==
+                                    ChatListFilter.groups,
+                                onTap: () {
+                                  _dismissSearchFocus();
+                                  widget.controller
+                                      .updateFilter(ChatListFilter.groups);
+                                },
+                              ),
+                            ],
                           ),
                         ),
                         const SizedBox(height: 6),
@@ -584,7 +586,11 @@ class _ArchivedChatsScreenState extends State<ArchivedChatsScreen> {
         return Scaffold(
           key: const Key('archived_chats_screen'),
           appBar: AppBar(
-            title: const Text('Archived chats'),
+            title: const Text(
+              'Archived chats',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
           ),
           body: SafeArea(
             child: CustomScrollView(
