@@ -142,61 +142,71 @@ class _AppShellState extends State<AppShell> {
         animation: widget.chatsController,
         builder: (context, _) {
           final unreadChatCount = widget.chatsController.unreadThreadCount;
-          return NavigationBarTheme(
-            data: navigationTheme.copyWith(
-              labelTextStyle: adaptiveLabelTextStyle,
-            ),
-            child: NavigationBar(
-              selectedIndex: _currentTab.index,
-              onDestinationSelected: (index) {
-                final nextTab = AppTab.values[index];
-                if (nextTab == _currentTab) {
-                  return;
-                }
+          // Width-based navigationLabelScale (above) only accounts for
+          // narrow screens -- it says nothing about the system accessibility
+          // text-scale setting, which multiplies on top of it and can still
+          // wrap/overflow a label like "Communities" even on a wide phone.
+          // Clamping here (not disabling) keeps nav chrome usable while
+          // still growing somewhat for accessibility. See
+          // docs/ui_layout_guidelines.md rule 4.
+          return MediaQuery.withClampedTextScaling(
+            maxScaleFactor: 1.3,
+            child: NavigationBarTheme(
+              data: navigationTheme.copyWith(
+                labelTextStyle: adaptiveLabelTextStyle,
+              ),
+              child: NavigationBar(
+                selectedIndex: _currentTab.index,
+                onDestinationSelected: (index) {
+                  final nextTab = AppTab.values[index];
+                  if (nextTab == _currentTab) {
+                    return;
+                  }
 
-                AppTelemetryScope.of(context).recordInteraction(
-                  'navigation_tab_selected',
-                  attributes: <String, Object?>{
-                    'from': _currentTab.name,
-                    'to': nextTab.name,
-                  },
-                );
-                setState(() => _currentTab = nextTab);
-                _trackScreenView(nextTab);
-              },
-              destinations: [
-                NavigationDestination(
-                  icon: _NavIconWithBadge(
-                    icon: Icons.chat_bubble_outline_rounded,
-                    count: unreadChatCount,
+                  AppTelemetryScope.of(context).recordInteraction(
+                    'navigation_tab_selected',
+                    attributes: <String, Object?>{
+                      'from': _currentTab.name,
+                      'to': nextTab.name,
+                    },
+                  );
+                  setState(() => _currentTab = nextTab);
+                  _trackScreenView(nextTab);
+                },
+                destinations: [
+                  NavigationDestination(
+                    icon: _NavIconWithBadge(
+                      icon: Icons.chat_bubble_outline_rounded,
+                      count: unreadChatCount,
+                    ),
+                    selectedIcon: _NavIconWithBadge(
+                      icon: Icons.chat_bubble_rounded,
+                      count: unreadChatCount,
+                    ),
+                    label: 'Chats',
                   ),
-                  selectedIcon: _NavIconWithBadge(
-                    icon: Icons.chat_bubble_rounded,
-                    count: unreadChatCount,
+                  const NavigationDestination(
+                    icon: Icon(Icons.auto_awesome_motion_outlined),
+                    selectedIcon: Icon(Icons.auto_awesome_motion_rounded),
+                    label: 'Updates',
                   ),
-                  label: 'Chats',
-                ),
-                const NavigationDestination(
-                  icon: Icon(Icons.auto_awesome_motion_outlined),
-                  selectedIcon: Icon(Icons.auto_awesome_motion_rounded),
-                  label: 'Updates',
-                ),
-                const NavigationDestination(
-                  icon: Icon(Icons.groups_outlined),
-                  selectedIcon: Icon(Icons.groups_rounded),
-                  label: 'Communities',
-                ),
-                const NavigationDestination(
-                  icon: Icon(Icons.call_outlined),
-                  selectedIcon: Icon(Icons.call_rounded),
-                  label: 'Calls',
-                ),
-                const NavigationDestination(
-                  icon: Icon(Icons.settings_outlined),
-                  selectedIcon: Icon(Icons.settings_rounded),
-                  label: 'Settings',
-                ),
-              ],
+                  const NavigationDestination(
+                    icon: Icon(Icons.groups_outlined),
+                    selectedIcon: Icon(Icons.groups_rounded),
+                    label: 'Communities',
+                  ),
+                  const NavigationDestination(
+                    icon: Icon(Icons.call_outlined),
+                    selectedIcon: Icon(Icons.call_rounded),
+                    label: 'Calls',
+                  ),
+                  const NavigationDestination(
+                    icon: Icon(Icons.settings_outlined),
+                    selectedIcon: Icon(Icons.settings_rounded),
+                    label: 'Settings',
+                  ),
+                ],
+              ),
             ),
           );
         },
