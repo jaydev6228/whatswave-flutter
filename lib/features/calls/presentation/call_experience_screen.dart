@@ -74,24 +74,42 @@ class _CallExperienceScreenState extends State<CallExperienceScreen> {
       child: Scaffold(
         key: const Key('call_experience_screen'),
         backgroundColor: gradient.colors.first,
-        body: DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: gradient,
-          ),
-          child: SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-              child: session.isVideo
-                  ? _VideoCallLayout(
-                      controller: widget.controller,
-                      session: session,
-                    )
-                  : _AudioCallLayout(
-                      controller: widget.controller,
-                      session: session,
-                    ),
+        body: Stack(
+          fit: StackFit.expand,
+          children: [
+            DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: gradient,
+              ),
             ),
-          ),
+            // Remote video/ambient stage now paints edge-to-edge, behind
+            // the safe-area-padded chrome below -- "show opponent video to
+            // whole screen behind element on screen". Audio calls have no
+            // video layer; _AudioCallLayout's own backdrop covers that
+            // case entirely within the padded content.
+            if (session.isVideo)
+              _VideoAmbientStage(
+                key: const Key('call_video_ambient_stage'),
+                controller: widget.controller,
+                session: session,
+                compact: _isCompactLayout(context),
+                scheme: _callVisualScheme(context, session),
+              ),
+            SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+                child: session.isVideo
+                    ? _VideoCallLayout(
+                        controller: widget.controller,
+                        session: session,
+                      )
+                    : _AudioCallLayout(
+                        controller: widget.controller,
+                        session: session,
+                      ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -118,98 +136,85 @@ class _VideoCallLayout extends StatelessWidget {
         final isCompact = isCompactWidth || isCompactHeight;
         final previewWidth = isCompactWidth ? 116.0 : 144.0;
         final previewHeight = isCompactHeight ? 170.0 : 212.0;
+        final previewMargin = isCompact ? 16.0 : 24.0;
         final textColor = scheme.primaryText;
+        final isConnected = session.phase == CallSessionPhase.connected;
 
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        // Chrome overlaid on top of the full-screen remote video behind
+        // this (see _CallExperienceScreenState.build). No "Video call"
+        // pill or name/status header while ringing/connecting/incoming --
+        // _VideoAmbientStage's own centered avatar+name+status overlay
+        // already covers that; showing both was the reported redundant
+        // duplicate label. Once connected, a small name+duration label
+        // takes its place (real info, not a repeat of "you're on a video
+        // call").
+        return Stack(
           children: [
-            SizedBox(height: isCompactHeight ? 10 : 14),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Padding(
-                    key: const Key('call_video_header_block'),
-                    padding: EdgeInsets.only(top: isCompactHeight ? 8 : 14),
-                    child: Column(
-                      key: const Key('call_video_info_column'),
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _CallPill(
-                          icon: Icons.videocam_rounded,
-                          label: 'Video call',
-                          backgroundColor: scheme.pillBackground,
-                          foregroundColor: scheme.pillForeground,
-                        ),
-                        SizedBox(height: isCompactHeight ? 20 : 28),
-                        Text(
-                          _displayCallName(session.contact.name),
-                          key: const Key('call_name_text'),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.displaySmall?.copyWith(
-                            color: textColor,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: -1.1,
-                            fontSize: isCompactWidth ? 48 : 54,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          _videoStatusText(session),
-                          key: const Key('call_video_status_text'),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.titleLarge?.copyWith(
-                            color: scheme.secondaryText,
-                            fontWeight: FontWeight.w700,
-                            fontSize: isCompactWidth ? 22 : 24,
-                          ),
-                        ),
-                      ],
+            if (isConnected)
+              Positioned(
+                top: 0,
+                left: 0,
+                right: previewWidth + previewMargin + 12,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _displayCallName(session.contact.name),
+                      key: const Key('call_name_text'),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        color: textColor,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
-                  ),
+                    Text(
+                      _videoStatusText(session),
+                      key: const Key('call_video_status_text'),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        color: scheme.secondaryText,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
                 ),
-                SizedBox(width: isCompactWidth ? 12 : 18),
-                _LocalVideoPreviewCard(
-                  session: session,
-                  localVideoTrack:
-                      session.isReal ? controller.localVideoTrack : null,
-                  width: previewWidth,
-                  height: previewHeight,
-                  compact: isCompact,
-                  scheme: scheme,
-                  onSwitchCamera: controller.switchCamera,
-                ),
-              ],
-            ),
-            SizedBox(height: isCompactHeight ? 10 : 18),
-            Expanded(
-              child: _VideoAmbientStage(
-                key: const Key('call_video_ambient_stage'),
-                controller: controller,
+              ),
+            Positioned(
+              top: previewMargin,
+              right: previewMargin,
+              child: _LocalVideoPreviewCard(
                 session: session,
+                localVideoTrack:
+                    session.isReal ? controller.localVideoTrack : null,
+                width: previewWidth,
+                height: previewHeight,
                 compact: isCompact,
                 scheme: scheme,
+                onSwitchCamera: controller.switchCamera,
               ),
             ),
-            SizedBox(height: isCompactHeight ? 14 : 18),
-            if (session.phase == CallSessionPhase.incoming)
-              _IncomingCallActions(
-                controller: controller,
-                session: session,
-                textColor: textColor,
-              )
-            else
-              Align(
-                alignment: Alignment.bottomCenter,
-                child: _VideoControlDock(
-                  controller: controller,
-                  session: session,
-                  compact: isCompact,
-                  scheme: scheme,
-                ),
-              ),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: session.phase == CallSessionPhase.incoming
+                  ? _IncomingCallActions(
+                      controller: controller,
+                      session: session,
+                      textColor: textColor,
+                    )
+                  : Align(
+                      alignment: Alignment.bottomCenter,
+                      child: _VideoControlDock(
+                        controller: controller,
+                        session: session,
+                        compact: isCompact,
+                        scheme: scheme,
+                      ),
+                    ),
+            ),
           ],
         );
       },
@@ -271,17 +276,10 @@ class _AudioCallLayout extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 8),
-                Text(
-                  'Audio call',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    color: scheme.secondaryText,
-                    fontWeight: FontWeight.w700,
-                    fontSize: isCompact ? 20 : 22,
-                  ),
-                ),
-                const SizedBox(height: 12),
+                // No "Audio call" label -- the user already knows what
+                // kind of call this is; detailText below (Calling.../
+                // Connecting.../elapsed duration) carries the info that
+                // actually changes and matters.
                 Text(
                   detailText,
                   textAlign: TextAlign.center,
@@ -376,27 +374,47 @@ class _VideoAmbientStage extends StatelessWidget {
           )
         else if (session.phase != CallSessionPhase.connected)
           Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _CallIdentityAvatar(
-                  contact: session.contact,
-                  size: compact ? 82 : 94,
-                  backgroundColor: scheme.identitySurfaceColor,
-                  foregroundColor: scheme.primaryText,
-                ),
-                SizedBox(height: compact ? 14 : 18),
-                Text(
-                  _remoteVideoStageLabel(session),
-                  textAlign: TextAlign.center,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: scheme.secondaryText,
-                        fontWeight: FontWeight.w700,
-                      ),
-                ),
-              ],
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 32),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _CallIdentityAvatar(
+                    contact: session.contact,
+                    size: compact ? 82 : 94,
+                    backgroundColor: scheme.identitySurfaceColor,
+                    foregroundColor: scheme.primaryText,
+                  ),
+                  SizedBox(height: compact ? 14 : 18),
+                  // The sole name+status display while ringing/connecting/
+                  // incoming -- _VideoCallLayout intentionally shows
+                  // nothing up top during these phases so there's exactly
+                  // one place showing this, not two.
+                  Text(
+                    _displayCallName(session.contact.name),
+                    key: const Key('call_name_text'),
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                          color: scheme.primaryText,
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
+                  SizedBox(height: compact ? 6 : 8),
+                  Text(
+                    _remoteVideoStageLabel(session),
+                    key: const Key('call_video_status_text'),
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          color: scheme.secondaryText,
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                ],
+              ),
             ),
           ),
       ],
@@ -466,14 +484,12 @@ class _LocalVideoPreviewCard extends StatelessWidget {
                 ),
               ),
             ),
-            Padding(
-              padding: EdgeInsets.fromLTRB(
-                compact ? 10 : 12,
-                compact ? 10 : 12,
-                compact ? 10 : 12,
-                compact ? 10 : 12,
-              ),
-              child: Stack(
+            // No inset padding here (was 10-12px on all sides) -- the
+            // video should touch this card's own edges directly, per the
+            // "touch to edged of that view" request. The switch-camera
+            // button below gets its own small margin separately, so it
+            // doesn't look glued to the exact corner pixel.
+            Stack(
                 children: [
                   // Video (or its fallback icon) painted first, so the
                   // switch-camera button below always stays on top and
@@ -534,26 +550,28 @@ class _LocalVideoPreviewCard extends StatelessWidget {
                   ),
                   Align(
                     alignment: Alignment.bottomRight,
-                    child: _PreviewControlButton(
-                      buttonKey: const Key('call_switch_camera_button'),
-                      icon: Icons.flip_camera_ios_rounded,
-                      size: compact ? 34 : 38,
-                      backgroundColor: scheme.miniControlBackground,
-                      foregroundColor: scheme.miniControlForeground,
-                      borderColor: scheme.isDark
-                          ? Colors.white.withValues(alpha: 0.14)
-                          : scheme.miniControlForeground.withValues(
-                              alpha: 0.12,
-                            ),
-                      shadowColor: Colors.black.withValues(
-                        alpha: scheme.isDark ? 0.14 : 0.05,
+                    child: Padding(
+                      padding: EdgeInsets.all(compact ? 8 : 10),
+                      child: _PreviewControlButton(
+                        buttonKey: const Key('call_switch_camera_button'),
+                        icon: Icons.flip_camera_ios_rounded,
+                        size: compact ? 34 : 38,
+                        backgroundColor: scheme.miniControlBackground,
+                        foregroundColor: scheme.miniControlForeground,
+                        borderColor: scheme.isDark
+                            ? Colors.white.withValues(alpha: 0.14)
+                            : scheme.miniControlForeground.withValues(
+                                alpha: 0.12,
+                              ),
+                        shadowColor: Colors.black.withValues(
+                          alpha: scheme.isDark ? 0.14 : 0.05,
+                        ),
+                        onPressed: onSwitchCamera,
                       ),
-                      onPressed: onSwitchCamera,
                     ),
                   ),
                 ],
               ),
-            ),
           ],
         ),
       ),
@@ -1010,17 +1028,10 @@ class _VideoControlDock extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (session.phase != CallSessionPhase.connected) ...[
-                _CallPill(
-                  icon: Icons.wifi_tethering_rounded,
-                  label: session.phase == CallSessionPhase.incoming
-                      ? 'Incoming video'
-                      : 'Connecting video',
-                  backgroundColor: scheme.pillBackground,
-                  foregroundColor: scheme.pillForeground,
-                ),
-                SizedBox(height: compact ? 12 : 14),
-              ],
+              // No "Incoming video"/"Connecting video" pill here -- it
+              // duplicated the centered avatar+name+status overlay
+              // (_VideoAmbientStage) that's already showing that same
+              // status for every phase this dock renders in but connected.
               _FrostedPanel(
                 panelKey: const Key('call_video_control_dock'),
                 borderRadius: BorderRadius.circular(compact ? 28 : 32),
@@ -1213,8 +1224,14 @@ class _IncomingCallActions extends StatelessWidget {
           buttonKey: const Key('call_answer_button'),
           icon: session.isVideo ? Icons.videocam_rounded : Icons.call_rounded,
           label: session.isVideo ? 'Answer video' : 'Answer',
-          backgroundColor: AppPalette.green,
-          foregroundColor: Colors.white,
+          // Theme-routed (colorScheme.primary), not a hardcoded
+          // AppPalette.green literal -- matches the decline button's own
+          // colorScheme.error usage instead of bypassing the theme, and
+          // still resolves to this app's green brand color either way
+          // (see AppTheme, which seeds colorScheme.primary from
+          // AppPalette.emerald/green).
+          backgroundColor: Theme.of(context).colorScheme.primary,
+          foregroundColor: Theme.of(context).colorScheme.onPrimary,
           size: 84,
           labelColor: textColor,
           onPressed: () async {
@@ -1262,53 +1279,6 @@ class _FrostedPanel extends StatelessWidget {
             border: Border.all(color: borderColor),
           ),
           child: child,
-        ),
-      ),
-    );
-  }
-}
-
-class _CallPill extends StatelessWidget {
-  const _CallPill({
-    required this.icon,
-    required this.label,
-    required this.backgroundColor,
-    required this.foregroundColor,
-  });
-
-  final IconData icon;
-  final String label;
-  final Color backgroundColor;
-  final Color foregroundColor;
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: backgroundColor,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 16, color: foregroundColor),
-            const SizedBox(width: 7),
-            Flexible(
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                softWrap: false,
-                style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      color: foregroundColor,
-                      fontWeight: FontWeight.w800,
-                      fontSize: 15,
-                    ),
-              ),
-            ),
-          ],
         ),
       ),
     );
@@ -1718,6 +1688,15 @@ _CallControlStyle _resolveCallControlStyle({
     _CallControlTone.lens => neutralStyle,
     _CallControlTone.neutral => idleStyle,
   };
+}
+
+// Same compact thresholds _VideoCallLayout/_AudioCallLayout already use via
+// their own LayoutBuilder constraints -- needed here too now that
+// _VideoAmbientStage is hoisted above the safe-area-padded layout that
+// used to be the only thing measuring it.
+bool _isCompactLayout(BuildContext context) {
+  final size = MediaQuery.sizeOf(context);
+  return size.width < 390 || size.height < 760;
 }
 
 LinearGradient _backgroundGradient(BuildContext context, CallSession session) {

@@ -261,14 +261,20 @@ void main() {
         tester.getRect(find.byKey(const Key('call_local_video_status_label')));
 
     expect(find.text('Cam off'), findsOneWidget);
+    // No fixed inset padding around the preview's content anymore (the
+    // video/fallback content now touches the card's own edges by design,
+    // per docs/ui_layout_guidelines.md-style "no wasted chrome" -- only
+    // the switch-camera button keeps its own small margin) -- this now
+    // just checks the label stays inside the card at all, not clipped
+    // past its edge, rather than asserting a specific inset.
     expect(
       disabledLabelRect.left,
-      greaterThanOrEqualTo(disabledPreviewRect.left + 8),
+      greaterThanOrEqualTo(disabledPreviewRect.left),
       reason: 'The camera-off label should stay inside the preview card.',
     );
     expect(
       disabledLabelRect.right,
-      lessThanOrEqualTo(disabledPreviewRect.right - 8),
+      lessThanOrEqualTo(disabledPreviewRect.right),
       reason: 'The camera-off label should not clip at the preview edge.',
     );
     expect(
