@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../../chats/application/chats_controller.dart';
 import '../../chats/domain/chat_thread.dart';
@@ -111,8 +110,6 @@ class _CallsScreenState extends State<CallsScreen> {
                           ],
                         ),
                       ),
-                      _CallLinkCard(onPressed: _showCallLinkDialog),
-                      const SizedBox(height: 18),
                       Padding(
                         padding: const EdgeInsets.symmetric(
                           horizontal: _kCallsScreenHorizontalPadding,
@@ -258,40 +255,6 @@ class _CallsScreenState extends State<CallsScreen> {
     );
   }
 
-  Future<void> _showCallLinkDialog() async {
-    final link = _generateCallLink();
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Create call link'),
-          content: SelectableText(link),
-          actions: [
-            TextButton(
-              onPressed: () async {
-                await Clipboard.setData(ClipboardData(text: link));
-                if (!mounted || !dialogContext.mounted) {
-                  return;
-                }
-                Navigator.of(dialogContext).pop();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Call link copied to the clipboard.'),
-                  ),
-                );
-              },
-              child: const Text('Copy'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Done'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
   Future<void> _confirmClearHistory() async {
     final shouldClear = await showDialog<bool>(
       context: context,
@@ -320,11 +283,6 @@ class _CallsScreenState extends State<CallsScreen> {
     }
   }
 
-  String _generateCallLink() {
-    final code = DateTime.now().millisecondsSinceEpoch.toRadixString(36);
-    return 'https://join.whatswave.app/call/$code';
-  }
-
   /// Only threads with a real other-participant uid can actually be called
   /// (see ChatThread.participantUid) -- a demo/local thread has none and is
   /// filtered out rather than shown as a contact nothing can call for real.
@@ -341,77 +299,6 @@ class _CallsScreenState extends State<CallsScreen> {
           ),
         )
         .toList(growable: false);
-  }
-}
-
-class _CallLinkCard extends StatelessWidget {
-  const _CallLinkCard({required this.onPressed});
-
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        key: const Key('calls_create_link_card'),
-        onTap: onPressed,
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                _kCallsRowHorizontalPadding,
-                10,
-                _kCallsRowHorizontalPadding,
-                10,
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.link_rounded,
-                    color: theme.colorScheme.primary,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          'Create call link',
-                          style: theme.textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                        const SizedBox(height: 3),
-                        Text(
-                          'Share a quick join link for audio or video.',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurface
-                                .withValues(alpha: 0.72),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Icon(
-                    Icons.chevron_right_rounded,
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.42),
-                  ),
-                ],
-              ),
-            ),
-            Divider(
-              height: 1,
-              indent: _kCallsRowHorizontalPadding + 36,
-              color: theme.colorScheme.outlineVariant.withValues(alpha: 0.22),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 }
 
