@@ -100,6 +100,8 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
                                 Expanded(
                                   child: Text(
                                     'Communities',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
                                     style: theme.textTheme.headlineMedium
                                         ?.copyWith(
                                       fontWeight: FontWeight.w900,
@@ -181,43 +183,42 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
                               ),
                             ),
                             const SizedBox(height: 10),
-                            SizedBox(
-                              height: 34,
-                              child: SingleChildScrollView(
-                                scrollDirection: Axis.horizontal,
-                                child: Row(
-                                  children: [
-                                    _CompactCommunitiesChip(
-                                      key: const Key(
-                                        'communities_surface_communities',
-                                      ),
-                                      label: 'Communities',
-                                      isSelected:
-                                          widget.controller.selectedSurface ==
-                                              CommunitiesSurface.communities,
-                                      onTap: () {
-                                        widget.controller.selectSurface(
-                                          CommunitiesSurface.communities,
-                                        );
-                                      },
+                            // No fixed height (was SizedBox(height: 34)) --
+                            // see docs/ui_layout_guidelines.md rule 1.
+                            SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: Row(
+                                children: [
+                                  _CompactCommunitiesChip(
+                                    key: const Key(
+                                      'communities_surface_communities',
                                     ),
-                                    const SizedBox(width: 8),
-                                    _CompactCommunitiesChip(
-                                      key: const Key(
-                                        'communities_surface_contacts',
-                                      ),
-                                      label: 'Contacts',
-                                      isSelected:
-                                          widget.controller.selectedSurface ==
-                                              CommunitiesSurface.contacts,
-                                      onTap: () {
-                                        widget.controller.selectSurface(
-                                          CommunitiesSurface.contacts,
-                                        );
-                                      },
+                                    label: 'Communities',
+                                    isSelected:
+                                        widget.controller.selectedSurface ==
+                                            CommunitiesSurface.communities,
+                                    onTap: () {
+                                      widget.controller.selectSurface(
+                                        CommunitiesSurface.communities,
+                                      );
+                                    },
+                                  ),
+                                  const SizedBox(width: 8),
+                                  _CompactCommunitiesChip(
+                                    key: const Key(
+                                      'communities_surface_contacts',
                                     ),
-                                  ],
-                                ),
+                                    label: 'Contacts',
+                                    isSelected:
+                                        widget.controller.selectedSurface ==
+                                            CommunitiesSurface.contacts,
+                                    onTap: () {
+                                      widget.controller.selectSurface(
+                                        CommunitiesSurface.contacts,
+                                      );
+                                    },
+                                  ),
+                                ],
                               ),
                             ),
                           ],
@@ -475,6 +476,8 @@ class _CommunitiesPane extends StatelessWidget {
                         children: [
                           Text(
                             'Create a community',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             style: theme.textTheme.titleSmall?.copyWith(
                               fontWeight: FontWeight.w800,
                             ),
@@ -482,6 +485,8 @@ class _CommunitiesPane extends StatelessWidget {
                           const SizedBox(height: 3),
                           Text(
                             'Keep announcements and related groups together.',
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
                             style: theme.textTheme.bodySmall?.copyWith(
                               color: theme.colorScheme.onSurface
                                   .withValues(alpha: 0.7),
@@ -521,49 +526,48 @@ class _CommunitiesPane extends StatelessWidget {
                     : '${visibleCommunities.length}',
               ),
               const SizedBox(height: 10),
-              SizedBox(
-                height: 34,
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      _CompactCommunitiesChip(
-                        key: const Key('communities_filter_all'),
-                        label: 'All',
-                        isSelected: controller.communityFilter ==
-                            CommunityListFilter.all,
-                        onTap: () {
-                          controller.selectCommunityFilter(
-                            CommunityListFilter.all,
-                          );
-                        },
-                      ),
-                      const SizedBox(width: 8),
-                      _CompactCommunitiesChip(
-                        key: const Key('communities_filter_unread'),
-                        label: 'Unread',
-                        isSelected: controller.communityFilter ==
-                            CommunityListFilter.unread,
-                        onTap: () {
-                          controller.selectCommunityFilter(
-                            CommunityListFilter.unread,
-                          );
-                        },
-                      ),
-                      const SizedBox(width: 8),
-                      _CompactCommunitiesChip(
-                        key: const Key('communities_filter_announcements'),
-                        label: 'Announcements',
-                        isSelected: controller.communityFilter ==
-                            CommunityListFilter.announcements,
-                        onTap: () {
-                          controller.selectCommunityFilter(
-                            CommunityListFilter.announcements,
-                          );
-                        },
-                      ),
-                    ],
-                  ),
+              // No fixed height (was SizedBox(height: 34)) -- see
+              // docs/ui_layout_guidelines.md rule 1.
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    _CompactCommunitiesChip(
+                      key: const Key('communities_filter_all'),
+                      label: 'All',
+                      isSelected: controller.communityFilter ==
+                          CommunityListFilter.all,
+                      onTap: () {
+                        controller.selectCommunityFilter(
+                          CommunityListFilter.all,
+                        );
+                      },
+                    ),
+                    const SizedBox(width: 8),
+                    _CompactCommunitiesChip(
+                      key: const Key('communities_filter_unread'),
+                      label: 'Unread',
+                      isSelected: controller.communityFilter ==
+                          CommunityListFilter.unread,
+                      onTap: () {
+                        controller.selectCommunityFilter(
+                          CommunityListFilter.unread,
+                        );
+                      },
+                    ),
+                    const SizedBox(width: 8),
+                    _CompactCommunitiesChip(
+                      key: const Key('communities_filter_announcements'),
+                      label: 'Announcements',
+                      isSelected: controller.communityFilter ==
+                          CommunityListFilter.announcements,
+                      onTap: () {
+                        controller.selectCommunityFilter(
+                          CommunityListFilter.announcements,
+                        );
+                      },
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(height: 12),
@@ -721,47 +725,46 @@ class _ContactsPane extends StatelessWidget {
                     : null,
               ),
               const SizedBox(height: 10),
-              SizedBox(
-                height: 34,
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      _CompactCommunitiesChip(
-                        key: const Key('contacts_filter_all'),
-                        label: 'All',
-                        isSelected:
-                            controller.contactFilter == ContactListFilter.all,
-                        onTap: () {
-                          controller.selectContactFilter(ContactListFilter.all);
-                        },
-                      ),
-                      const SizedBox(width: 8),
-                      _CompactCommunitiesChip(
-                        key: const Key('contacts_filter_on_app'),
-                        label: 'On WhatsWave',
-                        isSelected: controller.contactFilter ==
-                            ContactListFilter.onWhatsWave,
-                        onTap: () {
-                          controller.selectContactFilter(
-                            ContactListFilter.onWhatsWave,
-                          );
-                        },
-                      ),
-                      const SizedBox(width: 8),
-                      _CompactCommunitiesChip(
-                        key: const Key('contacts_filter_invite'),
-                        label: 'Needs invite',
-                        isSelected: controller.contactFilter ==
-                            ContactListFilter.invite,
-                        onTap: () {
-                          controller.selectContactFilter(
-                            ContactListFilter.invite,
-                          );
-                        },
-                      ),
-                    ],
-                  ),
+              // No fixed height (was SizedBox(height: 34)) -- see
+              // docs/ui_layout_guidelines.md rule 1.
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    _CompactCommunitiesChip(
+                      key: const Key('contacts_filter_all'),
+                      label: 'All',
+                      isSelected:
+                          controller.contactFilter == ContactListFilter.all,
+                      onTap: () {
+                        controller.selectContactFilter(ContactListFilter.all);
+                      },
+                    ),
+                    const SizedBox(width: 8),
+                    _CompactCommunitiesChip(
+                      key: const Key('contacts_filter_on_app'),
+                      label: 'On WhatsWave',
+                      isSelected: controller.contactFilter ==
+                          ContactListFilter.onWhatsWave,
+                      onTap: () {
+                        controller.selectContactFilter(
+                          ContactListFilter.onWhatsWave,
+                        );
+                      },
+                    ),
+                    const SizedBox(width: 8),
+                    _CompactCommunitiesChip(
+                      key: const Key('contacts_filter_invite'),
+                      label: 'Needs invite',
+                      isSelected: controller.contactFilter ==
+                          ContactListFilter.invite,
+                      onTap: () {
+                        controller.selectContactFilter(
+                          ContactListFilter.invite,
+                        );
+                      },
+                    ),
+                  ],
                 ),
               ),
               const SizedBox(height: 12),
