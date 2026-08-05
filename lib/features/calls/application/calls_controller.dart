@@ -8,6 +8,7 @@ import '../../../core/permissions/app_permission_service.dart';
 import '../data/call_signaling_service.dart';
 import '../data/calls_repository.dart';
 import '../data/livekit_token_service.dart';
+import '../data/ringtone_player.dart';
 import '../domain/call_contact.dart';
 import '../domain/call_history_entry.dart';
 import '../domain/call_permissions.dart';
@@ -24,17 +25,20 @@ class CallsController extends ChangeNotifier {
     LiveKitTokenService? tokenService,
     String? liveKitUrl,
     Stream<String?>? currentUserIdStream,
+    RingtonePlayer? ringtonePlayer,
     this.outgoingRingDuration = const Duration(milliseconds: 900),
     this.outgoingConnectingDuration = const Duration(milliseconds: 700),
     this.incomingMissedAfter = const Duration(seconds: 18),
     this.durationTickInterval = const Duration(seconds: 1),
+    this.ringRepeatInterval = const Duration(seconds: 3),
   })  : _repository = repository,
         _permissionService = permissionService ?? MemoryAppPermissionService(),
         _telemetry = telemetry ?? NoopAppTelemetry.instance,
         _now = now ?? DateTime.now,
         _signalingService = signalingService,
         _tokenService = tokenService,
-        _liveKitUrl = liveKitUrl {
+        _liveKitUrl = liveKitUrl,
+        _ringtonePlayer = ringtonePlayer ?? const NoopRingtonePlayer() {
     if (currentUserIdStream != null && signalingService != null) {
       _authUidSubscription = currentUserIdStream.listen(_handleUidChanged);
     }
@@ -47,10 +51,18 @@ class CallsController extends ChangeNotifier {
   final CallSignalingService? _signalingService;
   final LiveKitTokenService? _tokenService;
   final String? _liveKitUrl;
+  final RingtonePlayer _ringtonePlayer;
   final Duration outgoingRingDuration;
   final Duration outgoingConnectingDuration;
   final Duration incomingMissedAfter;
   final Duration durationTickInterval;
+
+  /// How often the incoming-call ring is re-triggered while still ringing.
+  /// flutter_ringtone_player's looping/stop() are Android-only, so this
+  /// timer is what actually makes the ring repeat and lets it be silenced
+  /// promptly (by simply not scheduling another play) on both platforms --
+  /// see RingtonePlayer's doc comment.
+  final Duration ringRepeatInterval;
 
   bool _hasLoaded = false;
   bool _isLoading = false;
@@ -62,6 +74,7 @@ class CallsController extends ChangeNotifier {
   CallSession? _currentSession;
   Timer? _phaseTimer;
   Timer? _durationTicker;
+  Timer? _ringTimer;
   int _sessionSequence = 0;
 
   StreamSubscription<String?>? _authUidSubscription;
@@ -331,6 +344,7 @@ class CallsController extends ChangeNotifier {
       attributes: _sessionTelemetryAttributes(session),
     );
     notifyListeners();
+    _startRinging();
 
     _schedulePhaseTimer(incomingMissedAfter, () {
       final current = _currentSession;
@@ -349,6 +363,8 @@ class CallsController extends ChangeNotifier {
     if (session == null || session.phase != CallSessionPhase.incoming) {
       return false;
     }
+
+    _stopRinging();
 
     if (!await _ensurePermissions(session.type)) {
       return false;
@@ -720,6 +736,7 @@ class CallsController extends ChangeNotifier {
       attributes: _sessionTelemetryAttributes(session),
     );
     notifyListeners();
+    _startRinging();
     _watchActiveSignal(signal.id);
   }
 
@@ -1027,6 +1044,21 @@ class CallsController extends ChangeNotifier {
     _phaseTimer = null;
     _durationTicker?.cancel();
     _durationTicker = null;
+    _stopRinging();
+  }
+
+  void _startRinging() {
+    _ringTimer?.cancel();
+    _ringtonePlayer.play();
+    _ringTimer = Timer.periodic(ringRepeatInterval, (_) {
+      _ringtonePlayer.play();
+    });
+  }
+
+  void _stopRinging() {
+    _ringTimer?.cancel();
+    _ringTimer = null;
+    _ringtonePlayer.stop();
   }
 
   String _permissionDeniedMessage({

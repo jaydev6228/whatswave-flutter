@@ -21,6 +21,7 @@ import '../features/calls/application/calls_controller.dart';
 import '../features/calls/data/calls_repository.dart';
 import '../features/calls/data/firestore_call_signaling_service.dart';
 import '../features/calls/data/livekit_token_service.dart';
+import '../features/calls/data/ringtone_player.dart';
 import '../features/calls/domain/call_history_entry.dart';
 import '../features/calls/presentation/call_experience_screen.dart';
 import '../features/chats/application/chats_controller.dart';
@@ -140,6 +141,11 @@ class _WhatsWaveAppState extends State<WhatsWaveApp> {
               .authStateChanges()
               .map((user) => user?.uid)
           : null,
+      // Unconditional (not gated on prefersFirebase like signaling/token
+      // above) -- ringing is a local, platform-side concern that should
+      // also fire for the debug "simulate incoming call" flow, not just
+      // real signaled calls.
+      ringtonePlayer: SystemRingtonePlayer(),
     );
     _callsController.addListener(_handleIncomingCallSession);
     _chatsController = ChatsController(

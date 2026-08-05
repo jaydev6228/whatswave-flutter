@@ -9,6 +9,7 @@ import 'package:whatswave/features/calls/data/call_signaling_service.dart';
 import 'package:whatswave/features/calls/data/fake_calls_repository.dart';
 import 'package:whatswave/features/calls/domain/call_contact.dart';
 import 'package:whatswave/features/calls/domain/call_history_entry.dart';
+import 'package:whatswave/features/calls/data/ringtone_player.dart';
 import 'package:whatswave/features/calls/domain/call_permissions.dart';
 import 'package:whatswave/features/calls/domain/call_session.dart';
 import 'package:whatswave/features/calls/domain/call_signal.dart';
@@ -347,6 +348,71 @@ void main() {
       await uidController.close();
     });
   });
+
+  group('ringing', () {
+    test('rings on an incoming call and stops when it is accepted',
+        () async {
+      final ringtonePlayer = FakeRingtonePlayer();
+      final controller = CallsController(
+        repository: FakeCallsRepository(latency: Duration.zero),
+        permissionService: MemoryAppPermissionService(),
+        ringtonePlayer: ringtonePlayer,
+        ringRepeatInterval: const Duration(seconds: 30),
+        durationTickInterval: Duration.zero,
+      );
+
+      await controller.loadOverview();
+      await controller.simulateIncomingCall(
+        contact: controller.favorites.first,
+        type: CallType.audio,
+      );
+
+      expect(ringtonePlayer.playCount, greaterThan(0));
+      expect(ringtonePlayer.isRinging, isTrue);
+
+      await controller.acceptIncomingCall();
+
+      expect(ringtonePlayer.isRinging, isFalse);
+    });
+
+    test('stops ringing when an incoming call is declined', () async {
+      final ringtonePlayer = FakeRingtonePlayer();
+      final controller = CallsController(
+        repository: FakeCallsRepository(latency: Duration.zero),
+        permissionService: MemoryAppPermissionService(),
+        ringtonePlayer: ringtonePlayer,
+        ringRepeatInterval: const Duration(seconds: 30),
+        durationTickInterval: Duration.zero,
+      );
+
+      await controller.loadOverview();
+      await controller.simulateIncomingCall(
+        contact: controller.favorites.first,
+        type: CallType.audio,
+      );
+      expect(ringtonePlayer.isRinging, isTrue);
+
+      await controller.declineIncomingCall();
+
+      expect(ringtonePlayer.isRinging, isFalse);
+    });
+  });
+}
+
+class FakeRingtonePlayer implements RingtonePlayer {
+  int playCount = 0;
+  bool isRinging = false;
+
+  @override
+  void play() {
+    playCount++;
+    isRinging = true;
+  }
+
+  @override
+  void stop() {
+    isRinging = false;
+  }
 }
 
 CallSignal _testSignal({
