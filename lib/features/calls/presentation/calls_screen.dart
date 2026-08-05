@@ -137,35 +137,48 @@ class _CallsScreenState extends State<CallsScreen> {
                                     'People you message will appear here for one-tap calling.',
                               )
                             else
-                              SizedBox(
-                                height: 128,
-                                child: ListView.separated(
-                                  scrollDirection: Axis.horizontal,
-                                  itemBuilder: (context, index) {
-                                    final contact = contacts[index];
-                                    return _FavoriteCallTile(
-                                      contact: contact,
-                                      onAudioPressed: () {
-                                        startCallFlow(
-                                          context,
-                                          controller: widget.controller,
-                                          contact: contact,
-                                          type: CallType.audio,
-                                        );
-                                      },
-                                      onVideoPressed: () {
-                                        startCallFlow(
-                                          context,
-                                          controller: widget.controller,
-                                          contact: contact,
-                                          type: CallType.video,
-                                        );
-                                      },
-                                    );
-                                  },
-                                  separatorBuilder: (_, __) =>
-                                      const SizedBox(width: 12),
-                                  itemCount: contacts.length,
+                              // Fixed-height horizontal list (a ListView
+                              // needs a bounded cross axis from its
+                              // ancestor) -- clamp text scale so the tile's
+                              // name label can't push its Column past this
+                              // budget, and keep real headroom above the
+                              // clamped worst case rather than the exact
+                              // minimum. See docs/ui_layout_guidelines.md
+                              // rules 1 and 4 -- this exact box previously
+                              // overflowed by a few px at a real device's
+                              // font scale.
+                              MediaQuery.withClampedTextScaling(
+                                maxScaleFactor: 1.3,
+                                child: SizedBox(
+                                  height: 140,
+                                  child: ListView.separated(
+                                    scrollDirection: Axis.horizontal,
+                                    itemBuilder: (context, index) {
+                                      final contact = contacts[index];
+                                      return _FavoriteCallTile(
+                                        contact: contact,
+                                        onAudioPressed: () {
+                                          startCallFlow(
+                                            context,
+                                            controller: widget.controller,
+                                            contact: contact,
+                                            type: CallType.audio,
+                                          );
+                                        },
+                                        onVideoPressed: () {
+                                          startCallFlow(
+                                            context,
+                                            controller: widget.controller,
+                                            contact: contact,
+                                            type: CallType.video,
+                                          );
+                                        },
+                                      );
+                                    },
+                                    separatorBuilder: (_, __) =>
+                                        const SizedBox(width: 12),
+                                    itemCount: contacts.length,
+                                  ),
                                 ),
                               ),
                             const SizedBox(height: 20),
