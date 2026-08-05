@@ -189,6 +189,50 @@ void main() {
     expect(find.text('Ava Patel'), findsOneWidget);
   });
 
+  testWidgets(
+      'refreshes contacts when the app resumes from the background (e.g. after Settings)',
+      (tester) async {
+    final repository = FakeCommunitiesRepository(
+      latency: Duration.zero,
+      initialContacts: _reachableContacts.take(1).toList(),
+    );
+    final communitiesController = CommunitiesController(
+      repository: repository,
+      permissionService: MemoryAppPermissionService(
+        contactsStatus: ContactAccessStatus.limited,
+      ),
+    );
+    final chatsController = ChatsController(
+      repository: FakeChatRepository(latency: Duration.zero),
+    );
+    final callsController = CallsController(
+      repository: FakeCallsRepository(latency: Duration.zero),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.lightTheme(),
+        home: NewChatScreen(
+          communitiesController: communitiesController,
+          chatsController: chatsController,
+          callsController: callsController,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Ava Patel'), findsOneWidget);
+    expect(find.text('Noah Kim'), findsNothing);
+
+    // Simulate the user adding more contacts to the OS's limited selection
+    // while in Settings, then switching back to the app.
+    repository.debugReplaceContacts(_reachableContacts);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Noah Kim'), findsOneWidget);
+  });
+
   testWidgets('creates a group from selected members and pops with its id',
       (tester) async {
     final communitiesController = CommunitiesController(

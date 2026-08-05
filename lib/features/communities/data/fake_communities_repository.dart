@@ -180,6 +180,14 @@ class FakeCommunitiesRepository implements CommunitiesRepository {
     return _buildOverview();
   }
 
+  /// Test-only hook to simulate the OS handing back an updated contact list
+  /// (e.g. the user edited their limited-contacts selection in Settings) --
+  /// there's no real "contacts changed" event to listen for, only a fresh
+  /// fetchOverview() after the app resumes (see NewChatScreen).
+  void debugReplaceContacts(List<CommunityContact> contacts) {
+    _contacts = _cloneContacts(contacts);
+  }
+
   CommunitiesOverview _buildOverview() {
     return CommunitiesOverview(
       communities: _cloneCommunities(_communities),

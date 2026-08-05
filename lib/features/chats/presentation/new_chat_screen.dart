@@ -40,20 +40,36 @@ class NewChatScreen extends StatefulWidget {
   State<NewChatScreen> createState() => _NewChatScreenState();
 }
 
-class _NewChatScreenState extends State<NewChatScreen> {
+class _NewChatScreenState extends State<NewChatScreen>
+    with WidgetsBindingObserver {
   late final TextEditingController _searchController;
 
   @override
   void initState() {
     super.initState();
     _searchController = TextEditingController();
+    WidgetsBinding.instance.addObserver(this);
     widget.communitiesController.ensureLoaded();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _searchController.dispose();
     super.dispose();
+  }
+
+  // Editing the OS's limited-contacts selection happens in Settings, not
+  // this app -- there's no callback for "the user changed something over
+  // there", so the only signal available is coming back to the foreground.
+  // Re-fetching on every resume (not just after tapping "Add more
+  // contacts") also covers the user backgrounding the app for any other
+  // reason while this screen is open.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      widget.communitiesController.loadOverview();
+    }
   }
 
   @override
