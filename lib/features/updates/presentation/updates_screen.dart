@@ -83,6 +83,8 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
                                 Expanded(
                                   child: Text(
                                     'Updates',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
                                     style: theme.textTheme.headlineMedium
                                         ?.copyWith(
                                       fontWeight: FontWeight.w900,
