@@ -26,17 +26,30 @@ class AttachmentViewerScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(attachment.title),
-            Text(
-              threadName,
-              style: theme.textTheme.labelMedium?.copyWith(
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+        // Fixed-height toolbar chrome with a two-line title stack -- clamp
+        // text scale so it can't outgrow that height, and cap each line so
+        // ellipsis has something to act on. See
+        // docs/ui_layout_guidelines.md rules 2 and 4.
+        title: MediaQuery.withClampedTextScaling(
+          maxScaleFactor: 1.3,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                attachment.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
-            ),
-          ],
+              Text(
+                threadName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
       body: SafeArea(
@@ -153,6 +166,8 @@ class _AttachmentCanvas extends StatelessWidget {
                   child: Text(
                     attachment.title,
                     textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.titleLarge?.copyWith(
                       color: Colors.white,
                       fontWeight: FontWeight.w900,
@@ -165,6 +180,8 @@ class _AttachmentCanvas extends StatelessWidget {
                   child: Text(
                     attachment.details,
                     textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.bodyLarge?.copyWith(
                       color: Colors.white.withValues(alpha: 0.88),
                     ),
