@@ -11,6 +11,16 @@ import '../domain/community_contact.dart';
 /// touching the platform contacts plugin.
 abstract class DeviceContactsService {
   Future<List<CommunityContact>> fetchDeviceContacts();
+
+  /// Fires whenever the OS reports the device contacts database changed --
+  /// notably, on iOS, when the user edits their "Select Contacts..."
+  /// limited-access list from Settings while the app is backgrounded.
+  /// There's no callback for that from inside the app itself, only this
+  /// native change notification (or the app resuming, which
+  /// CommunitiesController also listens for as a fallback). Null for
+  /// implementations with no real change-notification backing (e.g. the
+  /// in-memory fake).
+  Stream<void>? watchContactsChanged();
 }
 
 class MemoryDeviceContactsService implements DeviceContactsService {
@@ -22,10 +32,17 @@ class MemoryDeviceContactsService implements DeviceContactsService {
   Future<List<CommunityContact>> fetchDeviceContacts() async {
     return List<CommunityContact>.unmodifiable(_contacts);
   }
+
+  @override
+  Stream<void>? watchContactsChanged() => null;
 }
 
 class NativeDeviceContactsService implements DeviceContactsService {
   const NativeDeviceContactsService();
+
+  @override
+  Stream<void>? watchContactsChanged() =>
+      device_contacts.FlutterContacts.onDatabaseChange;
 
   @override
   Future<List<CommunityContact>> fetchDeviceContacts() async {

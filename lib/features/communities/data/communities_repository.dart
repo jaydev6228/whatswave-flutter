@@ -16,6 +16,11 @@ abstract class CommunitiesRepository {
   });
 
   Future<CommunitiesOverview> shareAppInvite(String contactId);
+
+  /// Fires when the device's contacts database changes underneath the app
+  /// (see DeviceContactsService.watchContactsChanged) -- null for
+  /// implementations with no real device-contacts backing.
+  Stream<void>? watchDeviceContactsChanged();
 }
 
 class CommunitiesRepositoryException implements Exception {

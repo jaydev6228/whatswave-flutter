@@ -285,6 +285,10 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
     return fetchOverview();
   }
 
+  @override
+  Stream<void>? watchDeviceContactsChanged() =>
+      _deviceContactsService.watchContactsChanged();
+
   CommunityContact _contactById(String contactId) {
     for (final contact in _contacts) {
       if (contact.id == contactId) {

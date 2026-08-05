@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import '../../../core/sample/demo_data.dart';
 import '../domain/community_contact.dart';
 import '../domain/community_group_preview.dart';
@@ -180,12 +182,22 @@ class FakeCommunitiesRepository implements CommunitiesRepository {
     return _buildOverview();
   }
 
+  final _deviceContactsChangedController = StreamController<void>.broadcast();
+
+  @override
+  Stream<void> watchDeviceContactsChanged() =>
+      _deviceContactsChangedController.stream;
+
   /// Test-only hook to simulate the OS handing back an updated contact list
   /// (e.g. the user edited their limited-contacts selection in Settings) --
-  /// there's no real "contacts changed" event to listen for, only a fresh
-  /// fetchOverview() after the app resumes (see NewChatScreen).
+  /// call [debugEmitContactsChanged] afterwards to simulate the native
+  /// change notification CommunitiesController listens for.
   void debugReplaceContacts(List<CommunityContact> contacts) {
     _contacts = _cloneContacts(contacts);
+  }
+
+  void debugEmitContactsChanged() {
+    _deviceContactsChangedController.add(null);
   }
 
   CommunitiesOverview _buildOverview() {

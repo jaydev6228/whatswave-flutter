@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../../core/permissions/app_permission_service.dart';
@@ -34,6 +36,7 @@ class CommunitiesController extends ChangeNotifier {
   List<CommunityContact> _contacts = const <CommunityContact>[];
   final Set<String> _busyCommunityIds = <String>{};
   final Set<String> _busyContactIds = <String>{};
+  StreamSubscription<void>? _deviceContactsChangedSubscription;
 
   bool get hasLoaded => _hasLoaded;
   bool get isLoading => _isLoading;
@@ -132,6 +135,7 @@ class CommunitiesController extends ChangeNotifier {
       _contacts = overview.contacts;
       _hasLoaded = true;
       _contactAccessStatus = await _permissionService.contactAccessStatus();
+      _listenForDeviceContactsChanges();
     } on CommunitiesRepositoryException catch (error) {
       _errorMessage = error.message;
     } catch (_) {
@@ -140,6 +144,30 @@ class CommunitiesController extends ChangeNotifier {
 
     _isLoading = false;
     notifyListeners();
+  }
+
+  /// Refreshes on the OS's own contacts-database-changed notification, not
+  /// just app resume (see NewChatScreen) -- notably more reliable for
+  /// picking up an edited iOS limited-contacts selection, since that
+  /// notification is driven by the actual native change event rather than
+  /// inferred from foreground/background transitions.
+  void _listenForDeviceContactsChanges() {
+    if (_deviceContactsChangedSubscription != null) {
+      return;
+    }
+    final stream = _repository.watchDeviceContactsChanged();
+    if (stream == null) {
+      return;
+    }
+    _deviceContactsChangedSubscription = stream.listen((_) {
+      loadOverview();
+    });
+  }
+
+  @override
+  void dispose() {
+    _deviceContactsChangedSubscription?.cancel();
+    super.dispose();
   }
 
   Future<void> syncContactsAccessStatus() async {

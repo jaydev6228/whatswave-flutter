@@ -604,6 +604,10 @@ class TrackedCommunitiesRepository implements CommunitiesRepository {
       rethrow;
     }
   }
+
+  @override
+  Stream<void>? watchDeviceContactsChanged() =>
+      _delegate.watchDeviceContactsChanged();
 }
 
 class TrackedCallsRepository implements CallsRepository {
