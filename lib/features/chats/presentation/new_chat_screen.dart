@@ -91,8 +91,9 @@ class _NewChatScreenState extends State<NewChatScreen> {
             final needsInvite = contacts
                 .where((c) => !c.isOnWhatsWave)
                 .toList(growable: false);
-            final hasAccess =
-                controller.contactAccessStatus == ContactAccessStatus.granted;
+            final hasAccess = controller.contactAccessStatus.hasAnyAccess;
+            final hasLimitedAccess = controller.contactAccessStatus ==
+                ContactAccessStatus.limited;
 
             return CustomScrollView(
               key: const PageStorageKey<String>('new_chat_scroll_view'),
@@ -126,6 +127,13 @@ class _NewChatScreenState extends State<NewChatScreen> {
                         .withValues(alpha: 0.22),
                   ),
                 ),
+                if (hasLimitedAccess)
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                    sliver: SliverToBoxAdapter(
+                      child: _LimitedContactsBanner(controller: controller),
+                    ),
+                  ),
                 if (!hasAccess)
                   SliverPadding(
                     padding: const EdgeInsets.all(20),
@@ -513,6 +521,78 @@ class _InviteContactTile extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             ),
             child: Text(contact.appInviteSent ? 'Invited' : 'Invite'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Shown when the OS granted access to only a hand-picked subset of
+/// contacts (iOS's "Select Contacts..." choice) rather than the full
+/// address book -- there's no in-app API to reopen that picker directly,
+/// so this routes to the system Settings page instead, where the user can
+/// edit which contacts are shared.
+class _LimitedContactsBanner extends StatelessWidget {
+  const _LimitedContactsBanner({required this.controller});
+
+  final CommunitiesController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.primaryContainer.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            Icons.contact_phone_outlined,
+            color: theme.colorScheme.primary,
+            size: 20,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Only some contacts are shared',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleSmall
+                      ?.copyWith(fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'You picked a limited set of contacts to share. Add more from your device settings.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color:
+                        theme.colorScheme.onSurface.withValues(alpha: 0.72),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton(
+                    key: const Key('new_chat_manage_contacts_button'),
+                    onPressed: controller.openContactSettings,
+                    style: TextButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                    ),
+                    child: const Text('Add more contacts'),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),

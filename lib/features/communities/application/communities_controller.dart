@@ -78,7 +78,7 @@ class CommunitiesController extends ChangeNotifier {
   }
 
   List<CommunityContact> get visibleContacts {
-    if (_contactAccessStatus != ContactAccessStatus.granted) {
+    if (!_contactAccessStatus.hasAnyAccess) {
       return const <CommunityContact>[];
     }
 

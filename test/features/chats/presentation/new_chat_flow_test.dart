@@ -148,6 +148,47 @@ void main() {
     );
   });
 
+  testWidgets(
+      'shows an add-more-contacts banner when access is limited, without hiding the available contact',
+      (tester) async {
+    final communitiesController = CommunitiesController(
+      repository: FakeCommunitiesRepository(
+        latency: Duration.zero,
+        initialContacts: _reachableContacts,
+      ),
+      permissionService: MemoryAppPermissionService(
+        contactsStatus: ContactAccessStatus.limited,
+      ),
+    );
+    final chatsController = ChatsController(
+      repository: FakeChatRepository(latency: Duration.zero),
+    );
+    final callsController = CallsController(
+      repository: FakeCallsRepository(latency: Duration.zero),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.lightTheme(),
+        home: NewChatScreen(
+          communitiesController: communitiesController,
+          chatsController: chatsController,
+          callsController: callsController,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Only some contacts are shared'), findsOneWidget);
+    expect(
+      find.byKey(const Key('new_chat_manage_contacts_button')),
+      findsOneWidget,
+    );
+    // The banner supplements the list -- it must not replace it, since the
+    // whole point is that some contacts (just not all of them) are usable.
+    expect(find.text('Ava Patel'), findsOneWidget);
+  });
+
   testWidgets('creates a group from selected members and pops with its id',
       (tester) async {
     final communitiesController = CommunitiesController(

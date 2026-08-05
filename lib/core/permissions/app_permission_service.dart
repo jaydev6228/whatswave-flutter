@@ -143,8 +143,16 @@ class NativeAppPermissionService implements AppPermissionService {
     PermissionStatus status, {
     required bool hasRequestedBefore,
   }) {
-    if (_isGranted(status)) {
+    if (status == PermissionStatus.granted) {
       return ContactAccessStatus.granted;
+    }
+    // iOS's "Select contacts..." limited-access choice (and its older
+    // "provisional" cousin) -- distinct from full access on purpose, so the
+    // UI can offer a way back to the system picker to add more contacts
+    // instead of silently treating a one-contact selection as "done".
+    if (status == PermissionStatus.limited ||
+        status == PermissionStatus.provisional) {
+      return ContactAccessStatus.limited;
     }
     return hasRequestedBefore
         ? ContactAccessStatus.denied

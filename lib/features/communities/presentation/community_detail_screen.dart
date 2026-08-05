@@ -313,8 +313,7 @@ class _CommunityDetailInviteSheetState
                       keyboardDismissBehavior:
                           ScrollViewKeyboardDismissBehavior.onDrag,
                       children: [
-                        if (controller.contactAccessStatus !=
-                            ContactAccessStatus.granted)
+                        if (!controller.contactAccessStatus.hasAnyAccess)
                           Column(
                             children: [
                               const EmptyStateCard(
