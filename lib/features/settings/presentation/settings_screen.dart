@@ -58,6 +58,8 @@ class SettingsScreen extends StatelessWidget {
                         ),
                         child: Text(
                           'Settings',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.headlineMedium?.copyWith(
                             fontWeight: FontWeight.w900,
                           ),

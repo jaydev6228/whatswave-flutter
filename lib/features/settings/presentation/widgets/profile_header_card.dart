@@ -43,6 +43,8 @@ class ProfileHeaderCard extends StatelessWidget {
                   children: [
                     Text(
                       user.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w800,
                       ),
@@ -50,6 +52,8 @@ class ProfileHeaderCard extends StatelessWidget {
                     const SizedBox(height: 3),
                     Text(
                       user.phoneNumber,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodySmall?.copyWith(
                         color:
                             theme.colorScheme.onSurface.withValues(alpha: 0.65),
