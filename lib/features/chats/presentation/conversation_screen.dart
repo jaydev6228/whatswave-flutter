@@ -167,50 +167,58 @@ class _ConversationScreenState extends State<ConversationScreen> {
         return Scaffold(
           appBar: AppBar(
             titleSpacing: 0,
-            title: Row(
-              children: [
-                GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: thread.hasStory && story != null
-                      ? () => _openThreadStory(story)
-                      : null,
-                  child: thread.hasStory
-                      ? StatusRingAvatar(
-                          label: thread.avatarLabel,
-                          color: thread.accentColor,
-                          totalSegments: story?.totalSegments ?? 1,
-                          seenSegments: story?.clampedSeenSegments ?? 0,
-                          size: 44,
-                        )
-                      : AvatarBadge(
-                          label: thread.avatarLabel,
-                          color: thread.accentColor,
-                          size: 44,
-                        ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        thread.name,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      Text(
-                        thread.isGroup
-                            ? 'Group chat • ${visibleMessages.length} messages'
-                            : 'Secure chat preview',
-                        style: theme.textTheme.labelMedium?.copyWith(
-                          color: theme.colorScheme.onSurface
-                              .withValues(alpha: 0.72),
-                        ),
-                      ),
-                    ],
+            // Fixed-height chrome (the toolbar) with a two-line title stack
+            // -- clamp text scale so it can't outgrow that height at large
+            // accessibility scale. See docs/ui_layout_guidelines.md rule 4.
+            title: MediaQuery.withClampedTextScaling(
+              maxScaleFactor: 1.3,
+              child: Row(
+                children: [
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: thread.hasStory && story != null
+                        ? () => _openThreadStory(story)
+                        : null,
+                    child: thread.hasStory
+                        ? StatusRingAvatar(
+                            label: thread.avatarLabel,
+                            color: thread.accentColor,
+                            totalSegments: story?.totalSegments ?? 1,
+                            seenSegments: story?.clampedSeenSegments ?? 0,
+                            size: 44,
+                          )
+                        : AvatarBadge(
+                            label: thread.avatarLabel,
+                            color: thread.accentColor,
+                            size: 44,
+                          ),
                   ),
-                ),
-              ],
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          thread.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        Text(
+                          thread.isGroup
+                              ? 'Group chat • ${visibleMessages.length} messages'
+                              : 'Secure chat preview',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            color: theme.colorScheme.onSurface
+                                .withValues(alpha: 0.72),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
             actions: [
               IconButton(
