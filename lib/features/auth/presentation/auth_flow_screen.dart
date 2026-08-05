@@ -462,6 +462,7 @@ class _CountryCodeField extends StatelessWidget {
             alignment: Alignment.centerLeft,
             child: Text(
               '${country.isoCode} ${country.dialCode}',
+              maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: theme.textTheme.bodyLarge?.copyWith(
                 fontWeight: FontWeight.w700,
@@ -475,6 +476,7 @@ class _CountryCodeField extends StatelessWidget {
           value: country,
           child: Text(
             '${country.name} (${country.dialCode})',
+            maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
         );
