@@ -251,7 +251,11 @@ class _TextStatusComposerScreenState extends State<TextStatusComposerScreen> {
       key: const Key('updates_composer_sheet'),
       resizeToAvoidBottomInset: true,
       appBar: AppBar(
-        title: const Text('Text studio'),
+        title: const Text(
+          'Text studio',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
         actions: [
           IconButton(
             key: const Key('updates_randomize_text_style_button'),
@@ -1613,6 +1617,7 @@ class _ToneChip extends StatelessWidget {
               const SizedBox(height: 6),
               Text(
                 tone.label,
+                maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.labelSmall?.copyWith(
                   fontWeight: FontWeight.w700,

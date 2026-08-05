@@ -777,6 +777,7 @@ class _StatusMusicBanner extends StatelessWidget {
                 children: [
                   Text(
                     item.label,
+                    maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.labelLarge?.copyWith(
                       color: Colors.white,
@@ -787,6 +788,7 @@ class _StatusMusicBanner extends StatelessWidget {
                   if (item.subtitle?.isNotEmpty == true)
                     Text(
                       item.subtitle!,
+                      maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.labelSmall?.copyWith(
                         color: primaryColor.withValues(alpha: 0.96),
@@ -868,6 +870,7 @@ class _StatusMusicBanner extends StatelessWidget {
                 constraints: BoxConstraints(maxWidth: compact ? 120 : 160),
                 child: Text(
                   item.label,
+                  maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.labelLarge?.copyWith(
                     color: Colors.white,
@@ -914,6 +917,7 @@ class _StatusMusicBanner extends StatelessWidget {
                   children: [
                     Text(
                       item.label,
+                      maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.labelLarge?.copyWith(
                         color: Colors.white,
@@ -924,6 +928,7 @@ class _StatusMusicBanner extends StatelessWidget {
                     if (item.subtitle?.isNotEmpty == true)
                       Text(
                         item.subtitle!,
+                        maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: theme.textTheme.labelSmall?.copyWith(
                           color: Colors.white.withValues(alpha: 0.82),
@@ -1248,6 +1253,7 @@ class _OverlayPill extends StatelessWidget {
               children: [
                 Text(
                   title,
+                  maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.labelLarge?.copyWith(
                     color: Colors.white,
@@ -1257,6 +1263,7 @@ class _OverlayPill extends StatelessWidget {
                 ),
                 Text(
                   subtitle,
+                  maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.labelSmall?.copyWith(
                     color: Colors.white.withValues(alpha: 0.82),
