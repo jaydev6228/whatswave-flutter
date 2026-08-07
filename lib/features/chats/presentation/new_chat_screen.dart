@@ -87,9 +87,11 @@ class _NewChatScreenState extends State<NewChatScreen>
         ),
       ),
       body: SafeArea(
+        bottom: false,
         child: AnimatedBuilder(
           animation: controller,
           builder: (context, _) {
+            final bottomSafeInset = MediaQuery.paddingOf(context).bottom;
             final query = _searchController.text.trim().toLowerCase();
             final contacts = controller.contacts.where((contact) {
               if (query.isEmpty) {
@@ -210,7 +212,9 @@ class _NewChatScreenState extends State<NewChatScreen>
                       ),
                     ),
                   ],
-                  const SliverPadding(padding: EdgeInsets.only(bottom: 24)),
+                  SliverPadding(
+                    padding: EdgeInsets.only(bottom: 24 + bottomSafeInset),
+                  ),
                 ],
               ],
             );

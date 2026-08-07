@@ -148,9 +148,11 @@ class _NewGroupScreenState extends State<NewGroupScreen> {
         ),
       ),
       body: SafeArea(
+        bottom: false,
         child: AnimatedBuilder(
           animation: widget.communitiesController,
           builder: (context, _) {
+            final bottomSafeInset = MediaQuery.paddingOf(context).bottom;
             return Column(
               children: [
                 Padding(
@@ -182,7 +184,9 @@ class _NewGroupScreenState extends State<NewGroupScreen> {
                           ),
                         )
                       : ListView.builder(
-                          padding: const EdgeInsets.only(bottom: 96),
+                          padding: EdgeInsets.only(
+                            bottom: 96 + bottomSafeInset,
+                          ),
                           itemCount: contacts.length,
                           itemBuilder: (context, index) {
                             final contact = contacts[index];

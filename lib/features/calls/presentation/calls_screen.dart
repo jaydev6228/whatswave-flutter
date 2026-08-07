@@ -60,12 +60,15 @@ class _CallsScreenState extends State<CallsScreen> {
           );
         }
 
+        final bottomSafeInset = MediaQuery.paddingOf(context).bottom;
+
         return SafeArea(
+          bottom: false,
           child: CustomScrollView(
             key: const Key('calls_screen'),
             slivers: [
               SliverPadding(
-                padding: const EdgeInsets.only(bottom: 100),
+                padding: EdgeInsets.only(bottom: 100 + bottomSafeInset),
                 sliver: SliverToBoxAdapter(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,

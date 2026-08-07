@@ -81,7 +81,14 @@ class _ChatsScreenState extends State<ChatsScreen> {
           filter: widget.controller.selectedFilter,
         );
 
+        final bottomSafeInset = MediaQuery.paddingOf(context).bottom;
+
         return SafeArea(
+          // Let the scroll view's background/overscroll paint under the
+          // home indicator instead of stopping short of it; bottomSafeInset
+          // is added back into the list's own bottom padding below so the
+          // last item still clears the true screen edge by the same amount.
+          bottom: false,
           child: NotificationListener<UserScrollNotification>(
             onNotification: (notification) {
               if (notification.direction != ScrollDirection.idle) {
@@ -316,7 +323,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
                   )
                 else
                   SliverPadding(
-                    padding: const EdgeInsets.only(bottom: 100),
+                    padding: EdgeInsets.only(bottom: 100 + bottomSafeInset),
                     sliver: SliverList(
                       delegate: SliverChildBuilderDelegate(
                         (context, index) {
@@ -597,6 +604,7 @@ class _ArchivedChatsScreenState extends State<ArchivedChatsScreen> {
         final archivedThreads = widget.controller.archivedThreads(
           query: _searchController.text,
         );
+        final bottomSafeInset = MediaQuery.paddingOf(context).bottom;
 
         return Scaffold(
           key: const Key('archived_chats_screen'),
@@ -608,6 +616,7 @@ class _ArchivedChatsScreenState extends State<ArchivedChatsScreen> {
             ),
           ),
           body: SafeArea(
+            bottom: false,
             child: CustomScrollView(
               keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
               slivers: [
@@ -698,7 +707,7 @@ class _ArchivedChatsScreenState extends State<ArchivedChatsScreen> {
                 ),
                 if (archivedThreads.isEmpty)
                   SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+                    padding: EdgeInsets.fromLTRB(20, 0, 20, 24 + bottomSafeInset),
                     sliver: SliverToBoxAdapter(
                       child: EmptyStateCard(
                         icon: Icons.archive_outlined,
@@ -713,7 +722,7 @@ class _ArchivedChatsScreenState extends State<ArchivedChatsScreen> {
                   )
                 else
                   SliverPadding(
-                    padding: const EdgeInsets.only(bottom: 24),
+                    padding: EdgeInsets.only(bottom: 24 + bottomSafeInset),
                     sliver: SliverList(
                       delegate: SliverChildBuilderDelegate(
                         (context, index) {

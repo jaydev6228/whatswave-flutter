@@ -89,10 +89,16 @@ class _BackendSyncScreenState extends State<BackendSyncScreen> {
             ],
           ),
           body: SafeArea(
+            bottom: false,
             child: CustomScrollView(
               slivers: [
                 SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+                  padding: EdgeInsets.fromLTRB(
+                    20,
+                    12,
+                    20,
+                    24 + MediaQuery.paddingOf(context).bottom,
+                  ),
                   sliver: SliverToBoxAdapter(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,

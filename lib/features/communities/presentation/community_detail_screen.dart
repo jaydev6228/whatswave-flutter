@@ -49,10 +49,16 @@ class CommunityDetailScreen extends StatelessWidget {
             title: Text(community.title),
           ),
           body: SafeArea(
+            bottom: false,
             child: CustomScrollView(
               slivers: [
                 SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                  padding: EdgeInsets.fromLTRB(
+                    16,
+                    12,
+                    16,
+                    24 + MediaQuery.paddingOf(context).bottom,
+                  ),
                   sliver: SliverToBoxAdapter(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,

@@ -25,8 +25,11 @@ class AuthFlowScreen extends StatelessWidget {
         final theme = Theme.of(context);
         final palette = _stepPalette(theme, controller.step);
 
+        final bottomSafeInset = MediaQuery.paddingOf(context).bottom;
+
         return Scaffold(
           body: SafeArea(
+            bottom: false,
             child: LayoutBuilder(
               builder: (context, viewportConstraints) {
                 final content = SingleChildScrollView(
@@ -34,7 +37,9 @@ class AuthFlowScreen extends StatelessWidget {
                     20,
                     isCompact ? 12 : 24,
                     20,
-                    usePinnedPrimaryAction ? 16 : (isCompact ? 24 : 32),
+                    usePinnedPrimaryAction
+                        ? 16
+                        : (isCompact ? 24 : 32) + bottomSafeInset,
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -116,11 +121,11 @@ class AuthFlowScreen extends StatelessWidget {
                               children: [
                                 Expanded(child: content),
                                 Padding(
-                                  padding: const EdgeInsets.fromLTRB(
+                                  padding: EdgeInsets.fromLTRB(
                                     20,
                                     12,
                                     20,
-                                    16,
+                                    16 + bottomSafeInset,
                                   ),
                                   child: _AuthPrimaryActionButton(
                                     controller: controller,

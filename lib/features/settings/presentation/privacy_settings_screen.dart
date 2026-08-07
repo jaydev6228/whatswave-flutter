@@ -24,11 +24,17 @@ class PrivacySettingsScreen extends StatelessWidget {
             title: const Text('Privacy'),
           ),
           body: SafeArea(
+            bottom: false,
             child: CustomScrollView(
               key: const Key('privacy_settings_scroll_view'),
               slivers: [
                 SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+                  padding: EdgeInsets.fromLTRB(
+                    20,
+                    12,
+                    20,
+                    24 + MediaQuery.paddingOf(context).bottom,
+                  ),
                   sliver: SliverToBoxAdapter(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
