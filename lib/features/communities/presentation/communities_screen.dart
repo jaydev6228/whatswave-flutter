@@ -289,11 +289,8 @@ class _CommunitiesPane extends StatelessWidget {
                 color: theme.colorScheme.outlineVariant.withValues(alpha: 0.22),
               ),
               const SizedBox(height: 14),
-              _CommunitiesSectionLabel(
+              const _CommunitiesSectionLabel(
                 title: 'Your communities',
-                actionLabel: visibleCommunities.isEmpty
-                    ? '0'
-                    : '${visibleCommunities.length}',
               ),
               const SizedBox(height: 10),
               // No fixed height (was SizedBox(height: 34)) -- see
@@ -529,28 +526,23 @@ class _CompactCommunitiesChip extends StatelessWidget {
 
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: BorderRadius.circular(999),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 160),
         curve: Curves.easeOutCubic,
-        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
         decoration: BoxDecoration(
           color: isSelected
-              ? colorScheme.primaryContainer
-              : colorScheme.surfaceContainerHighest.withValues(alpha: 0.58),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: isSelected
-                ? colorScheme.primary.withValues(alpha: 0.62)
-                : colorScheme.outlineVariant.withValues(alpha: 0.26),
-          ),
+              ? colorScheme.primary.withValues(alpha: 0.14)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(999),
         ),
         child: Text(
           label,
           style: theme.textTheme.labelLarge?.copyWith(
             color: isSelected
-                ? colorScheme.onPrimaryContainer
-                : colorScheme.onSurface,
+                ? colorScheme.primary
+                : colorScheme.onSurface.withValues(alpha: 0.64),
             fontWeight: FontWeight.w700,
           ),
         ),
@@ -560,37 +552,19 @@ class _CompactCommunitiesChip extends StatelessWidget {
 }
 
 class _CommunitiesSectionLabel extends StatelessWidget {
-  const _CommunitiesSectionLabel({
-    required this.title,
-    this.actionLabel,
-  });
+  const _CommunitiesSectionLabel({required this.title});
 
   final String title;
-  final String? actionLabel;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return Row(
-      children: [
-        Expanded(
-          child: Text(
-            title,
-            style: theme.textTheme.titleSmall?.copyWith(
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ),
-        if (actionLabel != null)
-          Text(
-            actionLabel!,
-            style: theme.textTheme.labelMedium?.copyWith(
-              color: theme.colorScheme.primary,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-      ],
+    return Text(
+      title,
+      style: theme.textTheme.titleSmall?.copyWith(
+        fontWeight: FontWeight.w800,
+      ),
     );
   }
 }

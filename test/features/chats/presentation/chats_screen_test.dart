@@ -127,9 +127,12 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Onboarding board'), findsWidgets);
-    expect(find.text('Full-size photo preview'), findsOneWidget);
+    expect(
+      find.byKey(const Key('attachment_viewer_close_button')),
+      findsOneWidget,
+    );
 
-    await tester.pageBack();
+    await tester.tap(find.byKey(const Key('attachment_viewer_close_button')));
     await tester.pumpAndSettle();
 
     for (var index = 0; index < 12; index++) {

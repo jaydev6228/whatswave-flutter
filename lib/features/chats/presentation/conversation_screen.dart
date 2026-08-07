@@ -473,13 +473,10 @@ class _ConversationScreenState extends State<ConversationScreen> {
       return;
     }
 
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => AttachmentViewerScreen(
-          attachment: attachment,
-          threadName: threadName,
-        ),
-      ),
+    await showAttachmentPreview(
+      context,
+      attachment: attachment,
+      threadName: threadName,
     );
   }
 
@@ -1007,10 +1004,8 @@ class _AttachmentPickerSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final isCompactHeight = MediaQuery.sizeOf(context).height <= 700;
     final horizontalPadding = isCompactHeight ? 18.0 : 20.0;
-    final verticalSpacing = isCompactHeight ? 12.0 : 14.0;
     final options = <_AttachmentActionData>[
       _AttachmentActionData(
         actionKey: const Key('conversation_photo_button'),
@@ -1049,60 +1044,27 @@ class _AttachmentPickerSheet extends StatelessWidget {
       ),
     ];
 
-    return SingleChildScrollView(
-      child: Padding(
-        key: const Key('conversation_attachment_sheet'),
-        padding: EdgeInsets.fromLTRB(
-          horizontalPadding,
-          8,
-          horizontalPadding,
-          20,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Share',
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w800,
-              ),
+    return Padding(
+      key: const Key('conversation_attachment_sheet'),
+      padding: EdgeInsets.fromLTRB(
+        horizontalPadding,
+        8,
+        horizontalPadding,
+        20,
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          for (final option in options)
+            _AttachmentGridTile(
+              actionKey: option.actionKey,
+              icon: option.icon,
+              color: option.color,
+              tooltip: option.label,
+              isCompact: isCompactHeight,
+              onTap: () => onSelected(option.type),
             ),
-            const SizedBox(height: 4),
-            Text(
-              'Photo, video, document, location, or voice note.',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.72),
-              ),
-            ),
-            SizedBox(height: isCompactHeight ? 16 : 18),
-            LayoutBuilder(
-              builder: (context, constraints) {
-                final tileWidth =
-                    (constraints.maxWidth - (verticalSpacing * 2)) / 3;
-
-                return Wrap(
-                  spacing: verticalSpacing,
-                  runSpacing: verticalSpacing,
-                  children: [
-                    for (final option in options)
-                      SizedBox(
-                        width: tileWidth,
-                        child: _AttachmentGridTile(
-                          actionKey: option.actionKey,
-                          icon: option.icon,
-                          color: option.color,
-                          label: option.label,
-                          isCompact: isCompactHeight,
-                          onTap: () => onSelected(option.type),
-                        ),
-                      ),
-                  ],
-                );
-              },
-            ),
-          ],
-        ),
+        ],
       ),
     );
   }
@@ -1113,7 +1075,7 @@ class _AttachmentGridTile extends StatelessWidget {
     required this.actionKey,
     required this.icon,
     required this.color,
-    required this.label,
+    required this.tooltip,
     required this.isCompact,
     required this.onTap,
   });
@@ -1121,55 +1083,27 @@ class _AttachmentGridTile extends StatelessWidget {
   final Key actionKey;
   final IconData icon;
   final Color color;
-  final String label;
+  final String tooltip;
   final bool isCompact;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final size = isCompact ? 52.0 : 58.0;
 
-    return Material(
-      color: theme.colorScheme.surface,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(18),
-        side: BorderSide(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.28),
-        ),
-      ),
-      child: InkWell(
-        key: actionKey,
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(18),
-        child: Padding(
-          padding: EdgeInsets.symmetric(
-            horizontal: isCompact ? 6 : 8,
-            vertical: isCompact ? 9 : 11,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: isCompact ? 44 : 48,
-                height: isCompact ? 44 : 48,
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: 0.14),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(icon, color: color, size: isCompact ? 22 : 24),
-              ),
-              SizedBox(height: isCompact ? 6 : 8),
-              Text(
-                label,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  fontSize: isCompact ? 13 : null,
-                ),
-              ),
-            ],
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: color.withValues(alpha: 0.14),
+        shape: const CircleBorder(),
+        child: InkWell(
+          key: actionKey,
+          onTap: onTap,
+          customBorder: const CircleBorder(),
+          child: SizedBox(
+            width: size,
+            height: size,
+            child: Icon(icon, color: color, size: isCompact ? 24 : 26),
           ),
         ),
       ),
@@ -1514,7 +1448,7 @@ class _AttachmentPreviewCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final borderRadius = BorderRadius.circular(18);
+    final borderRadius = BorderRadius.circular(16);
 
     return Material(
       color: Colors.transparent,
@@ -1523,62 +1457,54 @@ class _AttachmentPreviewCard extends StatelessWidget {
         key: Key('attachment_preview_${attachment.id}'),
         onTap: onTap,
         borderRadius: borderRadius,
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: borderRadius,
-            color: attachment.tintColor.withValues(
-              alpha: theme.brightness == Brightness.dark ? 0.18 : 0.12,
-            ),
-            border: Border.all(
-              color: attachment.tintColor.withValues(alpha: 0.22),
-            ),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Row(
-              children: [
-                CircleAvatar(
-                  backgroundColor: attachment.tintColor.withValues(alpha: 0.14),
-                  child: Icon(
-                    _iconForType(attachment.type),
-                    color: attachment.tintColor,
-                  ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 20,
+                backgroundColor: attachment.tintColor.withValues(alpha: 0.16),
+                child: Icon(
+                  _iconForType(attachment.type),
+                  color: attachment.tintColor,
+                  size: 20,
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        attachment.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      attachment.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w800,
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        attachment.details,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurface
-                              .withValues(alpha: 0.72),
-                        ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      attachment.details,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurface
+                            .withValues(alpha: 0.68),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 12),
-                Icon(
-                  attachment.type == ChatAttachmentType.location
-                      ? Icons.north_east_rounded
-                      : Icons.open_in_full_rounded,
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.62),
-                ),
-              ],
-            ),
+              ),
+              const SizedBox(width: 8),
+              Icon(
+                attachment.type == ChatAttachmentType.location
+                    ? Icons.north_east_rounded
+                    : Icons.chevron_right_rounded,
+                size: 20,
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+              ),
+            ],
           ),
         ),
       ),

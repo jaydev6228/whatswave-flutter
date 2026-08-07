@@ -30,7 +30,6 @@ abstract final class AppTheme {
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(18),
-          side: const BorderSide(color: Color(0xFFE3EAE7)),
         ),
       ),
       dialogTheme: DialogThemeData(
@@ -38,7 +37,6 @@ abstract final class AppTheme {
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(22),
-          side: const BorderSide(color: Color(0xFFE3EAE7)),
         ),
       ),
       bottomSheetTheme: const BottomSheetThemeData(
@@ -55,7 +53,6 @@ abstract final class AppTheme {
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(18),
-          side: const BorderSide(color: Color(0xFFE3EAE7)),
         ),
       ),
       navigationBarTheme: NavigationBarThemeData(
@@ -152,7 +149,6 @@ abstract final class AppTheme {
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(18),
-          side: const BorderSide(color: Color(0xFF23333B)),
         ),
       ),
       dialogTheme: DialogThemeData(
@@ -160,7 +156,6 @@ abstract final class AppTheme {
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(22),
-          side: const BorderSide(color: Color(0xFF23333B)),
         ),
       ),
       bottomSheetTheme: const BottomSheetThemeData(
@@ -177,7 +172,6 @@ abstract final class AppTheme {
         surfaceTintColor: Colors.transparent,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(18),
-          side: const BorderSide(color: Color(0xFF23333B)),
         ),
       ),
       navigationBarTheme: NavigationBarThemeData(

@@ -120,12 +120,7 @@ class _CallsScreenState extends State<CallsScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            _CallsSectionLabel(
-                              title: 'Your contacts',
-                              actionLabel: contacts.isEmpty
-                                  ? null
-                                  : '${contacts.length}',
-                            ),
+                            const _CallsSectionLabel(title: 'Your contacts'),
                             const SizedBox(height: 10),
                             if (contacts.isEmpty)
                               const EmptyStateCard(
@@ -184,13 +179,9 @@ class _CallsScreenState extends State<CallsScreen> {
                             const SizedBox(height: 20),
                             Row(
                               children: [
-                                Expanded(
+                                const Expanded(
                                   child: _CallsSectionLabel(
                                     title: 'Recent calls',
-                                    actionLabel: widget
-                                            .controller.history.isEmpty
-                                        ? null
-                                        : '${widget.controller.history.length}',
                                   ),
                                 ),
                                 if (widget.controller.history.isNotEmpty)
@@ -499,37 +490,19 @@ class _RecentCallCard extends StatelessWidget {
 }
 
 class _CallsSectionLabel extends StatelessWidget {
-  const _CallsSectionLabel({
-    required this.title,
-    this.actionLabel,
-  });
+  const _CallsSectionLabel({required this.title});
 
   final String title;
-  final String? actionLabel;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return Row(
-      children: [
-        Expanded(
-          child: Text(
-            title,
-            style: theme.textTheme.titleSmall?.copyWith(
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ),
-        if (actionLabel != null)
-          Text(
-            actionLabel!,
-            style: theme.textTheme.labelMedium?.copyWith(
-              color: theme.colorScheme.primary,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-      ],
+    return Text(
+      title,
+      style: theme.textTheme.titleSmall?.copyWith(
+        fontWeight: FontWeight.w800,
+      ),
     );
   }
 }

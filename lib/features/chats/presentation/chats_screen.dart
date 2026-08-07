@@ -271,34 +271,6 @@ class _ChatsScreenState extends State<ChatsScreen> {
                             onAction: widget.controller.loadThreads,
                           ),
                         ],
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                _sectionTitle(
-                                  showingArchived: false,
-                                  searchQuery: widget.controller.searchQuery,
-                                  filter: widget.controller.selectedFilter,
-                                ),
-                                style: theme.textTheme.labelLarge?.copyWith(
-                                  color: theme.colorScheme.onSurface
-                                      .withValues(alpha: 0.66),
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                            Text(
-                              '${visibleThreads.length} threads',
-                              style: theme.textTheme.labelMedium?.copyWith(
-                                color: theme.colorScheme.onSurface
-                                    .withValues(alpha: 0.46),
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
                       ],
                     ),
                   ),
@@ -448,26 +420,6 @@ class _ChatsScreenState extends State<ChatsScreen> {
     return !WidgetsBinding.instance.runtimeType
         .toString()
         .contains('TestWidgetsFlutterBinding');
-  }
-
-  String _sectionTitle({
-    required bool showingArchived,
-    required String searchQuery,
-    required ChatListFilter filter,
-  }) {
-    if (showingArchived) {
-      return searchQuery.trim().isEmpty
-          ? 'Archived threads'
-          : 'Archived search';
-    }
-    if (searchQuery.trim().isNotEmpty) {
-      return 'Search results';
-    }
-    return switch (filter) {
-      ChatListFilter.all => 'Pinned and recent',
-      ChatListFilter.unread => 'Unread conversations',
-      ChatListFilter.groups => 'Group conversations',
-    };
   }
 
   String _emptyStateTitle(ChatsController controller) {
@@ -1076,28 +1028,23 @@ class _ChatFilterChip extends StatelessWidget {
 
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: BorderRadius.circular(999),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 160),
         curve: Curves.easeOutCubic,
-        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
         decoration: BoxDecoration(
           color: isSelected
-              ? colorScheme.primaryContainer
-              : colorScheme.surfaceContainerHighest.withValues(alpha: 0.58),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: isSelected
-                ? colorScheme.primary.withValues(alpha: 0.62)
-                : colorScheme.outlineVariant.withValues(alpha: 0.26),
-          ),
+              ? colorScheme.primary.withValues(alpha: 0.14)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(999),
         ),
         child: Text(
           label,
           style: theme.textTheme.labelLarge?.copyWith(
             color: isSelected
-                ? colorScheme.onPrimaryContainer
-                : colorScheme.onSurface,
+                ? colorScheme.primary
+                : colorScheme.onSurface.withValues(alpha: 0.64),
             fontWeight: FontWeight.w700,
           ),
         ),

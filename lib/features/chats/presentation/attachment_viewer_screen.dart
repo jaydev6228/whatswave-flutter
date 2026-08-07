@@ -3,6 +3,10 @@ import 'package:flutter/material.dart';
 import '../../../app/theme/app_palette.dart';
 import '../domain/chat_attachment.dart';
 
+/// Shown as an in-place overlay over the current screen (see
+/// [showAttachmentPreview]) rather than pushed as a separate route -- a
+/// plain full-bleed canvas with a close button, no AppBar/back-chevron
+/// chrome pretending it's a whole new screen.
 class AttachmentViewerScreen extends StatelessWidget {
   const AttachmentViewerScreen({
     required this.attachment,
@@ -16,97 +20,91 @@ class AttachmentViewerScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final subtitle = switch (attachment.type) {
-      ChatAttachmentType.photo => 'Full-size photo preview',
-      ChatAttachmentType.video => 'Simulated video preview',
-      ChatAttachmentType.file => 'Shared document preview',
-      ChatAttachmentType.location => 'Pinned location preview',
-      ChatAttachmentType.voiceNote => 'Voice note playback preview',
-    };
 
-    return Scaffold(
-      appBar: AppBar(
-        // Fixed-height toolbar chrome with a two-line title stack -- clamp
-        // text scale so it can't outgrow that height, and cap each line so
-        // ellipsis has something to act on. See
-        // docs/ui_layout_guidelines.md rules 2 and 4.
-        title: MediaQuery.withClampedTextScaling(
-          maxScaleFactor: 1.3,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                attachment.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              Text(
-                threadName,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.labelMedium?.copyWith(
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                IconButton(
+                  key: const Key('attachment_viewer_close_button'),
+                  onPressed: () => Navigator.of(context).pop(),
+                  icon: const Icon(Icons.close_rounded),
                 ),
-              ),
-            ],
-          ),
-        ),
-      ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                subtitle,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.72),
-                ),
-              ),
-              const SizedBox(height: 20),
-              Expanded(
-                child: Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 520),
-                    child: AspectRatio(
-                      aspectRatio: attachment.aspectRatio,
-                      child: _AttachmentCanvas(attachment: attachment),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: MediaQuery.withClampedTextScaling(
+                    maxScaleFactor: 1.3,
+                    child: Text(
+                      threadName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color:
+                            theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                      ),
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 20),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(18),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        attachment.title,
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        attachment.details,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: theme.colorScheme.onSurface
-                              .withValues(alpha: 0.72),
-                        ),
-                      ),
-                    ],
+              ],
+            ),
+            const SizedBox(height: 12),
+            Expanded(
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 520),
+                  child: AspectRatio(
+                    aspectRatio: attachment.aspectRatio,
+                    child: _AttachmentCanvas(attachment: attachment),
                   ),
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
   }
+}
+
+/// Presents [AttachmentViewerScreen] as a full-screen overlay (fade + scale)
+/// on top of the current screen instead of navigating to a new route.
+Future<void> showAttachmentPreview(
+  BuildContext context, {
+  required ChatAttachment attachment,
+  required String threadName,
+}) {
+  return showGeneralDialog<void>(
+    context: context,
+    barrierLabel: attachment.title,
+    barrierColor: Colors.black54,
+    transitionDuration: const Duration(milliseconds: 220),
+    pageBuilder: (context, _, __) {
+      return Dialog.fullscreen(
+        backgroundColor: Theme.of(context).colorScheme.surface,
+        child: AttachmentViewerScreen(
+          attachment: attachment,
+          threadName: threadName,
+        ),
+      );
+    },
+    transitionBuilder: (context, animation, _, child) {
+      final curved = CurvedAnimation(
+        parent: animation,
+        curve: Curves.easeOutCubic,
+      );
+      return FadeTransition(
+        opacity: curved,
+        child: ScaleTransition(
+          scale: Tween<double>(begin: 0.96, end: 1).animate(curved),
+          child: child,
+        ),
+      );
+    },
+  );
 }
 
 class _AttachmentCanvas extends StatelessWidget {
