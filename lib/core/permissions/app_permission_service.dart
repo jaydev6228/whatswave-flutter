@@ -14,6 +14,10 @@ abstract class AppPermissionService {
 
   Future<CallPermissions> requestCallPermissions(CallType type);
 
+  Future<CallPermissionStatus> locationAccessStatus();
+
+  Future<CallPermissionStatus> requestLocationAccess();
+
   Future<void> openSettings();
 }
 
@@ -25,17 +29,22 @@ class MemoryAppPermissionService implements AppPermissionService {
     this.grantContactsOnRequest = true,
     this.grantMicrophoneOnRequest = true,
     this.grantCameraOnRequest = true,
+    this.grantLocationOnRequest = true,
+    CallPermissionStatus locationStatus = CallPermissionStatus.unknown,
   })  : _contactsStatus = contactsStatus,
         _callPermissions = CallPermissions(
           microphone: microphoneStatus,
           camera: cameraStatus,
-        );
+        ),
+        _locationStatus = locationStatus;
 
   ContactAccessStatus _contactsStatus;
   CallPermissions _callPermissions;
+  CallPermissionStatus _locationStatus;
   bool grantContactsOnRequest;
   bool grantMicrophoneOnRequest;
   bool grantCameraOnRequest;
+  bool grantLocationOnRequest;
 
   @override
   Future<ContactAccessStatus> contactAccessStatus() async => _contactsStatus;
@@ -67,6 +76,17 @@ class MemoryAppPermissionService implements AppPermissionService {
   }
 
   @override
+  Future<CallPermissionStatus> locationAccessStatus() async => _locationStatus;
+
+  @override
+  Future<CallPermissionStatus> requestLocationAccess() async {
+    _locationStatus = grantLocationOnRequest
+        ? CallPermissionStatus.granted
+        : CallPermissionStatus.denied;
+    return _locationStatus;
+  }
+
+  @override
   Future<void> openSettings() async {}
 }
 
@@ -74,6 +94,7 @@ class NativeAppPermissionService implements AppPermissionService {
   static const _contactsRequestedKey = 'permissions.contacts.requested';
   static const _microphoneRequestedKey = 'permissions.microphone.requested';
   static const _cameraRequestedKey = 'permissions.camera.requested';
+  static const _locationRequestedKey = 'permissions.location.requested';
 
   @override
   Future<ContactAccessStatus> contactAccessStatus() async {
@@ -132,6 +153,24 @@ class NativeAppPermissionService implements AppPermissionService {
             (preferences.getBool(_cameraRequestedKey) ?? false),
       ),
     );
+  }
+
+  @override
+  Future<CallPermissionStatus> locationAccessStatus() async {
+    final preferences = await SharedPreferences.getInstance();
+    final status = await Permission.locationWhenInUse.status;
+    return _mapCallStatus(
+      status,
+      hasRequestedBefore: preferences.getBool(_locationRequestedKey) ?? false,
+    );
+  }
+
+  @override
+  Future<CallPermissionStatus> requestLocationAccess() async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setBool(_locationRequestedKey, true);
+    final status = await Permission.locationWhenInUse.request();
+    return _mapCallStatus(status, hasRequestedBefore: true);
   }
 
   @override

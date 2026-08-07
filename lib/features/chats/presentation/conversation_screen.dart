@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../app/theme/app_palette.dart';
 import '../../../core/models/status_story.dart';
@@ -314,13 +315,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
                                         )
                                     : null,
                                 onAttachmentTap: (attachment) {
-                                  Navigator.of(context).push(
-                                    MaterialPageRoute<void>(
-                                      builder: (_) => AttachmentViewerScreen(
-                                        attachment: attachment,
-                                        threadName: thread.name,
-                                      ),
-                                    ),
+                                  _handleAttachmentPreviewTap(
+                                    attachment,
+                                    threadName: thread.name,
                                   );
                                 },
                               ),
@@ -377,6 +374,11 @@ class _ConversationScreenState extends State<ConversationScreen> {
     String threadId,
     ChatAttachmentType type,
   ) async {
+    if (type == ChatAttachmentType.location) {
+      await _shareCurrentLocation(threadId);
+      return;
+    }
+
     final trimmedCaption = _composerController.text.trim();
     final wasNearLatest = _isNearLatestMessage();
     final attachment = _buildDemoAttachment(
@@ -421,6 +423,64 @@ class _ConversationScreenState extends State<ConversationScreen> {
       _scheduleComposerReset(clearDraft: false);
     }
     setState(() {});
+  }
+
+  /// Unlike [_handleAttachmentTap]'s demo attachments, there's nothing to
+  /// show optimistically here -- permission + a GPS fix both take a moment,
+  /// so the composer's own busy state (driven by [ChatsController.isThreadBusy])
+  /// is the only feedback until this resolves.
+  Future<void> _shareCurrentLocation(String threadId) async {
+    final trimmedCaption = _composerController.text.trim();
+    final wasNearLatest = _isNearLatestMessage();
+
+    final didSend = await widget.controller.sendCurrentLocation(
+      threadId: threadId,
+      caption: trimmedCaption.isEmpty ? null : trimmedCaption,
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    if (didSend) {
+      _composerController.clear();
+      _scheduleScrollToLatestMessage(animated: !wasNearLatest);
+    }
+    setState(() {});
+  }
+
+  Future<void> _handleAttachmentPreviewTap(
+    ChatAttachment attachment, {
+    required String threadName,
+  }) async {
+    if (attachment.type == ChatAttachmentType.location &&
+        attachment.hasCoordinates) {
+      final uri = Uri.parse(
+        'https://www.google.com/maps/search/?api=1&query='
+        '${attachment.latitude},${attachment.longitude}',
+      );
+      final didLaunch = await launchUrl(
+        uri,
+        mode: LaunchMode.externalApplication,
+      );
+      if (!didLaunch && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('We could not open Maps for that location.'),
+          ),
+        );
+      }
+      return;
+    }
+
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => AttachmentViewerScreen(
+          attachment: attachment,
+          threadName: threadName,
+        ),
+      ),
+    );
   }
 
   Future<void> _handleSendTap(String threadId) async {
@@ -1512,7 +1572,9 @@ class _AttachmentPreviewCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 12),
                 Icon(
-                  Icons.open_in_full_rounded,
+                  attachment.type == ChatAttachmentType.location
+                      ? Icons.north_east_rounded
+                      : Icons.open_in_full_rounded,
                   color: theme.colorScheme.onSurface.withValues(alpha: 0.62),
                 ),
               ],

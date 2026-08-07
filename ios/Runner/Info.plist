@@ -41,6 +41,8 @@
 	<string>Whatswave uses the camera for video calls and profile media capture.</string>
 	<key>NSContactsUsageDescription</key>
 	<string>Whatswave uses your contacts to help you find people and invite them into communities.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Whatswave uses your location to share your current location in a chat when you choose to.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Whatswave uses the microphone for audio and video calls.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

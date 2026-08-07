@@ -26,6 +26,8 @@ dependencies:
   livekit_client: ^2.9.0
   http: ^1.6.0
   flutter_ringtone_player: ^4.0.0+4
+  geolocator: ^14.0.2
+  url_launcher: ^6.3.2
 
 dev_dependencies:
   flutter_test:

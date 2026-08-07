@@ -2,6 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../../app/theme/app_palette.dart';
+import '../../../core/permissions/app_permission_service.dart';
+import '../../../core/permissions/device_location_service.dart';
+import '../../calls/domain/call_permissions.dart';
 import '../data/chat_repository.dart';
 import '../domain/chat_attachment.dart';
 import '../domain/chat_thread.dart';
@@ -9,10 +13,17 @@ import '../domain/chat_thread.dart';
 enum ChatListFilter { all, unread, groups }
 
 class ChatsController extends ChangeNotifier {
-  ChatsController({required ChatRepository repository})
-      : _repository = repository;
+  ChatsController({
+    required ChatRepository repository,
+    AppPermissionService? permissionService,
+    DeviceLocationService? locationService,
+  })  : _repository = repository,
+        _permissionService = permissionService ?? MemoryAppPermissionService(),
+        _locationService = locationService ?? GeolocatorDeviceLocationService();
 
   final ChatRepository _repository;
+  final AppPermissionService _permissionService;
+  final DeviceLocationService _locationService;
   StreamSubscription<List<ChatThread>>? _liveThreadsSubscription;
 
   bool _hasLoaded = false;
@@ -364,6 +375,60 @@ class ChatsController extends ChangeNotifier {
       fallbackError: 'We could not send that attachment right now.',
       clearSearch: false,
     );
+  }
+
+  /// Captures the device's current GPS fix and sends it as a location
+  /// attachment, requesting location permission first if needed. Unlike
+  /// [sendAttachmentMessage], the caller has no attachment to show
+  /// optimistically up front -- permission + a GPS fix both take a moment,
+  /// so [isThreadBusy] is the only feedback until this resolves.
+  Future<bool> sendCurrentLocation({
+    required String threadId,
+    String? caption,
+  }) async {
+    _busyThreadIds.add(threadId);
+    _errorMessage = null;
+    notifyListeners();
+
+    var didSucceed = false;
+    try {
+      var status = await _permissionService.locationAccessStatus();
+      if (status != CallPermissionStatus.granted) {
+        status = await _permissionService.requestLocationAccess();
+      }
+
+      if (status != CallPermissionStatus.granted) {
+        _errorMessage =
+            'Allow location access in Settings to share your current location.';
+      } else {
+        final fix = await _locationService.getCurrentLocation();
+        final attachment = ChatAttachment(
+          id: '$threadId-location-${DateTime.now().microsecondsSinceEpoch}',
+          type: ChatAttachmentType.location,
+          title: 'Current location',
+          details: 'Tap to open in Maps',
+          tintColor: AppPalette.rose,
+          latitude: fix.latitude,
+          longitude: fix.longitude,
+        );
+        _threads = await _repository.sendAttachmentMessage(
+          threadId: threadId,
+          attachment: attachment,
+          caption: caption,
+        );
+        didSucceed = true;
+      }
+    } on DeviceLocationException catch (error) {
+      _errorMessage = error.message;
+    } on ChatRepositoryException catch (error) {
+      _errorMessage = error.message;
+    } catch (_) {
+      _errorMessage = 'We could not share your location right now.';
+    }
+
+    _busyThreadIds.remove(threadId);
+    notifyListeners();
+    return didSucceed;
   }
 
   Future<bool> _runThreadMutation(

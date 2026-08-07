@@ -153,6 +153,7 @@ class _WhatsWaveAppState extends State<WhatsWaveApp> {
         delegate: widget.chatRepository ?? repositoryBundle.chatRepository,
         integrations: _integrationController,
       ),
+      permissionService: _permissionService,
     );
     _communitiesController = CommunitiesController(
       repository: TrackedCommunitiesRepository(

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:whatswave/app/theme/app_theme.dart';
+import 'package:whatswave/core/permissions/app_permission_service.dart';
+import 'package:whatswave/core/permissions/device_location_service.dart';
 import 'package:whatswave/features/calls/application/calls_controller.dart';
 import 'package:whatswave/features/calls/data/fake_calls_repository.dart';
 import 'package:whatswave/features/communities/application/communities_controller.dart';
@@ -98,6 +100,10 @@ void main() {
       controller: ChatsController(
         repository: FakeChatRepository(
           latency: const Duration(milliseconds: 120),
+        ),
+        permissionService: MemoryAppPermissionService(),
+        locationService: const _FakeDeviceLocationService(
+          fix: DeviceLocationFix(latitude: 35.6595, longitude: 139.7005),
         ),
       ),
     );
@@ -209,7 +215,8 @@ void main() {
     await tester.tap(find.byKey(const Key('conversation_location_button')));
     await tester.pumpAndSettle();
 
-    expect(find.text('Shibuya Crossing'), findsOneWidget);
+    expect(find.text('Current location'), findsOneWidget);
+    expect(find.text('Tap to open in Maps'), findsOneWidget);
   });
 
   testWidgets('keeps the attachment sheet overflow-free on compact phones',
@@ -791,4 +798,13 @@ class _FlakySendChatRepository implements ChatRepository {
         threadId: threadId,
         isArchived: isArchived,
       );
+}
+
+class _FakeDeviceLocationService implements DeviceLocationService {
+  const _FakeDeviceLocationService({required this.fix});
+
+  final DeviceLocationFix fix;
+
+  @override
+  Future<DeviceLocationFix> getCurrentLocation() async => fix;
 }

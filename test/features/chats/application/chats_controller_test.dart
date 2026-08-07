@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:whatswave/core/permissions/app_permission_service.dart';
+import 'package:whatswave/core/permissions/device_location_service.dart';
 import 'package:whatswave/core/sample/demo_data.dart';
 import 'package:whatswave/features/chats/application/chats_controller.dart';
 import 'package:whatswave/features/chats/data/chat_repository.dart';
@@ -145,7 +147,108 @@ void main() {
       expect(failingController.visibleThreads, isEmpty);
       expect(failingController.errorMessage, 'Network went away');
     });
+
+    test('shares the current location once permission is granted', () async {
+      final locationController = ChatsController(
+        repository: FakeChatRepository(
+          initialThreads: DemoData.buildChatThreads(),
+          latency: Duration.zero,
+        ),
+        permissionService: MemoryAppPermissionService(),
+        locationService: const _FakeDeviceLocationService(
+          fix: DeviceLocationFix(latitude: 35.6595, longitude: 139.7005),
+        ),
+      );
+      await locationController.loadThreads();
+
+      final didSend = await locationController.sendCurrentLocation(
+        threadId: 'ava-patel',
+      );
+
+      expect(didSend, isTrue);
+      final attachment = locationController
+          .threadById('ava-patel')!
+          .messages
+          .last
+          .attachments
+          .single;
+      expect(attachment.type, ChatAttachmentType.location);
+      expect(attachment.latitude, 35.6595);
+      expect(attachment.longitude, 139.7005);
+      expect(attachment.hasCoordinates, isTrue);
+    });
+
+    test('surfaces an error and sends nothing when location access is denied',
+        () async {
+      final deniedController = ChatsController(
+        repository: FakeChatRepository(
+          initialThreads: DemoData.buildChatThreads(),
+          latency: Duration.zero,
+        ),
+        permissionService: MemoryAppPermissionService(
+          grantLocationOnRequest: false,
+        ),
+        locationService: const _FakeDeviceLocationService(
+          fix: DeviceLocationFix(latitude: 35.6595, longitude: 139.7005),
+        ),
+      );
+      await deniedController.loadThreads();
+      final originalCount =
+          deniedController.threadById('ava-patel')!.messages.length;
+
+      final didSend =
+          await deniedController.sendCurrentLocation(threadId: 'ava-patel');
+
+      expect(didSend, isFalse);
+      expect(
+        deniedController.errorMessage,
+        'Allow location access in Settings to share your current location.',
+      );
+      expect(
+        deniedController.threadById('ava-patel')!.messages.length,
+        originalCount,
+      );
+    });
+
+    test('surfaces device location failures', () async {
+      final failingLocationController = ChatsController(
+        repository: FakeChatRepository(
+          initialThreads: DemoData.buildChatThreads(),
+          latency: Duration.zero,
+        ),
+        permissionService: MemoryAppPermissionService(),
+        locationService: const _FakeDeviceLocationService(
+          error: DeviceLocationException('GPS is unavailable right now.'),
+        ),
+      );
+      await failingLocationController.loadThreads();
+
+      final didSend = await failingLocationController.sendCurrentLocation(
+        threadId: 'ava-patel',
+      );
+
+      expect(didSend, isFalse);
+      expect(
+        failingLocationController.errorMessage,
+        'GPS is unavailable right now.',
+      );
+    });
   });
+}
+
+class _FakeDeviceLocationService implements DeviceLocationService {
+  const _FakeDeviceLocationService({this.fix, this.error});
+
+  final DeviceLocationFix? fix;
+  final DeviceLocationException? error;
+
+  @override
+  Future<DeviceLocationFix> getCurrentLocation() async {
+    if (error != null) {
+      throw error!;
+    }
+    return fix!;
+  }
 }
 
 class _FailingChatRepository implements ChatRepository {

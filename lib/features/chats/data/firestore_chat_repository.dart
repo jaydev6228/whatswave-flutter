@@ -442,6 +442,8 @@ class FirestoreChatRepository implements ChatRepository {
       'details': attachment.details,
       'tintColorArgb': attachment.tintColor.toARGB32(),
       'aspectRatio': attachment.aspectRatio,
+      if (attachment.latitude != null) 'latitude': attachment.latitude,
+      if (attachment.longitude != null) 'longitude': attachment.longitude,
     };
   }
 
@@ -453,6 +455,8 @@ class FirestoreChatRepository implements ChatRepository {
       details: (map['details'] as String?) ?? '',
       tintColor: Color((map['tintColorArgb'] as int?) ?? 0xFF000000),
       aspectRatio: (map['aspectRatio'] as num?)?.toDouble() ?? 1.25,
+      latitude: (map['latitude'] as num?)?.toDouble(),
+      longitude: (map['longitude'] as num?)?.toDouble(),
     );
   }
 

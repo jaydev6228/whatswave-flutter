@@ -10,6 +10,8 @@ class ChatAttachment {
     required this.details,
     required this.tintColor,
     this.aspectRatio = 1.25,
+    this.latitude,
+    this.longitude,
   });
 
   final String id;
@@ -18,6 +20,13 @@ class ChatAttachment {
   final String details;
   final Color tintColor;
   final double aspectRatio;
+
+  /// Set only for [ChatAttachmentType.location] messages carrying a real
+  /// device fix -- null for every other attachment type.
+  final double? latitude;
+  final double? longitude;
+
+  bool get hasCoordinates => latitude != null && longitude != null;
 
   String get compactLabel {
     return switch (type) {
@@ -41,6 +50,8 @@ class ChatAttachment {
     String? details,
     Color? tintColor,
     double? aspectRatio,
+    double? latitude,
+    double? longitude,
   }) {
     return ChatAttachment(
       id: id ?? this.id,
@@ -49,6 +60,8 @@ class ChatAttachment {
       details: details ?? this.details,
       tintColor: tintColor ?? this.tintColor,
       aspectRatio: aspectRatio ?? this.aspectRatio,
+      latitude: latitude ?? this.latitude,
+      longitude: longitude ?? this.longitude,
     );
   }
 }
