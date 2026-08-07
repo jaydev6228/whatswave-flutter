@@ -5,27 +5,13 @@ import 'package:whatswave/core/observability/app_telemetry.dart';
 import 'package:whatswave/core/sample/demo_data.dart';
 import 'package:whatswave/features/auth/data/fake_auth_repository.dart';
 import 'package:whatswave/features/chats/data/fake_chat_repository.dart';
-import 'package:whatswave/features/shell/presentation/app_shell.dart';
 
 import '../support/device_matrix.dart';
 
 void main() {
-  group('navigationLabelScaleForWidth', () {
-    test('uses a minimum scale on compact phones', () {
-      expect(navigationLabelScaleForWidth(320), _closeTo(0.72));
-      expect(navigationLabelScaleForWidth(300), _closeTo(0.72));
-    });
-
-    test('interpolates for mid-size phones and caps on wider devices', () {
-      expect(navigationLabelScaleForWidth(375), _closeTo(0.86));
-      expect(navigationLabelScaleForWidth(430), _closeTo(1));
-      expect(navigationLabelScaleForWidth(460), _closeTo(1));
-    });
-  });
-
   for (final device in deviceMatrix) {
     testWidgets(
-      'renders the main shell tabs and navigates to updates on ${device.name}',
+      'renders the main shell tabs and the Chats status strip on ${device.name}',
       (tester) async {
         await pumpWhatsWaveAppForDevice(
           tester,
@@ -38,29 +24,18 @@ void main() {
         );
         await pumpUntilVisible(tester, find.text('Chats'));
 
-        expect(find.text('Chats'), findsWidgets);
-        expect(find.text('Updates'), findsWidgets);
-        expect(find.text('Communities'), findsWidgets);
-        expect(find.text('Calls'), findsWidgets);
-        expect(find.text('Settings'), findsWidgets);
-
-        await tester.tap(find.text('Updates').last);
-        await tester.pump(const Duration(milliseconds: 300));
-        await pumpUntilVisible(
-          tester,
-          find.byKey(const Key('updates_my_status_card')),
-        );
+        // Icon-only floating tab bar now -- no visible text labels to find,
+        // so destinations are identified by their accessibility tooltip
+        // instead. Updates has no tab of its own anymore; its status strip
+        // lives directly on the Chats screen (checked below).
+        expect(find.byTooltip('Chats'), findsOneWidget);
+        expect(find.byTooltip('Communities'), findsOneWidget);
+        expect(find.byTooltip('Calls'), findsOneWidget);
+        expect(find.byTooltip('Settings'), findsOneWidget);
+        expect(find.byTooltip('Updates'), findsNothing);
 
         expect(tester.takeException(), isNull);
-        expect(find.byKey(const Key('updates_my_status_card')), findsOneWidget);
-        expect(
-          find.byKey(const Key('updates_my_status_text_button')),
-          findsOneWidget,
-        );
-        expect(
-          find.byKey(const Key('updates_my_status_media_button')),
-          findsOneWidget,
-        );
+        expect(find.byKey(const Key('chats_status_mine')), findsOneWidget);
       },
     );
   }
@@ -79,25 +54,22 @@ void main() {
       chatRepository: FakeChatRepository(latency: Duration.zero),
       telemetry: telemetry,
     );
-    await pumpUntilVisible(tester, find.text('Updates'));
+    await pumpUntilVisible(tester, find.text('Chats'));
 
     expect(
       telemetry.breadcrumbs.any((event) => event.name == 'tab_chats'),
       isTrue,
     );
 
-    await tester.tap(find.text('Updates').last);
+    await tester.tap(find.byTooltip('Communities'));
     await tester.pump(const Duration(milliseconds: 300));
-    await pumpUntilVisible(
-      tester,
-      find.byKey(const Key('updates_my_status_card')),
-    );
+    await pumpUntilVisible(tester, find.text('Communities'));
 
     final names = telemetry.breadcrumbs
         .map((event) => event.name)
         .toList(growable: false);
     expect(names, contains('navigation_tab_selected'));
-    expect(names, contains('tab_updates'));
+    expect(names, contains('tab_communities'));
   });
 
   testWidgets('uses the app scroll behavior to avoid Android stretch overscroll',
@@ -137,5 +109,3 @@ void main() {
     expect(find.byType(GlowingOverscrollIndicator), findsNothing);
   });
 }
-
-Matcher _closeTo(double value) => closeTo(value, 0.01);

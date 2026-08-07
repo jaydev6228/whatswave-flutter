@@ -9,32 +9,15 @@ import '../../calls/application/calls_controller.dart';
 import '../../calls/presentation/calls_screen.dart';
 import '../../chats/application/chats_controller.dart';
 import '../../chats/presentation/chats_screen.dart';
+import '../../chats/presentation/conversation_screen.dart';
+import '../../chats/presentation/new_chat_screen.dart';
 import '../../communities/application/communities_controller.dart';
 import '../../communities/presentation/communities_screen.dart';
 import '../../settings/presentation/settings_screen.dart';
 import '../../updates/application/updates_controller.dart';
-import '../../updates/presentation/updates_screen.dart';
+import 'floating_tab_bar.dart';
 
-enum AppTab { chats, updates, communities, calls, settings }
-
-const double _kNavigationLabelBaseFontSize = 12;
-const double _kMinNavigationLabelScale = 0.72;
-const double _kCompactPhoneWidth = 320;
-const double _kWidePhoneWidth = 430;
-
-double navigationLabelScaleForWidth(double width) {
-  if (width <= _kCompactPhoneWidth) {
-    return _kMinNavigationLabelScale;
-  }
-  if (width >= _kWidePhoneWidth) {
-    return 1;
-  }
-
-  final progress =
-      (width - _kCompactPhoneWidth) / (_kWidePhoneWidth - _kCompactPhoneWidth);
-  return _kMinNavigationLabelScale +
-      ((1 - _kMinNavigationLabelScale) * progress);
-}
+enum AppTab { chats, communities, calls, settings }
 
 class AppShell extends StatefulWidget {
   const AppShell({
@@ -62,21 +45,6 @@ class AppShell extends StatefulWidget {
   State<AppShell> createState() => _AppShellState();
 }
 
-class _NavIconWithBadge extends StatelessWidget {
-  const _NavIconWithBadge({required this.icon, required this.count});
-
-  final IconData icon;
-  final int count;
-
-  @override
-  Widget build(BuildContext context) {
-    if (count <= 0) {
-      return Icon(icon);
-    }
-    return Badge.count(count: count, child: Icon(icon));
-  }
-}
-
 class _AppShellState extends State<AppShell> {
   AppTab _currentTab = AppTab.chats;
   bool _trackedInitialTab = false;
@@ -94,20 +62,6 @@ class _AppShellState extends State<AppShell> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final navigationTheme = theme.navigationBarTheme;
-    final navigationLabelScale =
-        navigationLabelScaleForWidth(MediaQuery.sizeOf(context).width);
-    final adaptiveLabelTextStyle =
-        WidgetStateProperty.resolveWith<TextStyle?>((states) {
-      final baseStyle = navigationTheme.labelTextStyle?.resolve(states) ??
-          theme.textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w700) ??
-          const TextStyle(fontWeight: FontWeight.w700);
-      final fontSize = (baseStyle.fontSize ?? _kNavigationLabelBaseFontSize) *
-          navigationLabelScale;
-      return baseStyle.copyWith(fontSize: fontSize, height: 1);
-    });
-
     final pages = [
       ChatsScreen(
         callsController: widget.callsController,
@@ -115,7 +69,6 @@ class _AppShellState extends State<AppShell> {
         controller: widget.chatsController,
         updatesController: widget.updatesController,
       ),
-      UpdatesScreen(controller: widget.updatesController),
       CommunitiesScreen(
         controller: widget.communitiesController,
       ),
@@ -132,88 +85,112 @@ class _AppShellState extends State<AppShell> {
     ];
 
     return Scaffold(
-      body: IndexedStack(
-        index: _currentTab.index,
-        children: pages,
-      ),
-      bottomNavigationBar: AnimatedBuilder(
-        animation: widget.chatsController,
-        builder: (context, _) {
-          final unreadChatCount = widget.chatsController.unreadThreadCount;
-          // Width-based navigationLabelScale (above) only accounts for
-          // narrow screens -- it says nothing about the system accessibility
-          // text-scale setting, which multiplies on top of it and can still
-          // wrap/overflow a label like "Communities" even on a wide phone.
-          // Clamping here (not disabling) keeps nav chrome usable while
-          // still growing somewhat for accessibility. Tighter than other
-          // chrome clamps (1.15 vs 1.3) because 5 destinations split the
-          // width far more tightly than a single app-bar title does, and
-          // NavigationDestination.label only takes a plain String -- there's
-          // no way to attach an explicit maxLines/overflow guarantee the
-          // way every other Text in this app now has, so this clamp is the
-          // only lever against "Communities" wrapping to 2 lines. See
-          // docs/ui_layout_guidelines.md rule 4.
-          return MediaQuery.withClampedTextScaling(
-            maxScaleFactor: 1.15,
-            child: NavigationBarTheme(
-              data: navigationTheme.copyWith(
-                labelTextStyle: adaptiveLabelTextStyle,
-              ),
-              child: NavigationBar(
-                selectedIndex: _currentTab.index,
-                onDestinationSelected: (index) {
-                  final nextTab = AppTab.values[index];
-                  if (nextTab == _currentTab) {
-                    return;
-                  }
+      body: Stack(
+        children: [
+          IndexedStack(
+            index: _currentTab.index,
+            children: pages,
+          ),
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: SafeArea(
+              top: false,
+              child: AnimatedBuilder(
+                animation: widget.chatsController,
+                builder: (context, _) {
+                  final unreadChatCount =
+                      widget.chatsController.unreadThreadCount;
+                  final showComposeFab = _currentTab == AppTab.chats;
 
-                  AppTelemetryScope.of(context).recordInteraction(
-                    'navigation_tab_selected',
-                    attributes: <String, Object?>{
-                      'from': _currentTab.name,
-                      'to': nextTab.name,
-                    },
+                  return Stack(
+                    alignment: Alignment.bottomRight,
+                    children: [
+                      FloatingTabBar(
+                        selectedIndex: _currentTab.index,
+                        // Reserves space so the pill's own icons don't sit
+                        // underneath the compose FAB when it's showing --
+                        // matches the reference's floating action button
+                        // overlapping the tab bar's trailing edge.
+                        trailingReservedWidth: showComposeFab ? 46 : 0,
+                        onDestinationSelected: (index) {
+                          final nextTab = AppTab.values[index];
+                          if (nextTab == _currentTab) {
+                            return;
+                          }
+
+                          AppTelemetryScope.of(context).recordInteraction(
+                            'navigation_tab_selected',
+                            attributes: <String, Object?>{
+                              'from': _currentTab.name,
+                              'to': nextTab.name,
+                            },
+                          );
+                          setState(() => _currentTab = nextTab);
+                          _trackScreenView(nextTab);
+                        },
+                        destinations: [
+                          FloatingTabDestination(
+                            icon: Icons.chat_bubble_outline_rounded,
+                            selectedIcon: Icons.chat_bubble_rounded,
+                            tooltip: 'Chats',
+                            badgeCount: unreadChatCount,
+                          ),
+                          const FloatingTabDestination(
+                            icon: Icons.groups_outlined,
+                            selectedIcon: Icons.groups_rounded,
+                            tooltip: 'Communities',
+                          ),
+                          const FloatingTabDestination(
+                            icon: Icons.call_outlined,
+                            selectedIcon: Icons.call_rounded,
+                            tooltip: 'Calls',
+                          ),
+                          const FloatingTabDestination(
+                            icon: Icons.settings_outlined,
+                            selectedIcon: Icons.settings_rounded,
+                            tooltip: 'Settings',
+                          ),
+                        ],
+                      ),
+                      if (showComposeFab)
+                        FloatingTabBarFab(
+                          icon: Icons.add_comment_outlined,
+                          tooltip: 'New chat',
+                          onPressed: () => _openNewChat(context),
+                        ),
+                    ],
                   );
-                  setState(() => _currentTab = nextTab);
-                  _trackScreenView(nextTab);
                 },
-                destinations: [
-                  NavigationDestination(
-                    icon: _NavIconWithBadge(
-                      icon: Icons.chat_bubble_outline_rounded,
-                      count: unreadChatCount,
-                    ),
-                    selectedIcon: _NavIconWithBadge(
-                      icon: Icons.chat_bubble_rounded,
-                      count: unreadChatCount,
-                    ),
-                    label: 'Chats',
-                  ),
-                  const NavigationDestination(
-                    icon: Icon(Icons.auto_awesome_motion_outlined),
-                    selectedIcon: Icon(Icons.auto_awesome_motion_rounded),
-                    label: 'Updates',
-                  ),
-                  const NavigationDestination(
-                    icon: Icon(Icons.groups_outlined),
-                    selectedIcon: Icon(Icons.groups_rounded),
-                    label: 'Communities',
-                  ),
-                  const NavigationDestination(
-                    icon: Icon(Icons.call_outlined),
-                    selectedIcon: Icon(Icons.call_rounded),
-                    label: 'Calls',
-                  ),
-                  const NavigationDestination(
-                    icon: Icon(Icons.settings_outlined),
-                    selectedIcon: Icon(Icons.settings_rounded),
-                    label: 'Settings',
-                  ),
-                ],
               ),
             ),
-          );
-        },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openNewChat(BuildContext context) async {
+    final threadId = await Navigator.of(context).push<String>(
+      MaterialPageRoute<String>(
+        builder: (_) => NewChatScreen(
+          communitiesController: widget.communitiesController,
+          chatsController: widget.chatsController,
+          callsController: widget.callsController,
+        ),
+      ),
+    );
+    if (!mounted || !context.mounted || threadId == null) {
+      return;
+    }
+
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ConversationScreen(
+          callsController: widget.callsController,
+          controller: widget.chatsController,
+          updatesController: widget.updatesController,
+          threadId: threadId,
+        ),
       ),
     );
   }

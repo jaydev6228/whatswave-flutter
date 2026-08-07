@@ -55,7 +55,7 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
             key: const Key('communities_screen'),
             slivers: [
               SliverPadding(
-                padding: const EdgeInsets.only(bottom: 24),
+                padding: const EdgeInsets.only(bottom: 100),
                 sliver: SliverToBoxAdapter(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,

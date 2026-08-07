@@ -44,7 +44,7 @@ class SettingsScreen extends StatelessWidget {
             key: const Key('settings_screen'),
             slivers: [
               SliverPadding(
-                padding: const EdgeInsets.only(bottom: 24),
+                padding: const EdgeInsets.only(bottom: 100),
                 sliver: SliverToBoxAdapter(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,

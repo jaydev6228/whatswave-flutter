@@ -87,7 +87,9 @@ void main() {
     await pumpForAsyncUi(tester, total: const Duration(milliseconds: 500));
 
     expect(find.text('Chats'), findsWidgets);
-    expect(find.text('Settings'), findsWidgets);
+    // Icon-only floating tab bar -- no visible "Settings" text label, just
+    // an accessibility tooltip (see whatswave_app_test.dart).
+    expect(find.byTooltip('Settings'), findsOneWidget);
   });
 
   testWidgets('shows an inline error when the OTP code is wrong',

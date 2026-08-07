@@ -1,19 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:image_picker/image_picker.dart';
 
+import '../../../app/theme/app_palette.dart';
 import '../../../core/models/status_story.dart';
 import '../../calls/application/calls_controller.dart';
 import '../../communities/application/communities_controller.dart';
 import '../../shared/widgets/avatar_badge.dart';
 import '../../shared/widgets/empty_state_card.dart';
 import '../../updates/application/updates_controller.dart';
+import '../../updates/presentation/status_compose_actions.dart';
 import '../../updates/presentation/story_viewer_launcher.dart';
 import '../../updates/presentation/widgets/status_ring_avatar.dart';
 import '../application/chats_controller.dart';
 import '../domain/chat_message.dart';
 import '../domain/chat_thread.dart';
 import 'conversation_screen.dart';
-import 'new_chat_screen.dart';
 
 const double _kChatsScreenHorizontalPadding = 16;
 const double _kChatsRowHorizontalPadding = 18;
@@ -42,6 +44,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
   late final TextEditingController _searchController;
   late final FocusNode _searchFocusNode;
   late final ScrollController _scrollController;
+  late final ImagePicker _imagePicker;
 
   @override
   void initState() {
@@ -50,6 +53,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
         TextEditingController(text: widget.controller.searchQuery);
     _searchFocusNode = FocusNode(debugLabel: 'chats_search_focus');
     _scrollController = ScrollController();
+    _imagePicker = ImagePicker();
     widget.controller.ensureLoaded();
     widget.updatesController.ensureLoaded();
   }
@@ -113,15 +117,32 @@ class _ChatsScreenState extends State<ChatsScreen> {
                                 ),
                               ),
                             ),
-                            IconButton(
-                              key: const Key('chats_new_chat_button'),
-                              tooltip: 'New chat',
-                              onPressed: _openNewChat,
-                              icon: const Icon(Icons.add_comment_outlined),
-                            ),
                           ],
                         ),
-                        const SizedBox(height: 12),
+                      ],
+                    ),
+                  ),
+                ),
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: _StatusStrip(
+                      controller: widget.updatesController,
+                      imagePicker: _imagePicker,
+                    ),
+                  ),
+                ),
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      _kChatsScreenHorizontalPadding,
+                      6,
+                      _kChatsScreenHorizontalPadding,
+                      6,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
                         TextField(
                           key: const Key('chat_search_field'),
                           controller: _searchController,
@@ -295,7 +316,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
                   )
                 else
                   SliverPadding(
-                    padding: const EdgeInsets.only(bottom: 24),
+                    padding: const EdgeInsets.only(bottom: 100),
                     sliver: SliverList(
                       delegate: SliverChildBuilderDelegate(
                         (context, index) {
@@ -358,33 +379,6 @@ class _ChatsScreenState extends State<ChatsScreen> {
     );
 
     _dismissSearchFocus();
-  }
-
-  Future<void> _openNewChat() async {
-    _dismissSearchFocus();
-    final threadId = await Navigator.of(context).push<String>(
-      MaterialPageRoute<String>(
-        builder: (_) => NewChatScreen(
-          communitiesController: widget.communitiesController,
-          chatsController: widget.controller,
-          callsController: widget.callsController,
-        ),
-      ),
-    );
-    if (!mounted || threadId == null) {
-      return;
-    }
-
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => ConversationScreen(
-          callsController: widget.callsController,
-          controller: widget.controller,
-          updatesController: widget.updatesController,
-          threadId: threadId,
-        ),
-      ),
-    );
   }
 
   Future<void> _openThreadStory(ChatThread thread) async {
@@ -1555,4 +1549,208 @@ String _threadTimeLabel(DateTime? date) {
     'Dec',
   ];
   return '${monthLabels[date.month - 1]} ${date.day}';
+}
+
+/// Status now lives here instead of its own bottom-nav tab -- the ring
+/// color already told you seen-vs-unseen everywhere else in the app, so a
+/// separate Recent/Viewed screen was showing the same thing twice. Tapping
+/// a story opens the full-screen viewer (StoryViewerLauncher); tapping the
+/// "+" on your own circle opens the same compose flow UpdatesScreen offers.
+class _StatusStrip extends StatelessWidget {
+  const _StatusStrip({
+    required this.controller,
+    required this.imagePicker,
+  });
+
+  final UpdatesController controller;
+  final ImagePicker imagePicker;
+
+  @override
+  Widget build(BuildContext context) {
+    final myStatus = controller.myStatus;
+    final hasMyStatus = myStatus != null && myStatus.hasSegments;
+    final otherStories = controller.stories
+        .where((story) => !story.isMine && story.hasSegments)
+        .toList(growable: false);
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.symmetric(
+        horizontal: _kChatsScreenHorizontalPadding,
+      ),
+      child: Row(
+        children: [
+          _MyStatusStripItem(
+            status: hasMyStatus ? myStatus : null,
+            isBusy: controller.isComposingStatus,
+            onView: hasMyStatus
+                ? () => openStatusStoryViewer(
+                      context,
+                      controller: controller,
+                      story: myStatus,
+                    )
+                : null,
+            onAdd: () => showStatusComposeChoice(context, controller, imagePicker),
+          ),
+          for (final story in otherStories) ...[
+            const SizedBox(width: 14),
+            _StatusStripItem(
+              story: story,
+              onTap: () => openStatusStoryViewer(
+                context,
+                controller: controller,
+                story: story,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _MyStatusStripItem extends StatelessWidget {
+  const _MyStatusStripItem({
+    required this.status,
+    required this.isBusy,
+    required this.onView,
+    required this.onAdd,
+  });
+
+  final StatusStory? status;
+  final bool isBusy;
+  final VoidCallback? onView;
+  final VoidCallback onAdd;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        GestureDetector(
+          key: const Key('chats_status_mine'),
+          onTap: onView ?? onAdd,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              if (status != null)
+                StatusRingAvatar(
+                  label: status!.avatarLabel,
+                  color: status!.accentColor,
+                  totalSegments: status!.totalSegments,
+                  seenSegments: status!.seenSegments,
+                  size: 56,
+                )
+              else
+                const AvatarBadge(
+                  label: 'JD',
+                  color: AppPalette.emerald,
+                  size: 56,
+                ),
+              Positioned(
+                right: -2,
+                bottom: -2,
+                child: Material(
+                  color: theme.colorScheme.primary,
+                  shape: const CircleBorder(),
+                  child: InkWell(
+                    key: const Key('chats_status_add_button'),
+                    customBorder: const CircleBorder(),
+                    onTap: isBusy ? null : onAdd,
+                    child: Container(
+                      width: 20,
+                      height: 20,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: theme.colorScheme.surface,
+                          width: 2,
+                        ),
+                      ),
+                      child: Center(
+                        child: isBusy
+                            ? SizedBox(
+                                width: 10,
+                                height: 10,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 1.6,
+                                  color: theme.colorScheme.onPrimary,
+                                ),
+                              )
+                            : Icon(
+                                Icons.add_rounded,
+                                size: 13,
+                                color: theme.colorScheme.onPrimary,
+                              ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 4),
+        SizedBox(
+          width: 68,
+          child: Text(
+            'My status',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _StatusStripItem extends StatelessWidget {
+  const _StatusStripItem({
+    required this.story,
+    required this.onTap,
+  });
+
+  final StatusStory story;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return GestureDetector(
+      key: Key('chats_status_${story.id}'),
+      onTap: onTap,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          StatusRingAvatar(
+            label: story.avatarLabel,
+            color: story.accentColor,
+            totalSegments: story.totalSegments,
+            seenSegments: story.seenSegments,
+            size: 56,
+          ),
+          const SizedBox(height: 4),
+          SizedBox(
+            width: 62,
+            child: Text(
+              story.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.labelSmall?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

@@ -65,7 +65,7 @@ class _CallsScreenState extends State<CallsScreen> {
             key: const Key('calls_screen'),
             slivers: [
               SliverPadding(
-                padding: const EdgeInsets.only(bottom: 24),
+                padding: const EdgeInsets.only(bottom: 100),
                 sliver: SliverToBoxAdapter(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
