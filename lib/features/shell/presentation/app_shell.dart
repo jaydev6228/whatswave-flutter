@@ -102,16 +102,21 @@ class _AppShellState extends State<AppShell> {
                       widget.chatsController.unreadThreadCount;
                   final showComposeFab = _currentTab == AppTab.chats;
 
-                  return Stack(
-                    alignment: Alignment.bottomRight,
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
+                      if (showComposeFab)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 16, bottom: 14),
+                          child: FloatingTabBarFab(
+                            icon: Icons.add_comment_outlined,
+                            tooltip: 'New chat',
+                            onPressed: () => _openNewChat(context),
+                          ),
+                        ),
                       FloatingTabBar(
                         selectedIndex: _currentTab.index,
-                        // Reserves space so the pill's own icons don't sit
-                        // underneath the compose FAB when it's showing --
-                        // matches the reference's floating action button
-                        // overlapping the tab bar's trailing edge.
-                        trailingReservedWidth: showComposeFab ? 46 : 0,
                         onDestinationSelected: (index) {
                           final nextTab = AppTab.values[index];
                           if (nextTab == _currentTab) {
@@ -152,12 +157,6 @@ class _AppShellState extends State<AppShell> {
                           ),
                         ],
                       ),
-                      if (showComposeFab)
-                        FloatingTabBarFab(
-                          icon: Icons.add_comment_outlined,
-                          tooltip: 'New chat',
-                          onPressed: () => _openNewChat(context),
-                        ),
                     ],
                   );
                 },
