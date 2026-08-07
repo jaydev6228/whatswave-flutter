@@ -84,12 +84,15 @@ class FloatingTabBar extends StatelessWidget {
                         bottom: 0,
                         width: itemWidth,
                         child: Center(
+                          // A capsule, not a circle, so the highlight's
+                          // corners echo the outer pill's own StadiumBorder
+                          // instead of clashing with it.
                           child: Container(
-                            width: 44,
+                            width: itemWidth - 12,
                             height: 44,
                             decoration: BoxDecoration(
                               color: theme.colorScheme.primary,
-                              shape: BoxShape.circle,
+                              borderRadius: BorderRadius.circular(999),
                               boxShadow: [
                                 BoxShadow(
                                   color: theme.colorScheme.primary
@@ -159,7 +162,7 @@ class _FloatingTabItem extends StatelessWidget {
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          customBorder: const CircleBorder(),
+          customBorder: const StadiumBorder(),
           onTap: onTap,
           child: SizedBox(
             // Minimum 48x48dp tap target (docs/ui_layout_guidelines.md
