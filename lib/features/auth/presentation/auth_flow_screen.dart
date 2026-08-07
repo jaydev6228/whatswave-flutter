@@ -335,99 +335,93 @@ class _PhoneEntryCardState extends State<_PhoneEntryCard> {
     final theme = Theme.of(context);
     final spacing = widget.isCompact ? 16.0 : 20.0;
 
-    return Card(
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: EdgeInsets.all(widget.isCompact ? 16 : 24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Phone number',
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w800,
-                fontSize: widget.isCompact ? 18 : null,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'We detected a country code for this device. Change it if this number belongs somewhere else, then enter the phone number for SMS verification.',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.72),
-                fontSize: widget.isCompact ? 15 : null,
-                height: widget.isCompact ? 1.32 : null,
-              ),
-            ),
-            SizedBox(height: spacing),
-            LayoutBuilder(
-              builder: (context, constraints) {
-                final useStackedFields = constraints.maxWidth < 340;
-                final countryField = _CountryCodeField(
-                  controller: widget.controller,
-                  isCompact: widget.isCompact,
-                );
-                final phoneField = TextField(
-                  key: const Key('auth_phone_field'),
-                  controller: _phoneController,
-                  enabled: !widget.controller.isBusy,
-                  keyboardType: TextInputType.phone,
-                  textInputAction: TextInputAction.done,
-                  onSubmitted: (_) => widget.controller.requestOtp(),
-                  inputFormatters: [
-                    FilteringTextInputFormatter.allow(RegExp(r'[0-9\s()-]')),
-                  ],
-                  decoration: InputDecoration(
-                    isDense: widget.isCompact,
-                    labelText: 'Phone number',
-                    hintText: 'Mobile number',
-                  ),
-                );
-
-                if (useStackedFields) {
-                  return Column(
-                    children: [
-                      countryField,
-                      const SizedBox(height: 12),
-                      phoneField,
-                    ],
-                  );
-                }
-
-                return Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    SizedBox(
-                      width: widget.isCompact ? 116 : 132,
-                      child: countryField,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(child: phoneField),
-                  ],
-                );
-              },
-            ),
-            if (widget.showInlinePrimaryAction) ...[
-              SizedBox(height: spacing),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  key: const Key('auth_send_code_button'),
-                  onPressed: widget.controller.isBusy
-                      ? null
-                      : widget.controller.requestOtp,
-                  child: widget.controller.isBusy
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2.4),
-                        )
-                      : const Text('Send code'),
-                ),
-              ),
-            ],
-          ],
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Phone number',
+          style: theme.textTheme.titleLarge?.copyWith(
+            fontWeight: FontWeight.w800,
+            fontSize: widget.isCompact ? 18 : null,
+          ),
         ),
-      ),
+        const SizedBox(height: 8),
+        Text(
+          'We detected a country code for this device. Change it if this number belongs somewhere else, then enter the phone number for SMS verification.',
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.72),
+            fontSize: widget.isCompact ? 15 : null,
+            height: widget.isCompact ? 1.32 : null,
+          ),
+        ),
+        SizedBox(height: spacing),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final useStackedFields = constraints.maxWidth < 340;
+            final countryField = _CountryCodeField(
+              controller: widget.controller,
+              isCompact: widget.isCompact,
+            );
+            final phoneField = TextField(
+              key: const Key('auth_phone_field'),
+              controller: _phoneController,
+              enabled: !widget.controller.isBusy,
+              keyboardType: TextInputType.phone,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => widget.controller.requestOtp(),
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r'[0-9\s()-]')),
+              ],
+              decoration: InputDecoration(
+                isDense: widget.isCompact,
+                labelText: 'Phone number',
+                hintText: 'Mobile number',
+              ),
+            );
+
+            if (useStackedFields) {
+              return Column(
+                children: [
+                  countryField,
+                  const SizedBox(height: 12),
+                  phoneField,
+                ],
+              );
+            }
+
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(
+                  width: widget.isCompact ? 116 : 132,
+                  child: countryField,
+                ),
+                const SizedBox(width: 12),
+                Expanded(child: phoneField),
+              ],
+            );
+          },
+        ),
+        if (widget.showInlinePrimaryAction) ...[
+          SizedBox(height: spacing),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              key: const Key('auth_send_code_button'),
+              onPressed: widget.controller.isBusy
+                  ? null
+                  : widget.controller.requestOtp,
+              child: widget.controller.isBusy
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2.4),
+                    )
+                  : const Text('Send code'),
+            ),
+          ),
+        ],
+      ],
     );
   }
 }
@@ -552,90 +546,82 @@ class _OtpEntryCardState extends State<_OtpEntryCard> {
         ? 'A code was sent to ${widget.controller.maskedPhoneNumber}. Use 123456 in this QA build to continue.'
         : 'A code was sent to ${widget.controller.maskedPhoneNumber}. Enter the 6-digit code to continue.';
 
-    return Card(
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: EdgeInsets.all(widget.isCompact ? 16 : 24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '6-digit verification code',
+          style: theme.textTheme.titleLarge?.copyWith(
+            fontWeight: FontWeight.w800,
+            fontSize: widget.isCompact ? 18 : null,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          message,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.72),
+            fontSize: widget.isCompact ? 15 : null,
+            height: widget.isCompact ? 1.32 : null,
+          ),
+        ),
+        SizedBox(height: spacing),
+        TextField(
+          key: const Key('auth_otp_field'),
+          controller: _otpController,
+          enabled: !widget.controller.isBusy,
+          keyboardType: TextInputType.number,
+          textInputAction: TextInputAction.done,
+          onSubmitted: (_) => widget.controller.verifyOtp(),
+          inputFormatters: [
+            FilteringTextInputFormatter.digitsOnly,
+            LengthLimitingTextInputFormatter(6),
+          ],
+          decoration: InputDecoration(
+            labelText: 'Code',
+            hintText: hintText,
+            helperText: helperText,
+          ),
+        ),
+        if (widget.showInlinePrimaryAction) ...[
+          SizedBox(height: spacing),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              key: const Key('auth_verify_code_button'),
+              onPressed:
+                  widget.controller.isBusy ? null : widget.controller.verifyOtp,
+              child: widget.controller.isBusy
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2.4),
+                    )
+                  : const Text('Verify code'),
+            ),
+          ),
+        ],
+        SizedBox(height: widget.isCompact ? 8 : 12),
+        Wrap(
+          spacing: 12,
+          runSpacing: 8,
           children: [
-            Text(
-              '6-digit verification code',
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w800,
-                fontSize: widget.isCompact ? 18 : null,
-              ),
+            TextButton(
+              key: const Key('auth_resend_code_button'),
+              onPressed:
+                  widget.controller.isBusy ? null : widget.controller.resendOtp,
+              child: const Text('Resend code'),
             ),
-            const SizedBox(height: 8),
-            Text(
-              message,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.72),
-                fontSize: widget.isCompact ? 15 : null,
-                height: widget.isCompact ? 1.32 : null,
-              ),
-            ),
-            SizedBox(height: spacing),
-            TextField(
-              key: const Key('auth_otp_field'),
-              controller: _otpController,
-              enabled: !widget.controller.isBusy,
-              keyboardType: TextInputType.number,
-              textInputAction: TextInputAction.done,
-              onSubmitted: (_) => widget.controller.verifyOtp(),
-              inputFormatters: [
-                FilteringTextInputFormatter.digitsOnly,
-                LengthLimitingTextInputFormatter(6),
-              ],
-              decoration: InputDecoration(
-                labelText: 'Code',
-                hintText: hintText,
-                helperText: helperText,
-              ),
-            ),
-            if (widget.showInlinePrimaryAction) ...[
-              SizedBox(height: spacing),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  key: const Key('auth_verify_code_button'),
-                  onPressed: widget.controller.isBusy
-                      ? null
-                      : widget.controller.verifyOtp,
-                  child: widget.controller.isBusy
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2.4),
-                        )
-                      : const Text('Verify code'),
-                ),
-              ),
-            ],
-            SizedBox(height: widget.isCompact ? 8 : 12),
-            Wrap(
-              spacing: 12,
-              runSpacing: 8,
-              children: [
-                TextButton(
-                  key: const Key('auth_resend_code_button'),
-                  onPressed: widget.controller.isBusy
-                      ? null
-                      : widget.controller.resendOtp,
-                  child: const Text('Resend code'),
-                ),
-                TextButton(
-                  key: const Key('auth_change_number_button'),
-                  onPressed: widget.controller.isBusy
-                      ? null
-                      : widget.controller.editPhoneNumber,
-                  child: const Text('Change number'),
-                ),
-              ],
+            TextButton(
+              key: const Key('auth_change_number_button'),
+              onPressed: widget.controller.isBusy
+                  ? null
+                  : widget.controller.editPhoneNumber,
+              child: const Text('Change number'),
             ),
           ],
         ),
-      ),
+      ],
     );
   }
 }
@@ -714,87 +700,80 @@ class _ProfileBootstrapCardState extends State<_ProfileBootstrapCard> {
     final theme = Theme.of(context);
     final spacing = widget.isCompact ? 16.0 : 20.0;
 
-    return Card(
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: EdgeInsets.all(widget.isCompact ? 16 : 24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
           children: [
-            Row(
-              children: [
-                CircleAvatar(
-                  radius: widget.isCompact ? 24 : 28,
-                  backgroundColor:
-                      theme.colorScheme.primary.withValues(alpha: 0.16),
-                  child: Text(
-                    widget.controller.profilePreviewLabel,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      color: theme.colorScheme.primary,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
-                SizedBox(width: widget.isCompact ? 12 : 16),
-                Expanded(
-                  child: Text(
-                    'You are verified as ${widget.controller.maskedPhoneNumber}. Add the profile details that will carry through chats, groups, and calls.',
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color:
-                          theme.colorScheme.onSurface.withValues(alpha: 0.72),
-                      fontSize: widget.isCompact ? 15 : null,
-                      height: widget.isCompact ? 1.32 : null,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            SizedBox(height: spacing),
-            TextField(
-              key: const Key('auth_name_field'),
-              controller: _nameController,
-              enabled: !widget.controller.isBusy,
-              textInputAction: TextInputAction.next,
-              decoration: const InputDecoration(
-                labelText: 'Display name',
-                hintText: 'Jay Devra',
-              ),
-            ),
-            SizedBox(height: widget.isCompact ? 12 : 16),
-            TextField(
-              key: const Key('auth_about_field'),
-              controller: _aboutController,
-              enabled: !widget.controller.isBusy,
-              minLines: 2,
-              maxLines: 3,
-              decoration: const InputDecoration(
-                labelText: 'About',
-                hintText:
-                    'Building calm, reliable chat products one release at a time.',
-              ),
-            ),
-            if (widget.showInlinePrimaryAction) ...[
-              SizedBox(height: spacing),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  key: const Key('auth_finish_profile_button'),
-                  onPressed: widget.controller.isBusy
-                      ? null
-                      : widget.controller.completeProfile,
-                  child: widget.controller.isBusy
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2.4),
-                        )
-                      : const Text('Finish setup'),
+            CircleAvatar(
+              radius: widget.isCompact ? 24 : 28,
+              backgroundColor:
+                  theme.colorScheme.primary.withValues(alpha: 0.16),
+              child: Text(
+                widget.controller.profilePreviewLabel,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  color: theme.colorScheme.primary,
+                  fontWeight: FontWeight.w800,
                 ),
               ),
-            ],
+            ),
+            SizedBox(width: widget.isCompact ? 12 : 16),
+            Expanded(
+              child: Text(
+                'You are verified as ${widget.controller.maskedPhoneNumber}. Add the profile details that will carry through chats, groups, and calls.',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.72),
+                  fontSize: widget.isCompact ? 15 : null,
+                  height: widget.isCompact ? 1.32 : null,
+                ),
+              ),
+            ),
           ],
         ),
-      ),
+        SizedBox(height: spacing),
+        TextField(
+          key: const Key('auth_name_field'),
+          controller: _nameController,
+          enabled: !widget.controller.isBusy,
+          textInputAction: TextInputAction.next,
+          decoration: const InputDecoration(
+            labelText: 'Display name',
+            hintText: 'Jay Devra',
+          ),
+        ),
+        SizedBox(height: widget.isCompact ? 12 : 16),
+        TextField(
+          key: const Key('auth_about_field'),
+          controller: _aboutController,
+          enabled: !widget.controller.isBusy,
+          minLines: 2,
+          maxLines: 3,
+          decoration: const InputDecoration(
+            labelText: 'About',
+            hintText:
+                'Building calm, reliable chat products one release at a time.',
+          ),
+        ),
+        if (widget.showInlinePrimaryAction) ...[
+          SizedBox(height: spacing),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              key: const Key('auth_finish_profile_button'),
+              onPressed: widget.controller.isBusy
+                  ? null
+                  : widget.controller.completeProfile,
+              child: widget.controller.isBusy
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2.4),
+                    )
+                  : const Text('Finish setup'),
+            ),
+          ),
+        ],
+      ],
     );
   }
 }
