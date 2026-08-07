@@ -331,6 +331,30 @@ class AuthController extends ChangeNotifier {
     return didSucceed;
   }
 
+  Future<void> signOut() async {
+    _setBusy(true);
+    _clearFeedback(notify: false);
+    notifyListeners();
+
+    try {
+      await _repository.signOut();
+    } catch (_) {
+      // Sign-out is a local, effectively infallible operation -- even if the
+      // repository call fails, still drop local session state so the user
+      // isn't stuck signed in on this device.
+    }
+
+    _currentUser = null;
+    _phoneNumber = '';
+    _otpCode = '';
+    _displayName = '';
+    _about = defaultAbout;
+    _step = AuthStep.phoneEntry;
+    _statusMessage = 'You have been signed out.';
+    _setBusy(false);
+    notifyListeners();
+  }
+
   void clearFeedback() {
     _clearFeedback();
   }

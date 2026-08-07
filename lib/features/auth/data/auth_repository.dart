@@ -20,6 +20,8 @@ abstract class AuthRepository {
     required String name,
     required String about,
   });
+
+  Future<void> signOut();
 }
 
 class AuthVerificationResult {

@@ -208,6 +208,27 @@ class TrackedAuthRepository implements AuthRepository {
       rethrow;
     }
   }
+
+  @override
+  Future<void> signOut() async {
+    try {
+      await _delegate.signOut();
+      unawaited(
+        _integrations.recordSyncSuccess(
+          source: 'Auth',
+          title: 'Signed out',
+        ),
+      );
+    } catch (_) {
+      unawaited(
+        _integrations.recordSyncFailure(
+          source: 'Auth',
+          title: 'Sign out failed',
+        ),
+      );
+      rethrow;
+    }
+  }
 }
 
 class TrackedChatRepository implements ChatRepository {

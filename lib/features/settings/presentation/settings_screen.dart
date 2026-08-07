@@ -210,6 +210,20 @@ class SettingsScreen extends StatelessWidget {
                               'FAQ, support, diagnostics, and safety guidance surfaces.',
                         ),
                       ),
+                      const SizedBox(height: 18),
+                      _SettingsGroup(
+                        child: SettingsTile(
+                          key: const Key('settings_sign_out_tile'),
+                          icon: Icons.logout_rounded,
+                          title: 'Sign out',
+                          subtitle:
+                              'Sign out of WhatsWave on this device.',
+                          destructive: true,
+                          onTap: authController.isBusy
+                              ? null
+                              : () => _confirmSignOut(context),
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -269,6 +283,35 @@ class SettingsScreen extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Future<void> _confirmSignOut(BuildContext context) async {
+    final shouldSignOut = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Sign out?'),
+          content: const Text(
+            "You'll need to verify your phone number again to sign back in on this device.",
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              key: const Key('settings_confirm_sign_out_button'),
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Sign out'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldSignOut == true) {
+      await authController.signOut();
+    }
   }
 
   Future<void> _openThemeModePicker(BuildContext context) async {

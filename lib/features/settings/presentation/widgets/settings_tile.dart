@@ -11,6 +11,7 @@ class SettingsTile extends StatelessWidget {
     required this.subtitle,
     this.onTap,
     this.trailing,
+    this.destructive = false,
     super.key,
   });
 
@@ -19,10 +20,12 @@ class SettingsTile extends StatelessWidget {
   final String subtitle;
   final VoidCallback? onTap;
   final Widget? trailing;
+  final bool destructive;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final tintColor = destructive ? theme.colorScheme.error : null;
     final row = Padding(
       padding: const EdgeInsets.symmetric(
         horizontal: _kSettingsTileHorizontalPadding,
@@ -38,7 +41,8 @@ class SettingsTile extends StatelessWidget {
               child: Icon(
                 icon,
                 size: 20,
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.64),
+                color: tintColor ??
+                    theme.colorScheme.onSurface.withValues(alpha: 0.64),
               ),
             ),
           ),
@@ -52,6 +56,7 @@ class SettingsTile extends StatelessWidget {
                   title,
                   style: theme.textTheme.titleSmall?.copyWith(
                     fontWeight: FontWeight.w700,
+                    color: tintColor,
                   ),
                 ),
                 const SizedBox(height: 4),

@@ -241,6 +241,51 @@ void main() {
       expect(profileController.step, AuthStep.profileSetup);
       expect(profileController.errorMessage, 'Profile save failed.');
     });
+
+    test('signs out and returns to phone entry', () async {
+      const restoredUser = AppUser(
+        name: 'Jay Devra',
+        phoneNumber: '+819012345678',
+        about: 'Ready to ship.',
+        avatarLabel: 'JD',
+        accentColor: Colors.green,
+      );
+      final repository = _TestAuthRepository(restoredUser: restoredUser);
+      final controller = AuthController(repository: repository);
+      await controller.restoreSession();
+      expect(controller.isAuthenticated, isTrue);
+
+      await controller.signOut();
+
+      expect(repository.didSignOut, isTrue);
+      expect(controller.isAuthenticated, isFalse);
+      expect(controller.currentUser, isNull);
+      expect(controller.step, AuthStep.phoneEntry);
+      expect(controller.statusMessage, 'You have been signed out.');
+    });
+
+    test('still clears local session state when the repository sign-out call fails',
+        () async {
+      const restoredUser = AppUser(
+        name: 'Jay Devra',
+        phoneNumber: '+819012345678',
+        about: 'Ready to ship.',
+        avatarLabel: 'JD',
+        accentColor: Colors.green,
+      );
+      final repository = _TestAuthRepository(
+        restoredUser: restoredUser,
+        signOutError: const AuthException('Sign out failed.'),
+      );
+      final controller = AuthController(repository: repository);
+      await controller.restoreSession();
+
+      await controller.signOut();
+
+      expect(controller.isAuthenticated, isFalse);
+      expect(controller.currentUser, isNull);
+      expect(controller.step, AuthStep.phoneEntry);
+    });
   });
 }
 
@@ -251,6 +296,7 @@ class _TestAuthRepository implements AuthRepository {
     this.requestOtpError,
     this.verifyError,
     this.completeProfileError,
+    this.signOutError,
     this.verifyResult = const AuthVerificationResult.profileRequired(),
   });
 
@@ -259,6 +305,7 @@ class _TestAuthRepository implements AuthRepository {
   final AuthException? requestOtpError;
   final AuthException? verifyError;
   final AuthException? completeProfileError;
+  final Object? signOutError;
   final AuthVerificationResult verifyResult;
 
   String? lastRequestedPhone;
@@ -267,6 +314,7 @@ class _TestAuthRepository implements AuthRepository {
   String? completedPhone;
   String? completedName;
   String? completedAbout;
+  bool didSignOut = false;
 
   @override
   Future<AppUser> completeProfile({
@@ -331,5 +379,13 @@ class _TestAuthRepository implements AuthRepository {
       avatarLabel: 'JD',
       accentColor: Colors.green,
     );
+  }
+
+  @override
+  Future<void> signOut() async {
+    if (signOutError != null) {
+      throw signOutError!;
+    }
+    didSignOut = true;
   }
 }

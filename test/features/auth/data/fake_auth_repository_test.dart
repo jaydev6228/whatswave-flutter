@@ -44,4 +44,39 @@ void main() {
       createdUser.accentColor.toARGB32(),
     );
   });
+
+  test('sign out clears the persisted session but keeps the account known',
+      () async {
+    final repository = FakeAuthRepository(
+      latency: Duration.zero,
+      persistSession: true,
+    );
+
+    await repository.requestOtp('+819012345678');
+    await repository.verifyOtp(
+      phoneNumber: '+819012345678',
+      code: '123456',
+    );
+    await repository.completeProfile(
+      phoneNumber: '+819012345678',
+      name: 'Jay Devra',
+      about: 'Testing the demo app.',
+    );
+
+    await repository.signOut();
+
+    final afterSignOutRepository = FakeAuthRepository(
+      latency: Duration.zero,
+      persistSession: true,
+    );
+    expect(await afterSignOutRepository.restoreSession(), isNull);
+
+    await afterSignOutRepository.requestOtp('+819012345678');
+    final verifyResult = await afterSignOutRepository.verifyOtp(
+      phoneNumber: '+819012345678',
+      code: '123456',
+    );
+    expect(verifyResult.needsProfile, isFalse);
+    expect(verifyResult.user?.name, 'Jay Devra');
+  });
 }

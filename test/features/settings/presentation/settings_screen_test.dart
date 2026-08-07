@@ -193,6 +193,57 @@ void main() {
     expect(find.text('Message synced'), findsOneWidget);
     expect(find.text('Status photo'), findsOneWidget);
   });
+
+  testWidgets('keeps the session when sign out is cancelled', (tester) async {
+    final authController = await _createAuthenticatedAuthController();
+    final preferencesController = AppPreferencesController();
+    await preferencesController.ensureLoaded();
+
+    await _pumpSettingsScreen(
+      tester,
+      authController: authController,
+      preferencesController: preferencesController,
+    );
+
+    await _scrollUntilVisibleOnSettings(
+      tester,
+      find.byKey(const Key('settings_sign_out_tile')),
+    );
+    await tester.tap(find.byKey(const Key('settings_sign_out_tile')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Sign out?'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    expect(authController.isAuthenticated, isTrue);
+  });
+
+  testWidgets('signs out and returns to phone entry when confirmed',
+      (tester) async {
+    final authController = await _createAuthenticatedAuthController();
+    final preferencesController = AppPreferencesController();
+    await preferencesController.ensureLoaded();
+
+    await _pumpSettingsScreen(
+      tester,
+      authController: authController,
+      preferencesController: preferencesController,
+    );
+
+    await _scrollUntilVisibleOnSettings(
+      tester,
+      find.byKey(const Key('settings_sign_out_tile')),
+    );
+    await tester.tap(find.byKey(const Key('settings_sign_out_tile')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('settings_confirm_sign_out_button')));
+    await tester.pumpAndSettle();
+
+    expect(authController.isAuthenticated, isFalse);
+    expect(authController.step, AuthStep.phoneEntry);
+  });
 }
 
 Future<AuthController> _createAuthenticatedAuthController() async {
@@ -288,6 +339,11 @@ class _ImmediateAuthRepository implements AuthRepository {
 
   @override
   Future<AppUser?> restoreSession() async => restoredUser;
+
+  @override
+  Future<void> signOut() async {
+    restoredUser = null;
+  }
 
   @override
   Future<AuthVerificationResult> verifyOtp({

@@ -140,6 +140,9 @@ class FirebaseAuthRepository implements AuthRepository {
     return _saveProfile(name: name, about: about);
   }
 
+  @override
+  Future<void> signOut() => _firebaseAuth.signOut();
+
   Future<AppUser> _saveProfile({
     required String name,
     required String about,

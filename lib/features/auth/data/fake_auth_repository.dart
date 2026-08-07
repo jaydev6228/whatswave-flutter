@@ -148,6 +148,15 @@ class FakeAuthRepository implements AuthRepository {
     return updatedUser;
   }
 
+  @override
+  Future<void> signOut() async {
+    await _hydratePersistedState();
+    await _wait();
+
+    _currentUser = null;
+    await _persistCurrentState();
+  }
+
   Future<void> _hydratePersistedState() async {
     if (!persistSession || _didHydratePersistedState) {
       return;
