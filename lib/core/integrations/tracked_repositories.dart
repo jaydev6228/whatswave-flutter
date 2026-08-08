@@ -345,6 +345,27 @@ class TrackedChatRepository implements ChatRepository {
   }
 
   @override
+  Future<List<ChatThread>> setThreadBlocked({
+    required String threadId,
+    required bool isBlocked,
+  }) {
+    return _delegate.setThreadBlocked(
+      threadId: threadId,
+      isBlocked: isBlocked,
+    );
+  }
+
+  @override
+  Future<List<ChatThread>> clearThreadMessages(String threadId) {
+    return _delegate.clearThreadMessages(threadId);
+  }
+
+  @override
+  Future<List<ChatThread>> groupThreadsSharedWith(String participantUid) {
+    return _delegate.groupThreadsSharedWith(participantUid);
+  }
+
+  @override
   Future<List<ChatThread>> sendAttachmentMessage({
     required String threadId,
     required List<ChatAttachment> attachments,

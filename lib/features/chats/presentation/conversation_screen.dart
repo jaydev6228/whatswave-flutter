@@ -23,6 +23,7 @@ import '../domain/chat_message.dart';
 import '../domain/chat_thread.dart';
 import '../domain/message_reaction.dart';
 import 'attachment_viewer_screen.dart';
+import 'contact_info_screen.dart';
 
 class ConversationScreen extends StatefulWidget {
   const ConversationScreen({
@@ -202,26 +203,30 @@ class _ConversationScreenState extends State<ConversationScreen> {
                   ),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          thread.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        Text(
-                          thread.isGroup
-                              ? 'Group chat • ${visibleMessages.length} messages'
-                              : 'Secure chat preview',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.labelMedium?.copyWith(
-                            color: theme.colorScheme.onSurface
-                                .withValues(alpha: 0.72),
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => _openContactInfo(thread.id),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            thread.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
-                        ),
-                      ],
+                          Text(
+                            thread.isGroup
+                                ? 'Group chat • ${visibleMessages.length} messages'
+                                : 'Secure chat preview',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.labelMedium?.copyWith(
+                              color: theme.colorScheme.onSurface
+                                  .withValues(alpha: 0.72),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ],
@@ -356,30 +361,33 @@ class _ConversationScreenState extends State<ConversationScreen> {
                     ),
                   ),
                 ),
-                _ComposerBar(
-                  composerBarKey: _composerBarKey,
-                  controller: _composerController,
-                  isBusy: composerInteractionsLocked,
-                  canSendText: canSendText,
-                  lockedMinHeight: _composerLockedMinHeight,
-                  onEmojiTap: () {
-                    final current = _composerController.text;
-                    final nextValue = current.isEmpty ? '😊' : '$current 😊';
-                    _composerController.value = TextEditingValue(
-                      text: nextValue,
-                      selection:
-                          TextSelection.collapsed(offset: nextValue.length),
-                    );
-                    setState(() {});
-                  },
-                  onAttachmentTap: (type) async {
-                    _handleAttachmentTap(thread.id, type);
-                  },
-                  onSendTap: () async {
-                    _handleSendTap(thread.id);
-                  },
-                  onChanged: (_) => setState(() {}),
-                ),
+                if (thread.isBlocked)
+                  _BlockedContactBanner(name: thread.name)
+                else
+                  _ComposerBar(
+                    composerBarKey: _composerBarKey,
+                    controller: _composerController,
+                    isBusy: composerInteractionsLocked,
+                    canSendText: canSendText,
+                    lockedMinHeight: _composerLockedMinHeight,
+                    onEmojiTap: () {
+                      final current = _composerController.text;
+                      final nextValue = current.isEmpty ? '😊' : '$current 😊';
+                      _composerController.value = TextEditingValue(
+                        text: nextValue,
+                        selection:
+                            TextSelection.collapsed(offset: nextValue.length),
+                      );
+                      setState(() {});
+                    },
+                    onAttachmentTap: (type) async {
+                      _handleAttachmentTap(thread.id, type);
+                    },
+                    onSendTap: () async {
+                      _handleSendTap(thread.id);
+                    },
+                    onChanged: (_) => setState(() {}),
+                  ),
               ],
             ),
           ),
@@ -393,6 +401,17 @@ class _ConversationScreenState extends State<ConversationScreen> {
       context,
       controller: widget.updatesController,
       story: story,
+    );
+  }
+
+  Future<void> _openContactInfo(String threadId) {
+    return Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ContactInfoScreen(
+          controller: widget.controller,
+          threadId: threadId,
+        ),
+      ),
     );
   }
 
@@ -913,6 +932,57 @@ class _ConversationScreenState extends State<ConversationScreen> {
       text: text,
       attachments: List<ChatAttachment>.unmodifiable(attachments),
       deliveryState: MessageDeliveryState.sending,
+    );
+  }
+}
+
+/// Replaces [_ComposerBar] for a blocked contact -- matches its surface
+/// color and bottom-safe-area padding exactly (see the composer's own
+/// comment on why) so swapping between the two never shows a color seam
+/// under the home indicator.
+class _BlockedContactBanner extends StatelessWidget {
+  const _BlockedContactBanner({required this.name});
+
+  final String name;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      padding: EdgeInsets.fromLTRB(
+        16,
+        14,
+        16,
+        14 + MediaQuery.paddingOf(context).bottom,
+      ),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        border: Border(
+          top: BorderSide(
+            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.24),
+          ),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.block_rounded,
+            size: 20,
+            color: theme.colorScheme.error,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'You blocked $name',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.78),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

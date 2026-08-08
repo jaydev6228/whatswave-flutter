@@ -266,6 +266,55 @@ void main() {
     expect(find.text('❤️'), findsNothing);
   });
 
+  testWidgets(
+      'contact info: clears chat, then blocks and hides the composer',
+      (tester) async {
+    await _pumpChatsScreen(
+      tester,
+      device: iphoneProProfile,
+      controller: ChatsController(
+        repository: FakeChatRepository(latency: Duration.zero),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('chat_tile_ava-patel')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Ava Patel'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Contact info'), findsOneWidget);
+    expect(
+      find.byKey(const Key('contact_info_clear_chat_button')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const Key('contact_info_clear_chat_button')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const Key('contact_info_confirm_clear_chat_button')),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('contact_info_block_button')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const Key('contact_info_confirm_block_button')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Blocked'), findsOneWidget);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    expect(find.text('You blocked Ava Patel'), findsOneWidget);
+    expect(
+      find.byKey(const Key('conversation_composer_field')),
+      findsNothing,
+    );
+  });
+
   testWidgets('keeps the attachment sheet overflow-free on compact phones',
       (tester) async {
     await _pumpChatsScreen(
@@ -741,6 +790,24 @@ class _FailingChatRepository implements ChatRepository {
   }
 
   @override
+  Future<List<Never>> setThreadBlocked({
+    required String threadId,
+    required bool isBlocked,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<List<Never>> clearThreadMessages(String threadId) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<List<Never>> groupThreadsSharedWith(String participantUid) {
+    throw UnimplementedError();
+  }
+
+  @override
   Future<List<Never>> sendAttachmentMessage({
     required String threadId,
     required List<ChatAttachment> attachments,
@@ -817,6 +884,21 @@ class _FlakySendChatRepository implements ChatRepository {
     required List<String> memberUids,
   }) =>
       _delegate.createGroup(name: name, memberUids: memberUids);
+
+  @override
+  Future<List<ChatThread>> setThreadBlocked({
+    required String threadId,
+    required bool isBlocked,
+  }) =>
+      _delegate.setThreadBlocked(threadId: threadId, isBlocked: isBlocked);
+
+  @override
+  Future<List<ChatThread>> clearThreadMessages(String threadId) =>
+      _delegate.clearThreadMessages(threadId);
+
+  @override
+  Future<List<ChatThread>> groupThreadsSharedWith(String participantUid) =>
+      _delegate.groupThreadsSharedWith(participantUid);
 
   @override
   Future<List<ChatThread>> sendAttachmentMessage({

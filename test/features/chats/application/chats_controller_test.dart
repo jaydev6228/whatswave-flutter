@@ -73,6 +73,36 @@ void main() {
       expect(controller.threadById('ava-patel')?.isArchived, isFalse);
     });
 
+    test('blocks and unblocks a contact', () async {
+      await controller.loadThreads();
+
+      await controller.setThreadBlocked(threadId: 'ava-patel', isBlocked: true);
+      expect(controller.threadById('ava-patel')?.isBlocked, isTrue);
+
+      await controller.setThreadBlocked(
+          threadId: 'ava-patel', isBlocked: false);
+      expect(controller.threadById('ava-patel')?.isBlocked, isFalse);
+    });
+
+    test('clears a thread\'s messages without deleting the thread', () async {
+      await controller.loadThreads();
+      expect(controller.threadById('ava-patel')!.messages, isNotEmpty);
+
+      await controller.clearThreadMessages('ava-patel');
+
+      expect(controller.threadById('ava-patel'), isNotNull);
+      expect(controller.threadById('ava-patel')!.messages, isEmpty);
+    });
+
+    test('common groups are empty for demo threads with no real uid',
+        () async {
+      await controller.loadThreads();
+
+      final groups = await controller.groupThreadsSharedWith('ava-patel');
+
+      expect(groups, isEmpty);
+    });
+
     test('marks unread chats as read when opened', () async {
       await controller.loadThreads();
 
@@ -329,6 +359,24 @@ class _FailingChatRepository implements ChatRepository {
   }
 
   @override
+  Future<List<ChatThread>> setThreadBlocked({
+    required String threadId,
+    required bool isBlocked,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<List<ChatThread>> clearThreadMessages(String threadId) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<List<ChatThread>> groupThreadsSharedWith(String participantUid) {
+    throw UnimplementedError();
+  }
+
+  @override
   Future<List<ChatThread>> markThreadRead(String threadId) {
     throw UnimplementedError();
   }
@@ -420,6 +468,21 @@ class _SendFailingChatRepository implements ChatRepository {
     required List<String> memberUids,
   }) =>
       _delegate.createGroup(name: name, memberUids: memberUids);
+
+  @override
+  Future<List<ChatThread>> setThreadBlocked({
+    required String threadId,
+    required bool isBlocked,
+  }) =>
+      _delegate.setThreadBlocked(threadId: threadId, isBlocked: isBlocked);
+
+  @override
+  Future<List<ChatThread>> clearThreadMessages(String threadId) =>
+      _delegate.clearThreadMessages(threadId);
+
+  @override
+  Future<List<ChatThread>> groupThreadsSharedWith(String participantUid) =>
+      _delegate.groupThreadsSharedWith(participantUid);
 
   @override
   Future<List<ChatThread>> sendAttachmentMessage({

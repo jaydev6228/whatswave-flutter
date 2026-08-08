@@ -272,6 +272,40 @@ class ChatsController extends ChangeNotifier {
     );
   }
 
+  Future<bool> setThreadBlocked({
+    required String threadId,
+    required bool isBlocked,
+  }) async {
+    return _runThreadMutation(
+      threadId,
+      () => _repository.setThreadBlocked(
+        threadId: threadId,
+        isBlocked: isBlocked,
+      ),
+      fallbackError: 'We could not update that contact right now.',
+    );
+  }
+
+  Future<bool> clearThreadMessages(String threadId) async {
+    return _runThreadMutation(
+      threadId,
+      () => _repository.clearThreadMessages(threadId),
+      fallbackError: 'We could not clear that chat right now.',
+    );
+  }
+
+  Future<List<ChatThread>> groupThreadsSharedWith(
+    String participantUid,
+  ) async {
+    try {
+      return await _repository.groupThreadsSharedWith(participantUid);
+    } on ChatRepositoryException {
+      return const <ChatThread>[];
+    } catch (_) {
+      return const <ChatThread>[];
+    }
+  }
+
   /// Starts (or finds an existing) 1:1 thread with [participantUid] and
   /// returns its id, or null on failure (see [errorMessage]).
   Future<String?> startThreadWith({

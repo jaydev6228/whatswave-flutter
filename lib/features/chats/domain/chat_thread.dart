@@ -15,6 +15,7 @@ class ChatThread {
     this.isGroup = false,
     this.hasStory = false,
     this.isArchived = false,
+    this.isBlocked = false,
     this.typingPreview,
     this.participantUid,
   });
@@ -30,6 +31,7 @@ class ChatThread {
   final bool isGroup;
   final bool hasStory;
   final bool isArchived;
+  final bool isBlocked;
   final String? typingPreview;
 
   /// The other participant's real Firebase uid, if known -- lets calling
@@ -118,6 +120,7 @@ class ChatThread {
     bool? isGroup,
     bool? hasStory,
     bool? isArchived,
+    bool? isBlocked,
     String? typingPreview,
     bool clearTypingPreview = false,
     String? participantUid,
@@ -134,6 +137,7 @@ class ChatThread {
       isGroup: isGroup ?? this.isGroup,
       hasStory: hasStory ?? this.hasStory,
       isArchived: isArchived ?? this.isArchived,
+      isBlocked: isBlocked ?? this.isBlocked,
       typingPreview:
           clearTypingPreview ? null : typingPreview ?? this.typingPreview,
       participantUid: participantUid ?? this.participantUid,

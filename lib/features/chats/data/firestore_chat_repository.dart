@@ -235,6 +235,65 @@ class FirestoreChatRepository implements ChatRepository {
   }
 
   @override
+  Future<List<ChatThread>> setThreadBlocked({
+    required String threadId,
+    required bool isBlocked,
+  }) async {
+    try {
+      await _threadsRef.doc(threadId).update({'isBlocked': isBlocked});
+    } on FirebaseException catch (e) {
+      throw ChatRepositoryException(e.message ?? 'Could not update that chat.');
+    }
+    return fetchThreads();
+  }
+
+  @override
+  Future<List<ChatThread>> clearThreadMessages(String threadId) async {
+    try {
+      final messagesSnapshot =
+          await _threadsRef.doc(threadId).collection('messages').get();
+      final batch = _firestore.batch();
+      for (final doc in messagesSnapshot.docs) {
+        batch.delete(doc.reference);
+      }
+      await batch.commit();
+    } on FirebaseException catch (e) {
+      throw ChatRepositoryException(
+        e.message ?? 'Could not clear that chat right now.',
+      );
+    }
+    return fetchThreads();
+  }
+
+  @override
+  Future<List<ChatThread>> groupThreadsSharedWith(
+    String participantUid,
+  ) async {
+    final uid = _requireCurrentUid;
+    try {
+      final snapshot = await _threadsRef
+          .where('participantUids', arrayContains: uid)
+          .where('isGroup', isEqualTo: true)
+          .get();
+      final matchingDocs = snapshot.docs.where((doc) {
+        final memberUids =
+            (doc.data()['participantUids'] as List<dynamic>?)
+                    ?.cast<String>() ??
+                const <String>[];
+        return memberUids.contains(participantUid);
+      }).toList();
+      return Future.wait(
+        _visibleDocs(matchingDocs, uid)
+            .map((doc) => _threadFromDoc(doc, currentUid: uid)),
+      );
+    } on FirebaseException catch (e) {
+      throw ChatRepositoryException(
+        e.message ?? 'Could not load common groups right now.',
+      );
+    }
+  }
+
+  @override
   Future<List<ChatThread>> markThreadRead(String threadId) async {
     final uid = _requireCurrentUid;
     try {
@@ -436,6 +495,7 @@ class FirestoreChatRepository implements ChatRepository {
       isGroup: (data['isGroup'] as bool?) ?? false,
       hasStory: (data['hasStory'] as bool?) ?? false,
       isArchived: (data['isArchived'] as bool?) ?? false,
+      isBlocked: (data['isBlocked'] as bool?) ?? false,
       typingPreview: data['typingPreview'] as String?,
       participantUid: otherUid,
     );

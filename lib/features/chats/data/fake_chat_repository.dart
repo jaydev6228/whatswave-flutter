@@ -115,6 +115,49 @@ class FakeChatRepository implements ChatRepository {
   }
 
   @override
+  Future<List<ChatThread>> setThreadBlocked({
+    required String threadId,
+    required bool isBlocked,
+  }) async {
+    await _wait();
+    final thread = _threadForId(threadId);
+    _threads = _threads
+        .map(
+          (entry) => entry.id == thread.id
+              ? entry.copyWith(isBlocked: isBlocked)
+              : entry,
+        )
+        .toList(growable: false);
+    return _deepCopyThreads(_threads);
+  }
+
+  @override
+  Future<List<ChatThread>> clearThreadMessages(String threadId) async {
+    await _wait();
+    final thread = _threadForId(threadId);
+    _threads = _threads
+        .map(
+          (entry) => entry.id == thread.id
+              ? entry.copyWith(messages: const <ChatMessage>[])
+              : entry,
+        )
+        .toList(growable: false);
+    return _deepCopyThreads(_threads);
+  }
+
+  @override
+  Future<List<ChatThread>> groupThreadsSharedWith(
+    String participantUid,
+  ) async {
+    await _wait();
+    // The fake repository never sets a real participantUid on its demo
+    // threads (see ChatThread.participantUid's own doc comment), so there
+    // is no membership data to check here -- always empty, same as the
+    // interface's documented "not a real account" case.
+    return const <ChatThread>[];
+  }
+
+  @override
   Future<List<ChatThread>> markThreadRead(String threadId) async {
     await _wait();
     final thread = _threadForId(threadId);

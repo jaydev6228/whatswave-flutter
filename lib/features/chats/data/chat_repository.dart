@@ -37,6 +37,23 @@ abstract class ChatRepository {
     required bool isArchived,
   });
 
+  Future<List<ChatThread>> setThreadBlocked({
+    required String threadId,
+    required bool isBlocked,
+  });
+
+  /// Empties a thread's messages while keeping the thread/contact itself --
+  /// deliberately distinct from [deleteThread], which removes the whole
+  /// thread. Matches WhatsApp's "Clear chat" (contact stays, history goes)
+  /// rather than "Delete chat" (contact goes too).
+  Future<List<ChatThread>> clearThreadMessages(String threadId);
+
+  /// Group threads that both the caller and [participantUid] belong to --
+  /// the "Common groups" list on a 1:1 contact's info screen. Empty if
+  /// there are none (or this participant isn't a real account, e.g. a
+  /// Fake/demo thread with no uid to check membership against).
+  Future<List<ChatThread>> groupThreadsSharedWith(String participantUid);
+
   Future<List<ChatThread>> markThreadRead(String threadId);
 
   /// Removes a thread from the caller's own chat list only -- the other
