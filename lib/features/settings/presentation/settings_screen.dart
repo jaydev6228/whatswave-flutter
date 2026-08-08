@@ -132,21 +132,6 @@ class SettingsScreen extends StatelessWidget {
                             ),
                             const Divider(height: 1),
                             SettingsTile(
-                              key: const Key('settings_app_lock_tile'),
-                              icon: Icons.lock_outline_rounded,
-                              title: 'App lock',
-                              subtitle: preferencesController.appLockEnabled
-                                  ? 'Enabled • ${preferencesController.appLockTimeout.label}'
-                                  : 'Keep the app open while iterating, or enable lock protection.',
-                              trailing: Switch.adaptive(
-                                key: const Key('settings_app_lock_switch'),
-                                value: preferencesController.appLockEnabled,
-                                onChanged:
-                                    preferencesController.setAppLockEnabled,
-                              ),
-                            ),
-                            const Divider(height: 1),
-                            SettingsTile(
                               key: const Key('settings_notifications_tile'),
                               icon: Icons.notifications_none_rounded,
                               title: 'Notifications',
