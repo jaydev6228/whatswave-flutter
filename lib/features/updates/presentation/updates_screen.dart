@@ -169,9 +169,6 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
                           else ...[
                             _StorySection(
                               title: 'Recent updates',
-                              actionLabel: recentStories.isEmpty
-                                  ? 'Caught up'
-                                  : '${recentStories.length} new',
                               stories: recentStories,
                               onStoryTap: (story) =>
                                   _openStoryViewer(story: story),
@@ -181,9 +178,6 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
                               const SizedBox(height: 18),
                             _StorySection(
                               title: 'Viewed updates',
-                              actionLabel: viewedStories.isEmpty
-                                  ? 'Nothing yet'
-                                  : '${viewedStories.length} seen',
                               stories: viewedStories,
                               onStoryTap: (story) =>
                                   _openStoryViewer(story: story),
@@ -740,15 +734,16 @@ class _MyStatusManagerSheet extends StatelessWidget {
                     fontWeight: FontWeight.w900,
                   ),
                 ),
-                const SizedBox(height: 6),
-                Text(
-                  segments.isEmpty
-                      ? 'Your status list is empty now.'
-                      : 'Open any status, review older uploads, or delete individual items.',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.68),
+                if (segments.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    'Open any status, review older uploads, or delete individual items.',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color:
+                          theme.colorScheme.onSurface.withValues(alpha: 0.68),
+                    ),
                   ),
-                ),
+                ],
                 const SizedBox(height: 18),
                 if (segments.isEmpty)
                   Expanded(
@@ -1052,13 +1047,11 @@ class _StatusSegmentPreview extends StatelessWidget {
 class _StorySection extends StatelessWidget {
   const _StorySection({
     required this.title,
-    required this.actionLabel,
     required this.stories,
     required this.onStoryTap,
   });
 
   final String title;
-  final String actionLabel;
   final List<StatusStory> stories;
   final ValueChanged<StatusStory> onStoryTap;
 
@@ -1077,7 +1070,7 @@ class _StorySection extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _UpdatesSectionLabel(title: title, actionLabel: actionLabel),
+              _UpdatesSectionLabel(title: title),
               const SizedBox(height: 10),
             ],
           ),
@@ -1289,37 +1282,19 @@ class _InlineUpdatesMessageCard extends StatelessWidget {
 }
 
 class _UpdatesSectionLabel extends StatelessWidget {
-  const _UpdatesSectionLabel({
-    required this.title,
-    this.actionLabel,
-  });
+  const _UpdatesSectionLabel({required this.title});
 
   final String title;
-  final String? actionLabel;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return Row(
-      children: [
-        Expanded(
-          child: Text(
-            title,
-            style: theme.textTheme.titleSmall?.copyWith(
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ),
-        if (actionLabel != null)
-          Text(
-            actionLabel!,
-            style: theme.textTheme.labelMedium?.copyWith(
-              color: theme.colorScheme.primary,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-      ],
+    return Text(
+      title,
+      style: theme.textTheme.titleSmall?.copyWith(
+        fontWeight: FontWeight.w800,
+      ),
     );
   }
 }

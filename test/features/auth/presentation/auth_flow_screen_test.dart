@@ -19,7 +19,6 @@ void main() {
         expect(find.byKey(const Key('auth_phone_field')), findsOneWidget);
         expect(
             find.byKey(const Key('auth_country_code_field')), findsOneWidget);
-        expect(find.text('No saved session yet'), findsOneWidget);
         expect(find.textContaining('Examples:'), findsNothing);
       },
     );

@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:whatswave/core/models/app_user.dart';
+import 'package:whatswave/core/permissions/app_permission_service.dart';
+import 'package:whatswave/core/permissions/device_location_service.dart';
 import 'package:whatswave/features/auth/application/auth_controller.dart';
 import 'package:whatswave/features/auth/data/auth_repository.dart';
 import 'package:whatswave/features/auth/data/country_dial_codes.dart';
+import 'package:whatswave/features/auth/data/device_country_lookup_service.dart';
 
 void main() {
   group('AuthController', () {
@@ -286,6 +289,68 @@ void main() {
       expect(controller.currentUser, isNull);
       expect(controller.step, AuthStep.phoneEntry);
     });
+
+    test(
+        'upgrades the locale-based country code with the GPS-detected one',
+        () async {
+      final controller = AuthController(
+        repository: _TestAuthRepository(),
+        localeCountryCode: 'US',
+        permissionService: MemoryAppPermissionService(),
+        locationService: const _FakeDeviceLocationService(
+          fix: DeviceLocationFix(latitude: 35.6595, longitude: 139.7005),
+        ),
+        countryLookupService: const _FakeDeviceCountryLookupService(
+          isoCode: 'JP',
+        ),
+      );
+      expect(controller.selectedCountry.isoCode, 'US');
+
+      await controller.detectCountryFromDeviceLocation();
+
+      expect(controller.selectedCountry.isoCode, 'JP');
+    });
+
+    test(
+        'leaves the country code untouched when location permission is denied',
+        () async {
+      final controller = AuthController(
+        repository: _TestAuthRepository(),
+        localeCountryCode: 'US',
+        permissionService:
+            MemoryAppPermissionService(grantLocationOnRequest: false),
+        locationService: const _FakeDeviceLocationService(
+          fix: DeviceLocationFix(latitude: 35.6595, longitude: 139.7005),
+        ),
+        countryLookupService: const _FakeDeviceCountryLookupService(
+          isoCode: 'JP',
+        ),
+      );
+
+      await controller.detectCountryFromDeviceLocation();
+
+      expect(controller.selectedCountry.isoCode, 'US');
+      expect(controller.errorMessage, isNull);
+    });
+
+    test('does not override a country the user already picked themselves',
+        () async {
+      final controller = AuthController(
+        repository: _TestAuthRepository(),
+        localeCountryCode: 'US',
+        permissionService: MemoryAppPermissionService(),
+        locationService: const _FakeDeviceLocationService(
+          fix: DeviceLocationFix(latitude: 35.6595, longitude: 139.7005),
+        ),
+        countryLookupService: const _FakeDeviceCountryLookupService(
+          isoCode: 'JP',
+        ),
+      )..updateCountryDialCode(countryDialCodeForIso('GB'));
+
+      await controller.detectCountryFromDeviceLocation();
+
+      expect(controller.selectedCountry.isoCode, 'GB');
+    });
   });
 }
 
@@ -387,5 +452,25 @@ class _TestAuthRepository implements AuthRepository {
       throw signOutError!;
     }
     didSignOut = true;
+  }
+}
+
+class _FakeDeviceLocationService implements DeviceLocationService {
+  const _FakeDeviceLocationService({this.fix});
+
+  final DeviceLocationFix? fix;
+
+  @override
+  Future<DeviceLocationFix> getCurrentLocation() async => fix!;
+}
+
+class _FakeDeviceCountryLookupService implements DeviceCountryLookupService {
+  const _FakeDeviceCountryLookupService({this.isoCode});
+
+  final String? isoCode;
+
+  @override
+  Future<String?> isoCountryCodeFor(double latitude, double longitude) async {
+    return isoCode;
   }
 }

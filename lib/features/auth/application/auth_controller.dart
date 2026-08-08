@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/models/app_user.dart';
+import '../../../core/permissions/app_permission_service.dart';
+import '../../../core/permissions/device_location_service.dart';
+import '../../calls/domain/call_permissions.dart';
 import '../data/auth_repository.dart';
 import '../data/country_dial_codes.dart';
+import '../data/device_country_lookup_service.dart';
 
 enum AuthStep { splash, phoneEntry, otpEntry, profileSetup, authenticated }
 
@@ -11,11 +15,22 @@ class AuthController extends ChangeNotifier {
     required AuthRepository repository,
     this.defaultAbout = 'Available on WhatsWave.',
     String? localeCountryCode,
+    AppPermissionService? permissionService,
+    DeviceLocationService? locationService,
+    DeviceCountryLookupService? countryLookupService,
   })  : _repository = repository,
-        _selectedCountry = countryDialCodeForIso(localeCountryCode);
+        _selectedCountry = countryDialCodeForIso(localeCountryCode),
+        _permissionService = permissionService ?? MemoryAppPermissionService(),
+        _locationService = locationService ?? GeolocatorDeviceLocationService(),
+        _countryLookupService =
+            countryLookupService ?? NativeDeviceCountryLookupService();
 
   final AuthRepository _repository;
   final String defaultAbout;
+  final AppPermissionService _permissionService;
+  final DeviceLocationService _locationService;
+  final DeviceCountryLookupService _countryLookupService;
+  bool _hasUserPickedCountry = false;
 
   AuthStep _step = AuthStep.splash;
   bool _isBusy = false;
@@ -106,6 +121,11 @@ class AuthController extends ChangeNotifier {
     final parsed = _parsePhoneNumberInput(value);
     final didCountryChange = _selectedCountry != parsed.country;
     final hadFeedback = _errorMessage != null || _statusMessage != null;
+    if (value.trim().startsWith('+')) {
+      // Typing a number with an explicit "+<code>" prefix is itself a
+      // country choice -- stop GPS detection from overriding it later.
+      _hasUserPickedCountry = true;
+    }
     if (!didCountryChange && _phoneNumber == parsed.nationalNumber) return;
 
     _phoneNumber = parsed.nationalNumber;
@@ -117,10 +137,46 @@ class AuthController extends ChangeNotifier {
   }
 
   void updateCountryDialCode(CountryDialCode country) {
+    _hasUserPickedCountry = true;
     if (_selectedCountry == country) return;
     _selectedCountry = country;
     _clearFeedback(notify: false);
     notifyListeners();
+  }
+
+  /// Upgrades the locale-based default set in the constructor with the
+  /// device's actual GPS country, if the user hasn't already picked one
+  /// themselves. Silent on any failure -- permission denied, GPS off, no
+  /// geocoding result -- since this is a convenience default, not a
+  /// required step; the locale-based guess (or the user's own choice)
+  /// stands untouched if it fails.
+  Future<void> detectCountryFromDeviceLocation() async {
+    if (_hasUserPickedCountry) return;
+    try {
+      var status = await _permissionService.locationAccessStatus();
+      if (status != CallPermissionStatus.granted) {
+        status = await _permissionService.requestLocationAccess();
+      }
+      if (status != CallPermissionStatus.granted || _hasUserPickedCountry) {
+        return;
+      }
+
+      final fix = await _locationService.getCurrentLocation();
+      if (_hasUserPickedCountry) return;
+
+      final isoCode = await _countryLookupService.isoCountryCodeFor(
+        fix.latitude,
+        fix.longitude,
+      );
+      if (isoCode == null || _hasUserPickedCountry) return;
+
+      final detected = countryDialCodeForIso(isoCode);
+      if (detected == _selectedCountry) return;
+      _selectedCountry = detected;
+      notifyListeners();
+    } catch (_) {
+      // Best-effort only -- keep whichever default is already in place.
+    }
   }
 
   void updateOtpCode(String value) {

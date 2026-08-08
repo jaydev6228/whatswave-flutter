@@ -12,6 +12,13 @@ import '../domain/chat_thread.dart';
 
 enum ChatListFilter { all, unread, groups }
 
+/// Location sharing has its own recoverable "ask for permission" outcome
+/// distinct from every other kind of send failure, so the UI can show a
+/// dedicated dialog for it instead of routing it through [errorMessage] --
+/// a shared banner would otherwise leak onto unrelated screens that also
+/// read [errorMessage] (see [ChatsController.errorMessage]).
+enum LocationShareOutcome { sent, permissionDenied, failed }
+
 class ChatsController extends ChangeNotifier {
   ChatsController({
     required ChatRepository repository,
@@ -377,20 +384,30 @@ class ChatsController extends ChangeNotifier {
     );
   }
 
+  String? _locationFailureMessage;
+  String? get locationFailureMessage => _locationFailureMessage;
+
+  Future<void> openLocationSettings() => _permissionService.openSettings();
+
   /// Captures the device's current GPS fix and sends it as a location
   /// attachment, requesting location permission first if needed. Unlike
   /// [sendAttachmentMessage], the caller has no attachment to show
   /// optimistically up front -- permission + a GPS fix both take a moment,
   /// so [isThreadBusy] is the only feedback until this resolves.
-  Future<bool> sendCurrentLocation({
+  ///
+  /// Deliberately does not touch [errorMessage]/[_errorMessage] -- that
+  /// banner is read by other screens too (e.g. the Chats list), so a denied
+  /// permission here would otherwise leak an unrelated banner onto them.
+  /// The caller shows a dedicated dialog based on the returned outcome.
+  Future<LocationShareOutcome> sendCurrentLocation({
     required String threadId,
     String? caption,
   }) async {
     _busyThreadIds.add(threadId);
-    _errorMessage = null;
+    _locationFailureMessage = null;
     notifyListeners();
 
-    var didSucceed = false;
+    var outcome = LocationShareOutcome.failed;
     try {
       var status = await _permissionService.locationAccessStatus();
       if (status != CallPermissionStatus.granted) {
@@ -398,8 +415,7 @@ class ChatsController extends ChangeNotifier {
       }
 
       if (status != CallPermissionStatus.granted) {
-        _errorMessage =
-            'Allow location access in Settings to share your current location.';
+        outcome = LocationShareOutcome.permissionDenied;
       } else {
         final fix = await _locationService.getCurrentLocation();
         final attachment = ChatAttachment(
@@ -416,19 +432,19 @@ class ChatsController extends ChangeNotifier {
           attachment: attachment,
           caption: caption,
         );
-        didSucceed = true;
+        outcome = LocationShareOutcome.sent;
       }
     } on DeviceLocationException catch (error) {
-      _errorMessage = error.message;
+      _locationFailureMessage = error.message;
     } on ChatRepositoryException catch (error) {
-      _errorMessage = error.message;
+      _locationFailureMessage = error.message;
     } catch (_) {
-      _errorMessage = 'We could not share your location right now.';
+      _locationFailureMessage = 'We could not share your location right now.';
     }
 
     _busyThreadIds.remove(threadId);
     notifyListeners();
-    return didSucceed;
+    return outcome;
   }
 
   Future<bool> _runThreadMutation(

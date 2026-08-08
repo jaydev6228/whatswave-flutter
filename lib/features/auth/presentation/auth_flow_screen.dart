@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 
 import '../../../app/theme/app_palette.dart';
 import '../../../core/config/runtime_flags.dart';
-import '../../shared/widgets/empty_state_card.dart';
 import '../application/auth_controller.dart';
 import '../data/country_dial_codes.dart';
 
@@ -51,19 +50,8 @@ class AuthFlowScreen extends StatelessWidget {
                         isCompact: isCompact,
                       ),
                       SizedBox(height: isCompact ? 12 : 24),
-                      if (controller.step == AuthStep.phoneEntry)
-                        EmptyStateCard(
-                          icon: Icons.phone_iphone_rounded,
-                          title: 'No saved session yet',
-                          message:
-                              'Sign in with your phone number to restore your chats and continue on this device.',
-                          dense: isCompact,
-                          margin: EdgeInsets.zero,
-                        ),
-                      if (controller.step == AuthStep.phoneEntry)
-                        SizedBox(height: isCompact ? 10 : 16),
                       if (controller.statusMessage != null &&
-                          controller.step != AuthStep.phoneEntry)
+                          controller.step == AuthStep.profileSetup)
                         Padding(
                           padding: EdgeInsets.only(bottom: isCompact ? 12 : 16),
                           child: _FeedbackBanner(
@@ -182,8 +170,10 @@ class _AuthHeader extends StatelessWidget {
         ),
       AuthStep.otpEntry => (
           title: 'Verify your number',
-          subtitle:
-              'Enter the one-time code we sent by SMS so we can continue setting up this device.'
+          // No subtitle here -- the OTP card right below already states
+          // exactly what code was sent and where, so a generic "we sent a
+          // code" line above it would just repeat the same fact.
+          subtitle: null,
         ),
       AuthStep.profileSetup => (
           title: 'Set up your profile',
@@ -218,15 +208,17 @@ class _AuthHeader extends StatelessWidget {
                   height: isCompact ? 1.05 : null,
                 ),
               ),
-              SizedBox(height: isCompact ? 4 : 6),
-              Text(
-                copy.subtitle,
-                style: theme.textTheme.bodyLarge?.copyWith(
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.72),
-                  fontSize: isCompact ? 16 : null,
-                  height: isCompact ? 1.34 : null,
+              if (copy.subtitle != null) ...[
+                SizedBox(height: isCompact ? 4 : 6),
+                Text(
+                  copy.subtitle!,
+                  style: theme.textTheme.bodyLarge?.copyWith(
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.72),
+                    fontSize: isCompact ? 16 : null,
+                    height: isCompact ? 1.34 : null,
+                  ),
                 ),
-              ),
+              ],
             ],
           ),
         ),
@@ -308,6 +300,7 @@ class _PhoneEntryCardState extends State<_PhoneEntryCard> {
     _phoneController =
         TextEditingController(text: widget.controller.phoneNumber);
     _phoneController.addListener(_handlePhoneChanged);
+    widget.controller.detectCountryFromDeviceLocation();
   }
 
   @override
@@ -456,11 +449,15 @@ class _CountryCodeField extends StatelessWidget {
         labelText: 'Code',
       ),
       selectedItemBuilder: (context) {
+        // Just the dial code once selected -- the country name is already
+        // spelled out per row in the dropdown list below, so the ISO
+        // letters here would be a second, terser way of saying the same
+        // thing.
         return controller.availableCountries.map((country) {
           return Align(
             alignment: Alignment.centerLeft,
             child: Text(
-              '${country.isoCode} ${country.dialCode}',
+              country.dialCode,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: theme.textTheme.bodyLarge?.copyWith(

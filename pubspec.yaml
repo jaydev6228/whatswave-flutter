@@ -28,6 +28,7 @@ dependencies:
   flutter_ringtone_player: ^4.0.0+4
   geolocator: ^14.0.2
   url_launcher: ^6.3.2
+  geocoding: ^4.0.0
 
 dev_dependencies:
   flutter_test:

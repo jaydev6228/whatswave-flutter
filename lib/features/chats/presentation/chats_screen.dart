@@ -583,23 +583,6 @@ class _ArchivedChatsScreenState extends State<ArchivedChatsScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          archivedThreads.isEmpty
-                              ? 'No archived chats'
-                              : '${archivedThreads.length} archived',
-                          style: theme.textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Swipe right to move a chat back to the main inbox.',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: theme.colorScheme.onSurface
-                                .withValues(alpha: 0.68),
-                          ),
-                        ),
-                        const SizedBox(height: 14),
                         TextField(
                           key: const Key('archived_chats_search_field'),
                           controller: _searchController,

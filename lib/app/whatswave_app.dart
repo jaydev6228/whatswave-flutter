@@ -119,6 +119,7 @@ class _WhatsWaveAppState extends State<WhatsWaveApp> {
       ),
       localeCountryCode: widget.authLocaleCountryCode ??
           WidgetsBinding.instance.platformDispatcher.locale.countryCode,
+      permissionService: _permissionService,
     );
     const liveKitUrl = String.fromEnvironment('LIVEKIT_URL');
     const tokenServerUrl = String.fromEnvironment('LIVEKIT_TOKEN_SERVER_URL');

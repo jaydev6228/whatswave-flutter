@@ -384,9 +384,7 @@ class _CommunityDetailInviteSheetState
                         else if (_isSearching)
                           _CommunityInviteSection(
                             title: 'Search results',
-                            subtitle: contacts.length == 1
-                                ? '1 matching contact'
-                                : '${contacts.length} matching contacts',
+                            subtitle: 'People matching your search.',
                             children: contacts
                                 .map(
                                   (contact) => _buildInviteListItem(

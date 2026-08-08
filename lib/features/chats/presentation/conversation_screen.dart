@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../app/theme/app_palette.dart';
 import '../../../core/models/status_story.dart';
+import '../../../core/permissions/location_permission_dialog.dart';
 import '../../calls/application/calls_controller.dart';
 import '../../calls/domain/call_contact.dart';
 import '../../calls/domain/call_history_entry.dart';
@@ -249,6 +250,10 @@ class _ConversationScreenState extends State<ConversationScreen> {
             ],
           ),
           body: SafeArea(
+            // The composer's own surface color, not SafeArea's reserved gap,
+            // should paint under the home indicator -- see _ComposerBar's
+            // bottom padding, which adds the inset back for its content.
+            bottom: false,
             child: Column(
               children: [
                 if (widget.controller.errorMessage != null)
@@ -433,7 +438,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
     final trimmedCaption = _composerController.text.trim();
     final wasNearLatest = _isNearLatestMessage();
 
-    final didSend = await widget.controller.sendCurrentLocation(
+    final outcome = await widget.controller.sendCurrentLocation(
       threadId: threadId,
       caption: trimmedCaption.isEmpty ? null : trimmedCaption,
     );
@@ -442,11 +447,26 @@ class _ConversationScreenState extends State<ConversationScreen> {
       return;
     }
 
-    if (didSend) {
-      _composerController.clear();
-      _scheduleScrollToLatestMessage(animated: !wasNearLatest);
+    switch (outcome) {
+      case LocationShareOutcome.sent:
+        _composerController.clear();
+        _scheduleScrollToLatestMessage(animated: !wasNearLatest);
+      case LocationShareOutcome.permissionDenied:
+        await showLocationPermissionDeniedDialog(
+          context,
+          onOpenSettings: widget.controller.openLocationSettings,
+          message: 'Allow location access to share your current location.',
+        );
+      case LocationShareOutcome.failed:
+        await showLocationErrorDialog(
+          context,
+          widget.controller.locationFailureMessage ??
+              'We could not share your location right now.',
+        );
     }
-    setState(() {});
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   Future<void> _handleAttachmentPreviewTap(
@@ -878,7 +898,12 @@ class _ComposerBar extends StatelessWidget {
       constraints: lockedMinHeight == null
           ? null
           : BoxConstraints(minHeight: lockedMinHeight!),
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+      padding: EdgeInsets.fromLTRB(
+        12,
+        8,
+        12,
+        12 + MediaQuery.paddingOf(context).bottom,
+      ),
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
         border: Border(
@@ -1048,12 +1073,14 @@ class _AttachmentPickerSheet extends StatelessWidget {
       key: const Key('conversation_attachment_sheet'),
       padding: EdgeInsets.fromLTRB(
         horizontalPadding,
-        8,
+        isCompactHeight ? 12 : 18,
         horizontalPadding,
-        20,
+        isCompactHeight ? 20 : 28,
       ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      child: Wrap(
+        alignment: WrapAlignment.center,
+        spacing: isCompactHeight ? 20 : 26,
+        runSpacing: 18,
         children: [
           for (final option in options)
             _AttachmentGridTile(

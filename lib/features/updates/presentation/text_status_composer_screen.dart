@@ -271,17 +271,26 @@ class _TextStatusComposerScreenState extends State<TextStatusComposerScreen> {
         ],
       ),
       body: SafeArea(
+        // The deck's own surface color, not SafeArea's reserved gap, should
+        // paint under the home indicator -- see deckPadding below, which
+        // adds the inset back for its content.
+        bottom: false,
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final deckHeight = keyboardVisible
-                ? math.min(188.0, constraints.maxHeight * 0.32)
-                : math.min(236.0, constraints.maxHeight * 0.4);
+            final bottomSafeInset = MediaQuery.paddingOf(context).bottom;
+            final deckHeight = (keyboardVisible
+                    ? math.min(188.0, constraints.maxHeight * 0.32)
+                    : math.min(236.0, constraints.maxHeight * 0.4)) +
+                bottomSafeInset;
             final stagePadding = keyboardVisible
                 ? const EdgeInsets.fromLTRB(16, 8, 16, 8)
                 : const EdgeInsets.fromLTRB(16, 10, 16, 12);
-            final deckPadding = keyboardVisible
-                ? const EdgeInsets.fromLTRB(14, 10, 14, 10)
-                : const EdgeInsets.fromLTRB(14, 12, 14, 14);
+            final deckPadding = EdgeInsets.fromLTRB(
+              14,
+              keyboardVisible ? 10 : 12,
+              14,
+              (keyboardVisible ? 10 : 14) + bottomSafeInset,
+            );
 
             return Column(
               children: [

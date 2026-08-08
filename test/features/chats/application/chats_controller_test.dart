@@ -161,11 +161,11 @@ void main() {
       );
       await locationController.loadThreads();
 
-      final didSend = await locationController.sendCurrentLocation(
+      final outcome = await locationController.sendCurrentLocation(
         threadId: 'ava-patel',
       );
 
-      expect(didSend, isTrue);
+      expect(outcome, LocationShareOutcome.sent);
       final attachment = locationController
           .threadById('ava-patel')!
           .messages
@@ -178,7 +178,8 @@ void main() {
       expect(attachment.hasCoordinates, isTrue);
     });
 
-    test('surfaces an error and sends nothing when location access is denied',
+    test(
+        'reports permission-denied without touching errorMessage or sending anything',
         () async {
       final deniedController = ChatsController(
         repository: FakeChatRepository(
@@ -196,14 +197,11 @@ void main() {
       final originalCount =
           deniedController.threadById('ava-patel')!.messages.length;
 
-      final didSend =
+      final outcome =
           await deniedController.sendCurrentLocation(threadId: 'ava-patel');
 
-      expect(didSend, isFalse);
-      expect(
-        deniedController.errorMessage,
-        'Allow location access in Settings to share your current location.',
-      );
+      expect(outcome, LocationShareOutcome.permissionDenied);
+      expect(deniedController.errorMessage, isNull);
       expect(
         deniedController.threadById('ava-patel')!.messages.length,
         originalCount,
@@ -223,13 +221,14 @@ void main() {
       );
       await failingLocationController.loadThreads();
 
-      final didSend = await failingLocationController.sendCurrentLocation(
+      final outcome = await failingLocationController.sendCurrentLocation(
         threadId: 'ava-patel',
       );
 
-      expect(didSend, isFalse);
+      expect(outcome, LocationShareOutcome.failed);
+      expect(failingLocationController.errorMessage, isNull);
       expect(
-        failingLocationController.errorMessage,
+        failingLocationController.locationFailureMessage,
         'GPS is unavailable right now.',
       );
     });
