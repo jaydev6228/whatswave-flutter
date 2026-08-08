@@ -111,6 +111,7 @@ class LiquidGlassIconButton extends StatelessWidget {
     this.color,
     this.borderColor,
     this.shadowColor,
+    this.child,
     super.key,
   });
 
@@ -123,6 +124,11 @@ class LiquidGlassIconButton extends StatelessWidget {
   final bool blurred;
   final bool selected;
   final Key? actionKey;
+
+  /// Overrides the drawn [icon] with an arbitrary widget (e.g. a busy-state
+  /// spinner) while keeping the same glass circle chrome. Falls back to
+  /// [icon] when null.
+  final Widget? child;
 
   /// See [LiquidGlassSurface.color] -- overrides the automatic theme-based
   /// tint for chrome that must stay visually fixed (e.g. in-call controls).
@@ -156,7 +162,8 @@ class LiquidGlassIconButton extends StatelessWidget {
             width: size < 48 ? 48 : size,
             height: size < 48 ? 48 : size,
             child: Center(
-              child: Icon(icon, size: iconSize ?? size * 0.44, color: resolvedIconColor),
+              child: child ??
+                  Icon(icon, size: iconSize ?? size * 0.44, color: resolvedIconColor),
             ),
           ),
         ),

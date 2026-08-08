@@ -370,16 +370,6 @@ class _ConversationScreenState extends State<ConversationScreen> {
                     isBusy: composerInteractionsLocked,
                     canSendText: canSendText,
                     lockedMinHeight: _composerLockedMinHeight,
-                    onEmojiTap: () {
-                      final current = _composerController.text;
-                      final nextValue = current.isEmpty ? '😊' : '$current 😊';
-                      _composerController.value = TextEditingValue(
-                        text: nextValue,
-                        selection:
-                            TextSelection.collapsed(offset: nextValue.length),
-                      );
-                      setState(() {});
-                    },
                     onAttachmentTap: (type) async {
                       _handleAttachmentTap(thread.id, type);
                     },
@@ -994,7 +984,6 @@ class _ComposerBar extends StatelessWidget {
     required this.isBusy,
     required this.canSendText,
     required this.lockedMinHeight,
-    required this.onEmojiTap,
     required this.onAttachmentTap,
     required this.onSendTap,
     required this.onChanged,
@@ -1005,7 +994,6 @@ class _ComposerBar extends StatelessWidget {
   final bool isBusy;
   final bool canSendText;
   final double? lockedMinHeight;
-  final VoidCallback onEmojiTap;
   final ValueChanged<ChatAttachmentType> onAttachmentTap;
   final VoidCallback onSendTap;
   final ValueChanged<String> onChanged;
@@ -1085,32 +1073,28 @@ class _ComposerBar extends StatelessWidget {
                 ),
                 contentPadding:
                     const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                prefixIconConstraints:
-                    const BoxConstraints(minWidth: 44, minHeight: 44),
-                prefixIcon: IconButton(
-                  key: const Key('conversation_emoji_button'),
-                  onPressed: isBusy ? null : onEmojiTap,
-                  icon: const Icon(Icons.emoji_emotions_outlined),
-                ),
               ),
             ),
           ),
           const SizedBox(width: 12),
-          FilledButton(
-            key: const Key('conversation_send_button'),
-            onPressed: !isBusy && canSendText ? onSendTap : null,
-            style: FilledButton.styleFrom(
-              minimumSize: const Size(48, 48),
-              shape: const CircleBorder(),
-              padding: EdgeInsets.zero,
-            ),
+          LiquidGlassIconButton(
+            actionKey: const Key('conversation_send_button'),
+            icon: Icons.send_rounded,
+            size: 48,
+            blurred: false,
+            selected: canSendText,
+            iconColor: canSendText
+                ? theme.colorScheme.primary
+                : theme.colorScheme.onSurface.withValues(alpha: 0.34),
+            borderColor: theme.colorScheme.outlineVariant.withValues(alpha: 0.34),
+            onTap: !isBusy && canSendText ? onSendTap : null,
             child: isBusy
                 ? const SizedBox(
-                    width: 22,
-                    height: 22,
+                    width: 20,
+                    height: 20,
                     child: CircularProgressIndicator(strokeWidth: 2.2),
                   )
-                : const Icon(Icons.send_rounded),
+                : null,
           ),
         ],
       ),
