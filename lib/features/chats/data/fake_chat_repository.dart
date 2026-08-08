@@ -170,7 +170,7 @@ class FakeChatRepository implements ChatRepository {
   @override
   Future<List<ChatThread>> sendAttachmentMessage({
     required String threadId,
-    required ChatAttachment attachment,
+    required List<ChatAttachment> attachments,
     String? caption,
   }) async {
     await _wait();
@@ -182,7 +182,7 @@ class FakeChatRepository implements ChatRepository {
       sentAt: DateTime.now(),
       isFromCurrentUser: true,
       text: trimmedCaption,
-      attachments: List<ChatAttachment>.unmodifiable([attachment]),
+      attachments: List<ChatAttachment>.unmodifiable(attachments),
       deliveryState: MessageDeliveryState.delivered,
     );
 

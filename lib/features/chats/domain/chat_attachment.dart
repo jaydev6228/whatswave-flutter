@@ -12,6 +12,7 @@ class ChatAttachment {
     this.aspectRatio = 1.25,
     this.latitude,
     this.longitude,
+    this.localMediaPath,
   });
 
   final String id;
@@ -25,6 +26,14 @@ class ChatAttachment {
   /// device fix -- null for every other attachment type.
   final double? latitude;
   final double? longitude;
+
+  /// A real device-local photo/video path (or a bundled `asset://` path),
+  /// set only for [ChatAttachmentType.photo]/[ChatAttachmentType.video]
+  /// attachments picked from the device. Local-only -- this project has no
+  /// Firebase Storage configured, so the media renders on the sending
+  /// device but does not sync to the other participant. Null falls back to
+  /// [tintColor] as a plain placeholder swatch.
+  final String? localMediaPath;
 
   bool get hasCoordinates => latitude != null && longitude != null;
 
@@ -52,6 +61,7 @@ class ChatAttachment {
     double? aspectRatio,
     double? latitude,
     double? longitude,
+    String? localMediaPath,
   }) {
     return ChatAttachment(
       id: id ?? this.id,
@@ -62,6 +72,7 @@ class ChatAttachment {
       aspectRatio: aspectRatio ?? this.aspectRatio,
       latitude: latitude ?? this.latitude,
       longitude: longitude ?? this.longitude,
+      localMediaPath: localMediaPath ?? this.localMediaPath,
     );
   }
 }

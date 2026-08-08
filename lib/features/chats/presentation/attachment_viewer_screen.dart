@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:video_player/video_player.dart';
 
 import '../../../app/theme/app_palette.dart';
+import '../../updates/presentation/widgets/status_media_source.dart';
 import '../domain/chat_attachment.dart';
 
 /// Shown as an in-place overlay over the current screen (see
@@ -109,6 +111,109 @@ Future<void> showAttachmentPreview(
 
 class _AttachmentCanvas extends StatelessWidget {
   const _AttachmentCanvas({required this.attachment});
+
+  final ChatAttachment attachment;
+
+  @override
+  Widget build(BuildContext context) {
+    final localPath = attachment.localMediaPath;
+    final hasRealMedia = localPath != null &&
+        statusMediaSourceExists(localPath) &&
+        (attachment.type == ChatAttachmentType.photo ||
+            attachment.type == ChatAttachmentType.video);
+
+    if (hasRealMedia) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(32),
+        child: attachment.type == ChatAttachmentType.photo
+            ? ColoredBox(
+                color: Colors.black,
+                child: Image(
+                  image: imageProviderForStatusMediaPath(localPath)!,
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) =>
+                      _AttachmentPlaceholderCanvas(attachment: attachment),
+                ),
+              )
+            : _AttachmentVideoCanvas(localMediaPath: localPath),
+      );
+    }
+
+    return _AttachmentPlaceholderCanvas(attachment: attachment);
+  }
+}
+
+class _AttachmentVideoCanvas extends StatefulWidget {
+  const _AttachmentVideoCanvas({required this.localMediaPath});
+
+  final String localMediaPath;
+
+  @override
+  State<_AttachmentVideoCanvas> createState() => _AttachmentVideoCanvasState();
+}
+
+class _AttachmentVideoCanvasState extends State<_AttachmentVideoCanvas> {
+  late final VideoPlayerController _controller;
+  late final Future<void> _initialization;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = buildStatusMediaVideoController(widget.localMediaPath);
+    _initialization = _controller.initialize().then((_) {
+      _controller
+        ..setLooping(true)
+        ..play();
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<void>(
+      future: _initialization,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done ||
+            !_controller.value.isInitialized) {
+          return const ColoredBox(
+            color: Colors.black,
+            child: Center(
+              child: CircularProgressIndicator(color: Colors.white),
+            ),
+          );
+        }
+
+        return GestureDetector(
+          onTap: () {
+            setState(() {
+              _controller.value.isPlaying
+                  ? _controller.pause()
+                  : _controller.play();
+            });
+          },
+          child: ColoredBox(
+            color: Colors.black,
+            child: Center(
+              child: AspectRatio(
+                aspectRatio: _controller.value.aspectRatio,
+                child: VideoPlayer(_controller),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _AttachmentPlaceholderCanvas extends StatelessWidget {
+  const _AttachmentPlaceholderCanvas({required this.attachment});
 
   final ChatAttachment attachment;
 

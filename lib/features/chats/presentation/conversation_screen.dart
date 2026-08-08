@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../app/theme/app_palette.dart';
@@ -14,6 +15,7 @@ import '../../shared/widgets/avatar_badge.dart';
 import '../../shared/widgets/liquid_glass.dart';
 import '../../updates/application/updates_controller.dart';
 import '../../updates/presentation/story_viewer_launcher.dart';
+import '../../updates/presentation/widgets/status_media_source.dart';
 import '../../updates/presentation/widgets/status_ring_avatar.dart';
 import '../application/chats_controller.dart';
 import '../domain/chat_attachment.dart';
@@ -44,6 +46,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
   static const Duration _sentMessageEntryDuration = Duration(milliseconds: 220);
 
   final GlobalKey _composerBarKey = GlobalKey();
+  final ImagePicker _imagePicker = ImagePicker();
   late final TextEditingController _composerController;
   late final ScrollController _messageListController;
   double? _composerLockedMinHeight;
@@ -394,16 +397,20 @@ class _ConversationScreenState extends State<ConversationScreen> {
       return;
     }
 
-    final trimmedCaption = _composerController.text.trim();
-    final wasNearLatest = _isNearLatestMessage();
-    final attachment = _buildDemoAttachment(
+    final attachments = await _resolveAttachmentsForTap(
       threadId: threadId,
       type: type,
     );
+    if (!mounted || attachments == null || attachments.isEmpty) {
+      return;
+    }
+
+    final trimmedCaption = _composerController.text.trim();
+    final wasNearLatest = _isNearLatestMessage();
     final localMessage = _buildLocalMessage(
       threadId: threadId,
       text: trimmedCaption,
-      attachments: <ChatAttachment>[attachment],
+      attachments: attachments,
     );
 
     _lockComposerHeight();
@@ -417,7 +424,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
     final didSend = await widget.controller.sendAttachmentMessage(
       threadId: threadId,
-      attachment: attachment,
+      attachments: attachments,
       caption: trimmedCaption.isEmpty ? null : trimmedCaption,
     );
 
@@ -728,7 +735,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
     final didSend = failedMessage.hasAttachments
         ? await widget.controller.sendAttachmentMessage(
             threadId: threadId,
-            attachment: failedMessage.attachments.first,
+            attachments: failedMessage.attachments,
             caption: failedMessage.hasText ? failedMessage.text : null,
           )
         : await widget.controller.sendTextMessage(
@@ -785,6 +792,55 @@ class _ConversationScreenState extends State<ConversationScreen> {
       isGroup: thread.isGroup,
       uid: thread.participantUid,
     );
+  }
+
+  /// Resolves what to actually send for an attachment-sheet tap. Photo and
+  /// video pick real device media (local-only -- no Firebase Storage is
+  /// configured, so it renders on this device but won't sync to the other
+  /// participant); every other type still uses a simulated demo
+  /// attachment, as before. Returns null if the user cancelled the picker.
+  Future<List<ChatAttachment>?> _resolveAttachmentsForTap({
+    required String threadId,
+    required ChatAttachmentType type,
+  }) async {
+    if (type == ChatAttachmentType.photo) {
+      final pickedFiles = await _imagePicker.pickMultiImage();
+      if (!mounted || pickedFiles.isEmpty) {
+        return null;
+      }
+      final messageSeed = DateTime.now().millisecondsSinceEpoch;
+      return [
+        for (var index = 0; index < pickedFiles.length; index++)
+          ChatAttachment(
+            id: '$threadId-photo-$messageSeed-$index',
+            type: ChatAttachmentType.photo,
+            title: 'Photo',
+            details: '',
+            tintColor: AppPalette.green,
+            localMediaPath: pickedFiles[index].path,
+          ),
+      ];
+    }
+
+    if (type == ChatAttachmentType.video) {
+      final pickedFile =
+          await _imagePicker.pickVideo(source: ImageSource.gallery);
+      if (!mounted || pickedFile == null) {
+        return null;
+      }
+      return [
+        ChatAttachment(
+          id: '$threadId-video-${DateTime.now().millisecondsSinceEpoch}',
+          type: ChatAttachmentType.video,
+          title: 'Video',
+          details: '',
+          tintColor: AppPalette.sky,
+          localMediaPath: pickedFile.path,
+        ),
+      ];
+    }
+
+    return [_buildDemoAttachment(threadId: threadId, type: type)];
   }
 
   ChatAttachment _buildDemoAttachment({
@@ -1367,16 +1423,10 @@ class _MessageBubble extends StatelessWidget {
                     ),
                   ),
                 ),
-              if (message.hasAttachments)
-                ...message.attachments.map(
-                  (attachment) => Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: _AttachmentPreviewCard(
-                      attachment: attachment,
-                      onTap: () => onAttachmentTap(attachment),
-                    ),
-                  ),
-                ),
+              if (message.hasAttachments) ...[
+                _buildAttachmentsContent(context),
+                const SizedBox(height: 10),
+              ],
               if (message.hasText)
                 Text(
                   message.text,
@@ -1454,6 +1504,50 @@ class _MessageBubble extends StatelessWidget {
     );
   }
 
+  /// Photo/video attachments render full-bleed (a grid when more than one
+  /// photo was sent together); file/location/voice-note attachments keep
+  /// the icon+title+details row -- see docs on [_AttachmentPreviewCard] and
+  /// [_MediaAttachmentTile].
+  Widget _buildAttachmentsContent(BuildContext context) {
+    final attachments = message.attachments;
+    final isMediaGroup = attachments.every(
+      (attachment) =>
+          attachment.type == ChatAttachmentType.photo ||
+          attachment.type == ChatAttachmentType.video,
+    );
+
+    if (isMediaGroup && attachments.length > 1) {
+      return _AttachmentPhotoGrid(
+        attachments: attachments,
+        onAttachmentTap: onAttachmentTap,
+      );
+    }
+
+    if (isMediaGroup && attachments.length == 1) {
+      final attachment = attachments.single;
+      return ConstrainedBox(
+        constraints: const BoxConstraints(maxHeight: 260),
+        child: _MediaAttachmentTile(
+          attachment: attachment,
+          onTap: () => onAttachmentTap(attachment),
+        ),
+      );
+    }
+
+    return Column(
+      children: [
+        for (final attachment in attachments)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: _AttachmentPreviewCard(
+              attachment: attachment,
+              onTap: () => onAttachmentTap(attachment),
+            ),
+          ),
+      ],
+    );
+  }
+
   IconData _deliveryIcon(MessageDeliveryState state) {
     return switch (state) {
       MessageDeliveryState.sending => Icons.schedule_rounded,
@@ -1462,6 +1556,134 @@ class _MessageBubble extends StatelessWidget {
       MessageDeliveryState.read => Icons.done_all_rounded,
       MessageDeliveryState.failed => Icons.error_outline_rounded,
     };
+  }
+}
+
+/// A 2-column grid of full-bleed photo tiles for a message that bundles
+/// several photos together (e.g. picked via a multi-select gallery pick),
+/// matching how WhatsApp/iMessage group multiple photos into one bubble
+/// instead of stacking separate bubbles.
+class _AttachmentPhotoGrid extends StatelessWidget {
+  const _AttachmentPhotoGrid({
+    required this.attachments,
+    required this.onAttachmentTap,
+  });
+
+  final List<ChatAttachment> attachments;
+  final ValueChanged<ChatAttachment> onAttachmentTap;
+
+  @override
+  Widget build(BuildContext context) {
+    const spacing = 4.0;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final tileWidth = (constraints.maxWidth - spacing) / 2;
+        return Wrap(
+          spacing: spacing,
+          runSpacing: spacing,
+          children: [
+            for (final attachment in attachments)
+              SizedBox(
+                width: tileWidth,
+                child: _MediaAttachmentTile(
+                  attachment: attachment,
+                  aspectRatio: 1,
+                  onTap: () => onAttachmentTap(attachment),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// A single full-bleed photo or video tile -- no title/subtitle text, the
+/// media itself fills the bubble (matching the reference WhatsApp/iMessage
+/// bubble style). Real photos render via [imageProviderForStatusMediaPath];
+/// video shows a fixed dark placeholder with a play affordance rather than
+/// a decoded first-frame thumbnail (no thumbnail-generation package in this
+/// project). Falls back to a tinted swatch with a type icon when there's no
+/// local media to show (a demo attachment, or media missing on this
+/// device/other participant's device).
+class _MediaAttachmentTile extends StatelessWidget {
+  const _MediaAttachmentTile({
+    required this.attachment,
+    required this.onTap,
+    this.aspectRatio,
+  });
+
+  final ChatAttachment attachment;
+  final VoidCallback onTap;
+  final double? aspectRatio;
+
+  @override
+  Widget build(BuildContext context) {
+    final localPath = attachment.localMediaPath;
+    final isPhoto = attachment.type == ChatAttachmentType.photo;
+    final hasRealPhoto = isPhoto &&
+        localPath != null &&
+        statusMediaSourceExists(localPath);
+    final resolvedAspectRatio =
+        (aspectRatio ?? attachment.aspectRatio).clamp(0.7, 1.5);
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          key: Key('attachment_preview_${attachment.id}'),
+          onTap: onTap,
+          child: AspectRatio(
+            aspectRatio: resolvedAspectRatio,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                if (hasRealPhoto)
+                  Image(
+                    image: imageProviderForStatusMediaPath(localPath)!,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => _placeholder(),
+                  )
+                else
+                  _placeholder(),
+                if (attachment.type == ChatAttachmentType.video)
+                  Center(
+                    child: Container(
+                      width: 46,
+                      height: 46,
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.4),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.play_arrow_rounded,
+                        color: Colors.white,
+                        size: 26,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _placeholder() {
+    return ColoredBox(
+      color: attachment.tintColor.withValues(alpha: 0.18),
+      child: Center(
+        child: Icon(
+          attachment.type == ChatAttachmentType.video
+              ? Icons.videocam_outlined
+              : Icons.photo_outlined,
+          color: attachment.tintColor,
+          size: 32,
+        ),
+      ),
+    );
   }
 }
 

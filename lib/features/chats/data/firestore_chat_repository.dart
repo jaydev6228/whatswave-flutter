@@ -270,13 +270,13 @@ class FirestoreChatRepository implements ChatRepository {
   @override
   Future<List<ChatThread>> sendAttachmentMessage({
     required String threadId,
-    required ChatAttachment attachment,
+    required List<ChatAttachment> attachments,
     String? caption,
   }) async {
     await _sendMessage(
       threadId: threadId,
       text: caption ?? '',
-      attachments: [attachment],
+      attachments: attachments,
     );
     return fetchThreads();
   }
@@ -444,6 +444,11 @@ class FirestoreChatRepository implements ChatRepository {
       'aspectRatio': attachment.aspectRatio,
       if (attachment.latitude != null) 'latitude': attachment.latitude,
       if (attachment.longitude != null) 'longitude': attachment.longitude,
+      // Local-only -- meaningful on the sending device only (no Storage
+      // backend to sync it), but still written so this device can re-read
+      // its own sent media back correctly after a refetch.
+      if (attachment.localMediaPath != null)
+        'localMediaPath': attachment.localMediaPath,
     };
   }
 
@@ -457,6 +462,7 @@ class FirestoreChatRepository implements ChatRepository {
       aspectRatio: (map['aspectRatio'] as num?)?.toDouble() ?? 1.25,
       latitude: (map['latitude'] as num?)?.toDouble(),
       longitude: (map['longitude'] as num?)?.toDouble(),
+      localMediaPath: map['localMediaPath'] as String?,
     );
   }
 

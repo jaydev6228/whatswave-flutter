@@ -369,14 +369,14 @@ class ChatsController extends ChangeNotifier {
 
   Future<bool> sendAttachmentMessage({
     required String threadId,
-    required ChatAttachment attachment,
+    required List<ChatAttachment> attachments,
     String? caption,
   }) {
     return _runThreadMutation(
       threadId,
       () => _repository.sendAttachmentMessage(
         threadId: threadId,
-        attachment: attachment,
+        attachments: attachments,
         caption: caption,
       ),
       fallbackError: 'We could not send that attachment right now.',
@@ -429,7 +429,7 @@ class ChatsController extends ChangeNotifier {
         );
         _threads = await _repository.sendAttachmentMessage(
           threadId: threadId,
-          attachment: attachment,
+          attachments: [attachment],
           caption: caption,
         );
         outcome = LocationShareOutcome.sent;

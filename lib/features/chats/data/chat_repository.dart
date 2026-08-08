@@ -50,9 +50,11 @@ abstract class ChatRepository {
     required String text,
   });
 
+  /// Sends one or more attachments as a single message (e.g. several
+  /// photos picked together) -- always non-empty.
   Future<List<ChatThread>> sendAttachmentMessage({
     required String threadId,
-    required ChatAttachment attachment,
+    required List<ChatAttachment> attachments,
     String? caption,
   });
 }

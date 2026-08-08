@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image_picker_platform_interface/image_picker_platform_interface.dart';
 import 'package:whatswave/app/theme/app_theme.dart';
 import 'package:whatswave/core/permissions/app_permission_service.dart';
 import 'package:whatswave/core/permissions/device_location_service.dart';
@@ -12,14 +13,20 @@ import 'package:whatswave/features/updates/data/fake_updates_repository.dart';
 import 'package:whatswave/features/chats/application/chats_controller.dart';
 import 'package:whatswave/features/chats/data/chat_repository.dart';
 import 'package:whatswave/features/chats/data/fake_chat_repository.dart';
+import 'package:whatswave/features/chats/domain/chat_attachment.dart';
 import 'package:whatswave/features/chats/domain/chat_message.dart';
 import 'package:whatswave/features/chats/domain/chat_thread.dart';
 import 'package:whatswave/features/chats/presentation/chats_screen.dart';
 import 'package:whatswave/features/updates/presentation/widgets/status_ring_avatar.dart';
 
 import '../../../support/device_matrix.dart';
+import '../../../support/fake_image_picker_platform.dart';
 
 void main() {
+  setUp(() {
+    ImagePickerPlatform.instance = FakeImagePickerPlatform();
+  });
+
   for (final device in compactDeviceMatrix) {
     testWidgets(
       'filters, archives, and restores chats on ${device.name}',
@@ -209,7 +216,10 @@ void main() {
     await tester.tap(find.byKey(const Key('conversation_photo_button')));
     await tester.pumpAndSettle();
 
-    expect(find.text('New gallery pick'), findsOneWidget);
+    // The picked photo has no real file on disk in this test environment,
+    // so the bubble falls back to its placeholder swatch+icon rather than
+    // a title/subtitle row (photo bubbles no longer show text at all).
+    expect(find.byIcon(Icons.photo_outlined), findsWidgets);
 
     await tester.tap(
       find.byKey(const Key('conversation_attachment_menu_button')),
@@ -699,7 +709,7 @@ class _FailingChatRepository implements ChatRepository {
   @override
   Future<List<Never>> sendAttachmentMessage({
     required String threadId,
-    required attachment,
+    required List<ChatAttachment> attachments,
     String? caption,
   }) {
     throw UnimplementedError();
@@ -768,12 +778,12 @@ class _FlakySendChatRepository implements ChatRepository {
   @override
   Future<List<ChatThread>> sendAttachmentMessage({
     required String threadId,
-    required attachment,
+    required List<ChatAttachment> attachments,
     String? caption,
   }) =>
       _delegate.sendAttachmentMessage(
         threadId: threadId,
-        attachment: attachment,
+        attachments: attachments,
         caption: caption,
       );
 

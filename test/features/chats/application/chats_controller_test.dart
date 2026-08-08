@@ -92,14 +92,16 @@ void main() {
       );
       await controller.sendAttachmentMessage(
         threadId: 'ava-patel',
-        attachment: const ChatAttachment(
-          id: 'test-photo',
-          type: ChatAttachmentType.photo,
-          title: 'Polished handoff',
-          details: 'Ready for review',
-          tintColor: Color(0xFF25D366),
-          aspectRatio: 1.1,
-        ),
+        attachments: const [
+          ChatAttachment(
+            id: 'test-photo',
+            type: ChatAttachmentType.photo,
+            title: 'Polished handoff',
+            details: 'Ready for review',
+            tintColor: Color(0xFF25D366),
+            aspectRatio: 1.1,
+          ),
+        ],
       );
 
       final thread = controller.threadById('ava-patel');
@@ -290,7 +292,7 @@ class _FailingChatRepository implements ChatRepository {
   @override
   Future<List<ChatThread>> sendAttachmentMessage({
     required String threadId,
-    required ChatAttachment attachment,
+    required List<ChatAttachment> attachments,
     String? caption,
   }) {
     throw UnimplementedError();
@@ -361,7 +363,7 @@ class _SendFailingChatRepository implements ChatRepository {
   @override
   Future<List<ChatThread>> sendAttachmentMessage({
     required String threadId,
-    required ChatAttachment attachment,
+    required List<ChatAttachment> attachments,
     String? caption,
   }) {
     throw const ChatRepositoryException('Message service offline');

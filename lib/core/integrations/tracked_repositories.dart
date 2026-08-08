@@ -331,31 +331,36 @@ class TrackedChatRepository implements ChatRepository {
   @override
   Future<List<ChatThread>> sendAttachmentMessage({
     required String threadId,
-    required ChatAttachment attachment,
+    required List<ChatAttachment> attachments,
     String? caption,
   }) async {
+    final combinedLabel = attachments.length == 1
+        ? attachments.single.compactLabel
+        : '${attachments.length} attachments';
     try {
-      final transfer = await _integrations.queueMediaTransfer(
-        source: 'Chats',
-        label: attachment.compactLabel,
-        kind: _kindForChatAttachment(attachment.type),
-      );
-      if (transfer.state == MediaTransferState.failed) {
-        throw const ChatRepositoryException(
-          'We could not upload that attachment right now.',
+      for (final attachment in attachments) {
+        final transfer = await _integrations.queueMediaTransfer(
+          source: 'Chats',
+          label: attachment.compactLabel,
+          kind: _kindForChatAttachment(attachment.type),
         );
+        if (transfer.state == MediaTransferState.failed) {
+          throw const ChatRepositoryException(
+            'We could not upload that attachment right now.',
+          );
+        }
       }
 
       final threads = await _delegate.sendAttachmentMessage(
         threadId: threadId,
-        attachment: attachment,
+        attachments: attachments,
         caption: caption,
       );
       unawaited(
         _integrations.recordSyncSuccess(
           source: 'Chats',
           title: 'Attachment synced',
-          details: attachment.compactLabel,
+          details: combinedLabel,
         ),
       );
       return threads;
