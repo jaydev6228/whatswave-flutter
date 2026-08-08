@@ -11,6 +11,7 @@ import '../../calls/domain/call_contact.dart';
 import '../../calls/domain/call_history_entry.dart';
 import '../../calls/presentation/call_flow.dart';
 import '../../shared/widgets/avatar_badge.dart';
+import '../../shared/widgets/liquid_glass.dart';
 import '../../updates/application/updates_controller.dart';
 import '../../updates/presentation/story_viewer_launcher.dart';
 import '../../updates/presentation/widgets/status_ring_avatar.dart';
@@ -223,9 +224,15 @@ class _ConversationScreenState extends State<ConversationScreen> {
               ),
             ),
             actions: [
-              IconButton(
+              LiquidGlassIconButton(
+                icon: Icons.call_outlined,
                 tooltip: 'Audio call',
-                onPressed: () {
+                size: 40,
+                // The app bar is a fixed, non-overlapping toolbar here (not
+                // a floating sliver over scrolling content), so there is no
+                // real content behind it for a blur to reveal.
+                blurred: false,
+                onTap: () {
                   startCallFlow(
                     context,
                     controller: widget.callsController,
@@ -233,11 +240,14 @@ class _ConversationScreenState extends State<ConversationScreen> {
                     type: CallType.audio,
                   );
                 },
-                icon: const Icon(Icons.call_outlined),
               ),
-              IconButton(
+              const SizedBox(width: 8),
+              LiquidGlassIconButton(
+                icon: Icons.videocam_outlined,
                 tooltip: 'Video call',
-                onPressed: () {
+                size: 40,
+                blurred: false,
+                onTap: () {
                   startCallFlow(
                     context,
                     controller: widget.callsController,
@@ -245,8 +255,8 @@ class _ConversationScreenState extends State<ConversationScreen> {
                     type: CallType.video,
                   );
                 },
-                icon: const Icon(Icons.videocam_outlined),
               ),
+              const SizedBox(width: 8),
             ],
           ),
           body: SafeArea(
@@ -993,31 +1003,23 @@ class _ComposerIconButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return Material(
+    return LiquidGlassIconButton(
+      icon: icon,
+      tooltip: tooltip,
+      actionKey: actionKey,
+      size: 44,
+      iconSize: 20,
+      // Sits on the composer's own opaque surface, not over scrolling
+      // content, so no real blur is possible here.
+      blurred: false,
       color: enabled
           ? theme.colorScheme.surface
           : theme.colorScheme.surface.withValues(alpha: 0.82),
-      shape: CircleBorder(
-        side: BorderSide(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.34),
-        ),
-      ),
-      child: InkWell(
-        key: actionKey,
-        customBorder: const CircleBorder(),
-        onTap: enabled ? onTap : null,
-        child: SizedBox(
-          width: 44,
-          height: 44,
-          child: Icon(
-            icon,
-            size: 20,
-            color: enabled
-                ? theme.colorScheme.onSurface
-                : theme.colorScheme.onSurface.withValues(alpha: 0.34),
-          ),
-        ),
-      ),
+      borderColor: theme.colorScheme.outlineVariant.withValues(alpha: 0.34),
+      iconColor: enabled
+          ? theme.colorScheme.onSurface
+          : theme.colorScheme.onSurface.withValues(alpha: 0.34),
+      onTap: enabled ? onTap : null,
     );
   }
 }

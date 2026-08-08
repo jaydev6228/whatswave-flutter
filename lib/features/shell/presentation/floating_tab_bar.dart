@@ -1,6 +1,6 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
+
+import '../../shared/widgets/liquid_glass.dart';
 
 /// One icon-only destination on [FloatingTabBar]. No text label by design --
 /// unlike Material's NavigationDestination, this sidesteps the whole class
@@ -43,89 +43,66 @@ class FloatingTabBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(999),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-            decoration: BoxDecoration(
-              color: (isDark ? Colors.black : Colors.white).withValues(
-                alpha: isDark ? 0.34 : 0.56,
-              ),
-              borderRadius: BorderRadius.circular(999),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: isDark ? 0.10 : 0.68),
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: theme.colorScheme.shadow.withValues(alpha: 0.2),
-                  blurRadius: 24,
-                  offset: const Offset(0, 10),
-                ),
-              ],
-            ),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final itemWidth = constraints.maxWidth / destinations.length;
-                return SizedBox(
-                  height: 48,
-                  child: Stack(
-                    children: [
-                      AnimatedPositioned(
-                        duration: const Duration(milliseconds: 300),
-                        curve: Curves.easeOutCubic,
-                        left: itemWidth * selectedIndex,
-                        top: 0,
-                        bottom: 0,
-                        width: itemWidth,
-                        child: Center(
-                          // A capsule, not a circle, so the highlight's
-                          // corners echo the outer pill's own StadiumBorder
-                          // instead of clashing with it.
-                          child: Container(
-                            width: itemWidth - 12,
-                            height: 44,
-                            decoration: BoxDecoration(
-                              color: theme.colorScheme.primary,
-                              borderRadius: BorderRadius.circular(999),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: theme.colorScheme.primary
-                                      .withValues(alpha: 0.35),
-                                  blurRadius: 12,
-                                  offset: const Offset(0, 3),
-                                ),
-                              ],
+      child: LiquidGlassSurface(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final itemWidth = constraints.maxWidth / destinations.length;
+            return SizedBox(
+              height: 48,
+              child: Stack(
+                children: [
+                  AnimatedPositioned(
+                    duration: const Duration(milliseconds: 300),
+                    curve: Curves.easeOutCubic,
+                    left: itemWidth * selectedIndex,
+                    top: 0,
+                    bottom: 0,
+                    width: itemWidth,
+                    child: Center(
+                      // A capsule, not a circle, so the highlight's
+                      // corners echo the outer pill's own StadiumBorder
+                      // instead of clashing with it.
+                      child: Container(
+                        width: itemWidth - 12,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.primary,
+                          borderRadius: BorderRadius.circular(999),
+                          boxShadow: [
+                            BoxShadow(
+                              color: theme.colorScheme.primary
+                                  .withValues(alpha: 0.35),
+                              blurRadius: 12,
+                              offset: const Offset(0, 3),
                             ),
-                          ),
+                          ],
                         ),
                       ),
-                      Row(
-                        children: [
-                          for (var index = 0;
-                              index < destinations.length;
-                              index++)
-                            SizedBox(
-                              width: itemWidth,
-                              child: _FloatingTabItem(
-                                destination: destinations[index],
-                                isSelected: index == selectedIndex,
-                                onTap: () => onDestinationSelected(index),
-                              ),
-                            ),
-                        ],
-                      ),
+                    ),
+                  ),
+                  Row(
+                    children: [
+                      for (var index = 0;
+                          index < destinations.length;
+                          index++)
+                        SizedBox(
+                          width: itemWidth,
+                          child: _FloatingTabItem(
+                            destination: destinations[index],
+                            isSelected: index == selectedIndex,
+                            onTap: () => onDestinationSelected(index),
+                          ),
+                        ),
                     ],
                   ),
-                );
-              },
-            ),
-          ),
+                ],
+              ),
+            );
+          },
         ),
       ),
     );
@@ -205,10 +182,14 @@ class FloatingTabBarFab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return FloatingActionButton(
+    final theme = Theme.of(context);
+
+    return LiquidGlassIconButton(
+      icon: icon,
       tooltip: tooltip,
-      onPressed: onPressed,
-      child: Icon(icon),
+      onTap: onPressed,
+      size: 56,
+      iconColor: theme.colorScheme.primary,
     );
   }
 }

@@ -8,6 +8,7 @@ import '../../calls/application/calls_controller.dart';
 import '../../communities/application/communities_controller.dart';
 import '../../shared/widgets/avatar_badge.dart';
 import '../../shared/widgets/empty_state_card.dart';
+import '../../shared/widgets/liquid_glass.dart';
 import '../../updates/application/updates_controller.dart';
 import '../../updates/presentation/status_compose_actions.dart';
 import '../../updates/presentation/story_viewer_launcher.dart';
@@ -218,7 +219,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
                           scrollDirection: Axis.horizontal,
                           child: Row(
                             children: [
-                              _ChatFilterChip(
+                              LiquidGlassChip(
                                 key: const Key('chat_filter_all'),
                                 label: 'All',
                                 isSelected: widget.controller.selectedFilter ==
@@ -230,7 +231,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
                                 },
                               ),
                               const SizedBox(width: 8),
-                              _ChatFilterChip(
+                              LiquidGlassChip(
                                 key: const Key('chat_filter_unread'),
                                 label: 'Unread',
                                 isSelected: widget.controller.selectedFilter ==
@@ -242,7 +243,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
                                 },
                               ),
                               const SizedBox(width: 8),
-                              _ChatFilterChip(
+                              LiquidGlassChip(
                                 key: const Key('chat_filter_groups'),
                                 label: 'Groups',
                                 isSelected: widget.controller.selectedFilter ==
@@ -992,49 +993,6 @@ class _InlineFeedbackCard extends StatelessWidget {
   }
 }
 
-class _ChatFilterChip extends StatelessWidget {
-  const _ChatFilterChip({
-    required this.label,
-    required this.isSelected,
-    required this.onTap,
-    super.key,
-  });
-
-  final String label;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(999),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        curve: Curves.easeOutCubic,
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-        decoration: BoxDecoration(
-          color: isSelected
-              ? colorScheme.primary.withValues(alpha: 0.14)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(999),
-        ),
-        child: Text(
-          label,
-          style: theme.textTheme.labelLarge?.copyWith(
-            color: isSelected
-                ? colorScheme.primary
-                : colorScheme.onSurface.withValues(alpha: 0.64),
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 class _ChatTile extends StatelessWidget {
   const _ChatTile({

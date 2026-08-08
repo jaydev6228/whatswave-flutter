@@ -8,6 +8,7 @@ import 'package:video_player/video_player.dart';
 
 import '../../../app/theme/app_palette.dart';
 import '../../../core/models/status_story.dart';
+import '../../shared/widgets/liquid_glass.dart';
 import 'widgets/status_media_decoration_overlay.dart';
 import 'widgets/status_story_media_surface.dart';
 import 'widgets/text_status_canvas.dart';
@@ -2909,25 +2910,18 @@ class _GlassCircleButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: Material(
-        color: Colors.black.withValues(alpha: 0.28),
-        shape: const CircleBorder(),
-        child: InkWell(
-          onTap: onTap,
-          customBorder: const CircleBorder(),
-          child: SizedBox(
-            width: 42,
-            height: 42,
-            child: Icon(
-              icon,
-              color: Colors.white,
-              size: 20,
-            ),
-          ),
-        ),
-      ),
+    // Fixed dark-glass look regardless of app theme -- this floats over the
+    // photo/video canvas, not the system surface, so it stays legible there
+    // no matter whether the rest of the app is in light or dark mode.
+    return LiquidGlassIconButton(
+      icon: icon,
+      tooltip: tooltip,
+      onTap: onTap,
+      size: 42,
+      iconSize: 20,
+      iconColor: Colors.white,
+      color: Colors.black.withValues(alpha: 0.28),
+      borderColor: Colors.white.withValues(alpha: 0.18),
     );
   }
 }

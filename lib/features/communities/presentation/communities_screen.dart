@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../shared/widgets/avatar_badge.dart';
 import '../../shared/widgets/empty_state_card.dart';
+import '../../shared/widgets/liquid_glass.dart';
 import '../application/communities_controller.dart';
 import '../domain/community_hub.dart';
 import 'community_detail_screen.dart';
@@ -299,7 +300,7 @@ class _CommunitiesPane extends StatelessWidget {
                 scrollDirection: Axis.horizontal,
                 child: Row(
                   children: [
-                    _CompactCommunitiesChip(
+                    LiquidGlassChip(
                       key: const Key('communities_filter_all'),
                       label: 'All',
                       isSelected: controller.communityFilter ==
@@ -311,7 +312,7 @@ class _CommunitiesPane extends StatelessWidget {
                       },
                     ),
                     const SizedBox(width: 8),
-                    _CompactCommunitiesChip(
+                    LiquidGlassChip(
                       key: const Key('communities_filter_unread'),
                       label: 'Unread',
                       isSelected: controller.communityFilter ==
@@ -323,7 +324,7 @@ class _CommunitiesPane extends StatelessWidget {
                       },
                     ),
                     const SizedBox(width: 8),
-                    _CompactCommunitiesChip(
+                    LiquidGlassChip(
                       key: const Key('communities_filter_announcements'),
                       label: 'Announcements',
                       isSelected: controller.communityFilter ==
@@ -507,49 +508,6 @@ class _CommunityCard extends StatelessWidget {
   }
 }
 
-class _CompactCommunitiesChip extends StatelessWidget {
-  const _CompactCommunitiesChip({
-    required this.label,
-    required this.isSelected,
-    required this.onTap,
-    super.key,
-  });
-
-  final String label;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(999),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        curve: Curves.easeOutCubic,
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-        decoration: BoxDecoration(
-          color: isSelected
-              ? colorScheme.primary.withValues(alpha: 0.14)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(999),
-        ),
-        child: Text(
-          label,
-          style: theme.textTheme.labelLarge?.copyWith(
-            color: isSelected
-                ? colorScheme.primary
-                : colorScheme.onSurface.withValues(alpha: 0.64),
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 class _CommunitiesSectionLabel extends StatelessWidget {
   const _CommunitiesSectionLabel({required this.title});

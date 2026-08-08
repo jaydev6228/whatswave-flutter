@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:livekit_client/livekit_client.dart' as lk;
 
 import '../../../app/theme/app_palette.dart';
+import '../../shared/widgets/liquid_glass.dart';
 import '../application/calls_controller.dart';
 import '../domain/call_contact.dart';
 import '../domain/call_session.dart';
@@ -1267,20 +1268,14 @@ class _FrostedPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ClipRRect(
+    return LiquidGlassSurface(
+      key: panelKey,
       borderRadius: borderRadius,
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-        child: DecoratedBox(
-          key: panelKey,
-          decoration: BoxDecoration(
-            color: backgroundColor,
-            borderRadius: borderRadius,
-            border: Border.all(color: borderColor),
-          ),
-          child: child,
-        ),
-      ),
+      blurSigma: 18,
+      color: backgroundColor,
+      borderColor: borderColor,
+      showShadow: false,
+      child: child,
     );
   }
 }
