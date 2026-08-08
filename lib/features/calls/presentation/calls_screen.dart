@@ -98,15 +98,18 @@ class _CallsScreenState extends State<CallsScreen> {
                                 ),
                               ],
                             ),
-                            if (widget.controller.errorMessage != null) ...[
+                            if (widget.controller.errorMessage != null &&
+                                !widget.controller.hasLoaded) ...[
                               const SizedBox(height: 10),
-                              _InlineCallsMessageCard(
+                              EmptyStateCard(
                                 key: const Key('calls_error_card'),
+                                dense: true,
+                                margin: EdgeInsets.zero,
+                                icon: Icons.error_outline_rounded,
+                                title: 'Could not load calls',
                                 message: widget.controller.errorMessage!,
-                                onRetry: !widget.controller.hasLoaded
-                                    ? widget.controller.loadOverview
-                                    : null,
-                                onDismiss: widget.controller.clearError,
+                                onRetry: widget.controller.loadOverview,
+                                retryKey: const Key('calls_retry_button'),
                               ),
                             ],
                             const SizedBox(height: 12),
@@ -502,70 +505,6 @@ class _CallsSectionLabel extends StatelessWidget {
       title,
       style: theme.textTheme.titleSmall?.copyWith(
         fontWeight: FontWeight.w800,
-      ),
-    );
-  }
-}
-
-class _InlineCallsMessageCard extends StatelessWidget {
-  const _InlineCallsMessageCard({
-    required this.message,
-    required this.onDismiss,
-    this.onRetry,
-    super.key,
-  });
-
-  final String message;
-  final VoidCallback onDismiss;
-  final VoidCallback? onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.errorContainer.withValues(alpha: 0.34),
-        border: Border.all(
-          color: theme.colorScheme.error.withValues(alpha: 0.16),
-        ),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            Icons.error_outline_rounded,
-            size: 18,
-            color: theme.colorScheme.error,
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              message,
-              style: theme.textTheme.bodySmall,
-            ),
-          ),
-          if (onRetry != null) ...[
-            const SizedBox(width: 8),
-            TextButton(
-              key: const Key('calls_retry_button'),
-              onPressed: onRetry,
-              style: TextButton.styleFrom(
-                visualDensity: VisualDensity.compact,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-              ),
-              child: const Text('Retry'),
-            ),
-          ],
-          IconButton(
-            tooltip: 'Dismiss',
-            visualDensity: VisualDensity.compact,
-            onPressed: onDismiss,
-            icon: const Icon(Icons.close_rounded, size: 18),
-          ),
-        ],
       ),
     );
   }

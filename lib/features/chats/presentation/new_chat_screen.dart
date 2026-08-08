@@ -11,6 +11,7 @@ import '../../communities/domain/community_contact.dart';
 import '../../communities/domain/contact_access_status.dart';
 import '../../shared/widgets/avatar_badge.dart';
 import '../../shared/widgets/empty_state_card.dart';
+import '../../shared/widgets/error_dialog.dart';
 import '../application/chats_controller.dart';
 import 'new_group_screen.dart';
 
@@ -255,13 +256,10 @@ class _NewChatScreenState extends State<NewChatScreen>
       return;
     }
     if (threadId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            widget.chatsController.errorMessage ??
-                'We could not start that chat right now.',
-          ),
-        ),
+      await showErrorDialog(
+        context,
+        widget.chatsController.errorMessage ??
+            'We could not start that chat right now.',
       );
       widget.chatsController.clearError();
       return;
@@ -309,8 +307,7 @@ class _NewChatScreenState extends State<NewChatScreen>
     if (!didPrepareInvite) {
       final message = widget.communitiesController.errorMessage;
       if (message != null) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(message)));
+        await showErrorDialog(context, message);
         widget.communitiesController.clearError();
       }
       return;
@@ -330,11 +327,6 @@ class _NewChatScreenState extends State<NewChatScreen>
                   return;
                 }
                 Navigator.of(dialogContext).pop();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Invite link copied for ${contact.name}.'),
-                  ),
-                );
               },
               child: const Text('Copy'),
             ),

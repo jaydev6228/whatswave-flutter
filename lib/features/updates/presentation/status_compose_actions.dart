@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../core/models/status_story.dart';
+import '../../shared/widgets/error_dialog.dart';
 import '../application/updates_controller.dart';
 import 'media_status_composer_screen.dart';
 import 'text_status_composer_screen.dart';
@@ -81,8 +82,6 @@ Future<void> openTextStatusComposer(
   if (!context.mounted || !didCreate) {
     return;
   }
-
-  _showStatusSharedFeedback(context, StatusStoryType.text);
 }
 
 Future<void> pickStatusMedia(
@@ -103,7 +102,7 @@ Future<void> pickStatusMedia(
 
     final statusType = _statusTypeForPickedMedia(pickedMedia);
     if (statusType == null) {
-      _showStatusError(
+      await _showStatusError(
         context,
         'That media type is not supported for status updates yet.',
       );
@@ -147,13 +146,11 @@ Future<void> pickStatusMedia(
     if (!context.mounted || !didCreate) {
       return;
     }
-
-    _showStatusSharedFeedback(context, statusType);
   } catch (_) {
     if (!context.mounted) {
       return;
     }
-    _showStatusError(
+    await _showStatusError(
       context,
       'We could not open your gallery right now. Please try again.',
     );
@@ -231,26 +228,6 @@ StatusStoryType? _statusTypeForPickedMedia(XFile media) {
   return null;
 }
 
-void _showStatusSharedFeedback(BuildContext context, StatusStoryType type) {
-  ScaffoldMessenger.of(context)
-    ..hideCurrentSnackBar()
-    ..showSnackBar(
-      SnackBar(
-        content: Text(
-          switch (type) {
-            StatusStoryType.text => 'Text status shared to your updates.',
-            StatusStoryType.photo => 'Photo shared to your updates.',
-            StatusStoryType.video => 'Video shared to your updates.',
-          },
-        ),
-      ),
-    );
-}
-
-void _showStatusError(BuildContext context, String message) {
-  ScaffoldMessenger.of(context)
-    ..hideCurrentSnackBar()
-    ..showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+Future<void> _showStatusError(BuildContext context, String message) {
+  return showErrorDialog(context, message);
 }

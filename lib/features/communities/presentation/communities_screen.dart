@@ -89,15 +89,19 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
                                 ),
                               ],
                             ),
-                            if (widget.controller.errorMessage != null) ...[
+                            if (widget.controller.errorMessage != null &&
+                                !widget.controller.hasLoaded) ...[
                               const SizedBox(height: 10),
-                              _InlineCommunitiesMessageCard(
+                              EmptyStateCard(
                                 key: const Key('communities_error_card'),
+                                dense: true,
+                                margin: EdgeInsets.zero,
+                                icon: Icons.error_outline_rounded,
+                                title: 'Could not load communities',
                                 message: widget.controller.errorMessage!,
-                                onRetry: !widget.controller.hasLoaded
-                                    ? widget.controller.loadOverview
-                                    : null,
-                                onDismiss: widget.controller.clearError,
+                                onRetry: widget.controller.loadOverview,
+                                retryKey:
+                                    const Key('communities_retry_button'),
                               ),
                             ],
                             const SizedBox(height: 12),
@@ -527,70 +531,6 @@ class _CommunitiesSectionLabel extends StatelessWidget {
   }
 }
 
-class _InlineCommunitiesMessageCard extends StatelessWidget {
-  const _InlineCommunitiesMessageCard({
-    required this.message,
-    required this.onDismiss,
-    this.onRetry,
-    super.key,
-  });
-
-  final String message;
-  final VoidCallback onDismiss;
-  final VoidCallback? onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.errorContainer.withValues(alpha: 0.34),
-        border: Border.all(
-          color: theme.colorScheme.error.withValues(alpha: 0.16),
-        ),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            Icons.error_outline_rounded,
-            size: 18,
-            color: theme.colorScheme.error,
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              message,
-              style: theme.textTheme.bodySmall,
-            ),
-          ),
-          if (onRetry != null) ...[
-            const SizedBox(width: 8),
-            TextButton(
-              key: const Key('communities_retry_button'),
-              onPressed: onRetry,
-              style: TextButton.styleFrom(
-                visualDensity: VisualDensity.compact,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-              ),
-              child: const Text('Retry'),
-            ),
-          ],
-          IconButton(
-            tooltip: 'Dismiss',
-            visualDensity: VisualDensity.compact,
-            onPressed: onDismiss,
-            icon: const Icon(Icons.close_rounded, size: 18),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _CreateCommunitySheet extends StatefulWidget {
   const _CreateCommunitySheet({required this.controller});
 
@@ -693,7 +633,6 @@ class _CreateCommunitySheetState extends State<_CreateCommunitySheet> {
                             ? null
                             : () async {
                                 final navigator = Navigator.of(context);
-                                final messenger = ScaffoldMessenger.of(context);
                                 final didCreate =
                                     await widget.controller.createCommunity(
                                   title: _nameController.text,
@@ -704,12 +643,6 @@ class _CreateCommunitySheetState extends State<_CreateCommunitySheet> {
                                 }
                                 if (didCreate) {
                                   navigator.pop();
-                                  messenger.showSnackBar(
-                                    const SnackBar(
-                                      content: Text(
-                                          'Community created successfully.'),
-                                    ),
-                                  );
                                 }
                               },
                         child: widget.controller.isCreatingCommunity

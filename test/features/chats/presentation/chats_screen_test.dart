@@ -597,7 +597,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Please retry this send.'), findsOneWidget);
-    expect(find.text('Message service offline'), findsOneWidget);
     expect(find.text('Not sent'), findsOneWidget);
     expect(find.text('Retry'), findsOneWidget);
 
@@ -606,7 +605,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Please retry this send.'), findsOneWidget);
-    expect(find.text('Message service offline'), findsNothing);
     expect(find.text('Not sent'), findsNothing);
     expect(find.text('Retry'), findsNothing);
   });

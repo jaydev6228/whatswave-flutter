@@ -234,21 +234,13 @@ class SettingsScreen extends StatelessWidget {
     BuildContext context,
     AppUser activeUser,
   ) async {
-    final didSave = await Navigator.of(context).push<bool>(
+    await Navigator.of(context).push<bool>(
       MaterialPageRoute<bool>(
         builder: (_) => ProfileSettingsScreen(
           authController: authController,
           currentUser: activeUser,
         ),
       ),
-    );
-
-    if (!context.mounted || didSave != true) {
-      return;
-    }
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Profile updated.')),
     );
   }
 

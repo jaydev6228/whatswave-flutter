@@ -7,6 +7,9 @@ class EmptyStateCard extends StatelessWidget {
     required this.message,
     this.dense = false,
     this.margin = const EdgeInsets.all(4),
+    this.onRetry,
+    this.retryLabel = 'Retry',
+    this.retryKey,
     super.key,
   });
 
@@ -15,6 +18,13 @@ class EmptyStateCard extends StatelessWidget {
   final String message;
   final bool dense;
   final EdgeInsetsGeometry margin;
+
+  /// When set, shows a retry action below the message -- for a load
+  /// failure standing in for the empty state, rather than a genuinely
+  /// empty list.
+  final VoidCallback? onRetry;
+  final String retryLabel;
+  final Key? retryKey;
 
   @override
   Widget build(BuildContext context) {
@@ -54,6 +64,24 @@ class EmptyStateCard extends StatelessWidget {
               message,
               style: subtitleStyle,
             ),
+            if (onRetry != null) ...[
+              SizedBox(height: verticalGap),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton(
+                  key: retryKey,
+                  onPressed: onRetry,
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 4,
+                      vertical: 4,
+                    ),
+                  ),
+                  child: Text(retryLabel),
+                ),
+              ),
+            ],
           ],
         ),
       ),

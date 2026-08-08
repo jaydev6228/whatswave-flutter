@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../../shared/widgets/avatar_badge.dart';
 import '../../shared/widgets/empty_state_card.dart';
+import '../../shared/widgets/error_dialog.dart';
 import '../application/communities_controller.dart';
 import '../domain/app_invite_link.dart';
 import '../domain/community_contact.dart';
@@ -201,7 +202,7 @@ class _CommunityDetailInviteSheetState
       return;
     }
 
-    _showErrorSnackBar();
+    await _showErrorDialogForController();
   }
 
   Future<void> _shareAppInvite(CommunityContact contact) async {
@@ -210,7 +211,7 @@ class _CommunityDetailInviteSheetState
       return;
     }
     if (!didPrepareInvite) {
-      _showErrorSnackBar();
+      await _showErrorDialogForController();
       return;
     }
 
@@ -223,15 +224,13 @@ class _CommunityDetailInviteSheetState
     await HapticFeedback.selectionClick();
   }
 
-  void _showErrorSnackBar() {
+  Future<void> _showErrorDialogForController() async {
     final message = widget.controller.errorMessage;
     if (message == null) {
       return;
     }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    await showErrorDialog(context, message);
     widget.controller.clearError();
   }
 

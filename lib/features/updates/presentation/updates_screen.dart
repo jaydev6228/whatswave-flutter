@@ -8,6 +8,7 @@ import '../../../app/theme/app_palette.dart';
 import '../../../core/models/status_story.dart';
 import '../../shared/widgets/avatar_badge.dart';
 import '../../shared/widgets/empty_state_card.dart';
+import '../../shared/widgets/error_dialog.dart';
 import '../application/updates_controller.dart';
 import 'media_status_composer_screen.dart';
 import 'story_viewer_launcher.dart';
@@ -218,8 +219,6 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
     if (!mounted || !didCreate) {
       return;
     }
-
-    _showStatusSharedFeedback(StatusStoryType.text);
   }
 
   Future<void> _pickStatusMedia() async {
@@ -237,7 +236,7 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
 
       final statusType = _statusTypeForPickedMedia(pickedMedia);
       if (statusType == null) {
-        _showStatusError(
+        await _showStatusError(
           'That media type is not supported for status updates yet.',
         );
         return;
@@ -280,13 +279,11 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
       if (!mounted || !didCreate) {
         return;
       }
-
-      _showStatusSharedFeedback(statusType);
     } catch (_) {
       if (!mounted) {
         return;
       }
-      _showStatusError(
+      await _showStatusError(
         'We could not open your gallery right now. Please try again.',
       );
     }
@@ -363,28 +360,8 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
     return null;
   }
 
-  void _showStatusSharedFeedback(StatusStoryType type) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(
-            switch (type) {
-              StatusStoryType.text => 'Text status shared to your updates.',
-              StatusStoryType.photo => 'Photo shared to your updates.',
-              StatusStoryType.video => 'Video shared to your updates.',
-            },
-          ),
-        ),
-      );
-  }
-
-  void _showStatusError(String message) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(content: Text(message)),
-      );
+  Future<void> _showStatusError(String message) {
+    return showErrorDialog(context, message);
   }
 
   Future<void> _openStoryViewer({required StatusStory story}) async {
@@ -433,17 +410,12 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
               return;
             }
             if (didDelete) {
-              ScaffoldMessenger.of(context)
-                ..hideCurrentSnackBar()
-                ..showSnackBar(
-                  const SnackBar(content: Text('Status removed.')),
-                );
               if (!(widget.controller.myStatus?.hasSegments ?? false) &&
                   sheetContext.mounted) {
                 Navigator.of(sheetContext).pop();
               }
             } else if (widget.controller.errorMessage != null) {
-              _showStatusError(widget.controller.errorMessage!);
+              await _showStatusError(widget.controller.errorMessage!);
             }
           },
           onClearAll: () async {
@@ -489,13 +461,8 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
               if (sheetContext.mounted) {
                 Navigator.of(sheetContext).pop();
               }
-              ScaffoldMessenger.of(context)
-                ..hideCurrentSnackBar()
-                ..showSnackBar(
-                  const SnackBar(content: Text('All statuses deleted.')),
-                );
             } else if (widget.controller.errorMessage != null) {
-              _showStatusError(widget.controller.errorMessage!);
+              await _showStatusError(widget.controller.errorMessage!);
             }
           },
         );

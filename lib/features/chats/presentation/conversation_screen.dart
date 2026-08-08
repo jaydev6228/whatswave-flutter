@@ -12,6 +12,7 @@ import '../../calls/domain/call_contact.dart';
 import '../../calls/domain/call_history_entry.dart';
 import '../../calls/presentation/call_flow.dart';
 import '../../shared/widgets/avatar_badge.dart';
+import '../../shared/widgets/error_dialog.dart';
 import '../../shared/widgets/liquid_glass.dart';
 import '../../updates/application/updates_controller.dart';
 import '../../updates/presentation/story_viewer_launcher.dart';
@@ -275,14 +276,6 @@ class _ConversationScreenState extends State<ConversationScreen> {
             bottom: false,
             child: Column(
               children: [
-                if (widget.controller.errorMessage != null)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
-                    child: _InlineConversationError(
-                      message: widget.controller.errorMessage!,
-                      onDismiss: widget.controller.clearError,
-                    ),
-                  ),
                 Expanded(
                   child: DecoratedBox(
                     decoration: BoxDecoration(
@@ -518,10 +511,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
         mode: LaunchMode.externalApplication,
       );
       if (!didLaunch && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('We could not open Maps for that location.'),
-          ),
+        await showErrorDialog(
+          context,
+          'We could not open Maps for that location.',
         );
       }
       return;
@@ -1319,59 +1311,6 @@ class _AttachmentActionData {
   final Color color;
   final String label;
   final ChatAttachmentType type;
-}
-
-class _InlineConversationError extends StatelessWidget {
-  const _InlineConversationError({
-    required this.message,
-    required this.onDismiss,
-  });
-
-  final String message;
-  final VoidCallback onDismiss;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.errorContainer.withValues(alpha: 0.38),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: theme.colorScheme.error.withValues(alpha: 0.14),
-        ),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            Icons.error_outline_rounded,
-            size: 18,
-            color: theme.colorScheme.error,
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              message,
-              style: theme.textTheme.bodySmall,
-            ),
-          ),
-          const SizedBox(width: 8),
-          TextButton(
-            onPressed: onDismiss,
-            style: TextButton.styleFrom(
-              visualDensity: VisualDensity.compact,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-            ),
-            child: const Text('Dismiss'),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 class _AnimatedMessageEntry extends StatefulWidget {

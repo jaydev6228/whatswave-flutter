@@ -8,6 +8,7 @@ import '../../calls/application/calls_controller.dart';
 import '../../communities/application/communities_controller.dart';
 import '../../shared/widgets/avatar_badge.dart';
 import '../../shared/widgets/empty_state_card.dart';
+import '../../shared/widgets/error_dialog.dart';
 import '../../shared/widgets/liquid_glass.dart';
 import '../../updates/application/updates_controller.dart';
 import '../../updates/presentation/status_compose_actions.dart';
@@ -262,14 +263,17 @@ class _ChatsScreenState extends State<ChatsScreen> {
                           archivedCount: widget.controller.archivedCount,
                           onTap: _openArchivedChats,
                         ),
-                        if (widget.controller.errorMessage != null) ...[
+                        if (widget.controller.errorMessage != null &&
+                            !widget.controller.hasLoaded) ...[
                           const SizedBox(height: 8),
-                          _InlineFeedbackCard(
+                          EmptyStateCard(
+                            dense: true,
+                            margin: EdgeInsets.zero,
+                            icon: Icons.error_outline_rounded,
+                            title: 'Could not load chats',
                             message: widget.controller.errorMessage!,
-                            actionLabel: widget.controller.hasLoaded
-                                ? 'Retry'
-                                : 'Reload',
-                            onAction: widget.controller.loadThreads,
+                            onRetry: widget.controller.loadThreads,
+                            retryLabel: 'Reload',
                           ),
                         ],
                       ],
@@ -373,7 +377,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
       name: thread.name,
     );
     if (story == null) {
-      _showComingSoon(
+      await _showComingSoon(
         context,
         'That status is no longer available.',
       );
@@ -406,12 +410,8 @@ class _ChatsScreenState extends State<ChatsScreen> {
     }
   }
 
-  void _showComingSoon(BuildContext context, String message) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(content: Text(message)),
-      );
+  Future<void> _showComingSoon(BuildContext context, String message) {
+    return showErrorDialog(context, message, title: 'Unavailable');
   }
 
   bool _resolveTypingIndicatorAnimation() {
@@ -936,62 +936,6 @@ class _SwipeActionBackground extends StatelessWidget {
   }
 }
 
-class _InlineFeedbackCard extends StatelessWidget {
-  const _InlineFeedbackCard({
-    required this.message,
-    required this.actionLabel,
-    required this.onAction,
-  });
-
-  final String message;
-  final String actionLabel;
-  final Future<void> Function() onAction;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.errorContainer.withValues(alpha: 0.32),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: theme.colorScheme.error.withValues(alpha: 0.18),
-        ),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            Icons.error_outline_rounded,
-            size: 18,
-            color: theme.colorScheme.error,
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              message,
-              style: theme.textTheme.bodySmall,
-            ),
-          ),
-          const SizedBox(width: 8),
-          TextButton(
-            onPressed: () {
-              onAction();
-            },
-            style: TextButton.styleFrom(
-              visualDensity: VisualDensity.compact,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-            ),
-            child: Text(actionLabel),
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 
 class _ChatTile extends StatelessWidget {

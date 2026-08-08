@@ -7,6 +7,7 @@ import 'package:video_player/video_player.dart';
 import '../../../app/theme/app_palette.dart';
 import '../../../core/models/status_story.dart';
 import '../../shared/widgets/avatar_badge.dart';
+import '../../shared/widgets/error_dialog.dart';
 import 'widgets/status_media_decoration_overlay.dart';
 import 'widgets/status_media_source.dart';
 import 'widgets/status_story_media_surface.dart';
@@ -567,11 +568,10 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
     if (!result.didDelete) {
       final errorMessage =
           result.errorMessage ?? 'We could not delete that status right now.';
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          SnackBar(content: Text(errorMessage)),
-        );
+      await showErrorDialog(context, errorMessage);
+      if (!mounted) {
+        return;
+      }
       _resumePlaybackIfNeeded(shouldResume: shouldResumeAfterDialog);
       return;
     }

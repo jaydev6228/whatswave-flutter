@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../shared/widgets/error_dialog.dart';
 import '../application/calls_controller.dart';
 import '../domain/call_contact.dart';
 import '../domain/call_history_entry.dart';
@@ -52,8 +53,6 @@ Future<void> _presentCallExperienceIfNeeded(
     return;
   }
 
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(content: Text(message)),
-  );
+  showErrorDialog(context, message);
   controller.clearError();
 }

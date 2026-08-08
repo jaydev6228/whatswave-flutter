@@ -10,6 +10,7 @@ import '../../../core/integrations/integration_hub_controller.dart';
 import '../../calls/presentation/call_signaling_test_screen.dart';
 import '../../calls/presentation/livekit_test_screen.dart';
 import '../../shared/widgets/empty_state_card.dart';
+import '../../shared/widgets/error_dialog.dart';
 import '../../shared/widgets/section_heading.dart';
 
 class BackendSyncScreen extends StatefulWidget {
@@ -33,26 +34,21 @@ class _BackendSyncScreenState extends State<BackendSyncScreen> {
 
   Future<void> _copyIdToken() async {
     final user = FirebaseAuth.instance.currentUser;
-    final messenger = ScaffoldMessenger.of(context);
     if (user == null) {
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Not signed in.')),
-      );
+      await showErrorDialog(context, 'Not signed in.');
       return;
     }
 
     final token = await user.getIdToken();
+    if (!mounted) {
+      return;
+    }
     if (token == null) {
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Could not fetch an ID token.')),
-      );
+      await showErrorDialog(context, 'Could not fetch an ID token.');
       return;
     }
 
     await Clipboard.setData(ClipboardData(text: token));
-    messenger.showSnackBar(
-      const SnackBar(content: Text('ID token copied to clipboard.')),
-    );
   }
 
   @override

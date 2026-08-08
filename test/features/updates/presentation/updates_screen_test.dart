@@ -226,7 +226,6 @@ void main() {
     await tester.tap(find.byKey(Key('updates_delete_status_$firstSegmentId')));
     await tester.pumpAndSettle();
 
-    expect(find.text('Status removed.'), findsOneWidget);
     expect(find.text('Delete all (1)'), findsOneWidget);
     expect(controller.myStatus?.totalSegments, 1);
     expect(
@@ -261,7 +260,6 @@ void main() {
     await tester.tap(find.text('Delete all'));
     await tester.pumpAndSettle();
 
-    expect(find.text('All statuses deleted.'), findsOneWidget);
     expect(
       find.byKey(const Key('updates_my_status_manage_button')),
       findsNothing,

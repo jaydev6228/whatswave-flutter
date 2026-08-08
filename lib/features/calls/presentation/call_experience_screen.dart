@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:livekit_client/livekit_client.dart' as lk;
 
 import '../../../app/theme/app_palette.dart';
+import '../../shared/widgets/error_dialog.dart';
 import '../../shared/widgets/liquid_glass.dart';
 import '../application/calls_controller.dart';
 import '../domain/call_contact.dart';
@@ -1782,9 +1783,7 @@ void _showControllerErrorSnackBar(
     return;
   }
 
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(content: Text(message)),
-  );
+  showErrorDialog(context, message);
   controller.clearError();
 }
 
