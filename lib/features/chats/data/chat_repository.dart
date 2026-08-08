@@ -57,6 +57,16 @@ abstract class ChatRepository {
     required List<ChatAttachment> attachments,
     String? caption,
   });
+
+  /// Sets (or replaces) the caller's reaction on [messageId] to [emoji]. If
+  /// the caller already reacted with the same [emoji], removes it instead
+  /// (a toggle) -- matching how tapping an already-selected reaction in the
+  /// picker tray, or tapping your own reaction badge, clears it.
+  Future<List<ChatThread>> toggleMessageReaction({
+    required String threadId,
+    required String messageId,
+    required String emoji,
+  });
 }
 
 class ChatRepositoryException implements Exception {

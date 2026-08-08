@@ -328,6 +328,22 @@ class TrackedChatRepository implements ChatRepository {
     }
   }
 
+  // Not wrapped with sync-success/failure tracking like the other mutating
+  // methods here -- reacting is a lightweight, frequent interaction, not a
+  // content-sync event worth surfacing in the integration hub's log.
+  @override
+  Future<List<ChatThread>> toggleMessageReaction({
+    required String threadId,
+    required String messageId,
+    required String emoji,
+  }) {
+    return _delegate.toggleMessageReaction(
+      threadId: threadId,
+      messageId: messageId,
+      emoji: emoji,
+    );
+  }
+
   @override
   Future<List<ChatThread>> sendAttachmentMessage({
     required String threadId,

@@ -11,6 +11,7 @@ class ChatMessage {
     this.text = '',
     this.attachments = const <ChatAttachment>[],
     this.deliveryState = MessageDeliveryState.delivered,
+    this.reactions = const <String, String>{},
   });
 
   final String id;
@@ -21,8 +22,13 @@ class ChatMessage {
   final List<ChatAttachment> attachments;
   final MessageDeliveryState deliveryState;
 
+  /// Uid -> emoji, one reaction per user (matches the per-user-map
+  /// convention this codebase already uses for things like unread counts).
+  final Map<String, String> reactions;
+
   bool get hasText => text.trim().isNotEmpty;
   bool get hasAttachments => attachments.isNotEmpty;
+  bool get hasReactions => reactions.isNotEmpty;
 
   ChatMessage copyWith({
     String? id,
@@ -32,6 +38,7 @@ class ChatMessage {
     String? text,
     List<ChatAttachment>? attachments,
     MessageDeliveryState? deliveryState,
+    Map<String, String>? reactions,
   }) {
     return ChatMessage(
       id: id ?? this.id,
@@ -41,6 +48,7 @@ class ChatMessage {
       text: text ?? this.text,
       attachments: attachments ?? this.attachments,
       deliveryState: deliveryState ?? this.deliveryState,
+      reactions: reactions ?? this.reactions,
     );
   }
 }

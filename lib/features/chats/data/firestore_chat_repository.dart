@@ -281,6 +281,35 @@ class FirestoreChatRepository implements ChatRepository {
     return fetchThreads();
   }
 
+  @override
+  Future<List<ChatThread>> toggleMessageReaction({
+    required String threadId,
+    required String messageId,
+    required String emoji,
+  }) async {
+    final uid = _requireCurrentUid;
+    final messageRef =
+        _threadsRef.doc(threadId).collection('messages').doc(messageId);
+
+    try {
+      await _firestore.runTransaction((transaction) async {
+        final snapshot = await transaction.get(messageRef);
+        final currentReactions =
+            (snapshot.data()?['reactions'] as Map<String, dynamic>?) ??
+                const <String, dynamic>{};
+        final isRemoving = currentReactions[uid] == emoji;
+        transaction.update(messageRef, {
+          'reactions.$uid': isRemoving ? FieldValue.delete() : emoji,
+        });
+      });
+    } on FirebaseException catch (e) {
+      throw ChatRepositoryException(
+        e.message ?? 'We could not update that reaction right now.',
+      );
+    }
+    return fetchThreads();
+  }
+
   Future<void> _sendMessage({
     required String threadId,
     required String text,
@@ -419,6 +448,8 @@ class FirestoreChatRepository implements ChatRepository {
     final data = doc.data();
     final sentAt = data['sentAt'];
     final attachmentsRaw = (data['attachments'] as List<dynamic>?) ?? const [];
+    final reactionsRaw =
+        (data['reactions'] as Map<String, dynamic>?) ?? const {};
 
     return ChatMessage(
       id: doc.id,
@@ -431,6 +462,9 @@ class FirestoreChatRepository implements ChatRepository {
           .map(_attachmentFromMap)
           .toList(growable: false),
       deliveryState: _deliveryStateFromName(data['deliveryState'] as String?),
+      reactions: reactionsRaw.map(
+        (uid, emoji) => MapEntry(uid, emoji as String),
+      ),
     );
   }
 

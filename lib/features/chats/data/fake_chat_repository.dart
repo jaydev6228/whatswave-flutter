@@ -203,6 +203,57 @@ class FakeChatRepository implements ChatRepository {
     return _deepCopyThreads(_threads);
   }
 
+  /// The fake repository has no real multi-user identity system (messages
+  /// only carry an `isFromCurrentUser` flag, not a uid), so it uses a
+  /// single fixed key for "this device's own reaction" -- fine for demo
+  /// data, which is always a single-perspective view.
+  static const String _currentUserId = 'me';
+
+  @override
+  Future<List<ChatThread>> toggleMessageReaction({
+    required String threadId,
+    required String messageId,
+    required String emoji,
+  }) async {
+    await _wait();
+    final thread = _threadForId(threadId);
+
+    _threads = _threads
+        .map(
+          (entry) => entry.id == thread.id
+              ? entry.copyWith(
+                  messages: entry.messages
+                      .map(
+                        (message) => message.id == messageId
+                            ? message.copyWith(
+                                reactions: _toggledReactions(
+                                  message.reactions,
+                                  emoji,
+                                ),
+                              )
+                            : message,
+                      )
+                      .toList(growable: false),
+                )
+              : entry,
+        )
+        .toList(growable: false);
+    return _deepCopyThreads(_threads);
+  }
+
+  Map<String, String> _toggledReactions(
+    Map<String, String> current,
+    String emoji,
+  ) {
+    final next = Map<String, String>.of(current);
+    if (next[_currentUserId] == emoji) {
+      next.remove(_currentUserId);
+    } else {
+      next[_currentUserId] = emoji;
+    }
+    return Map<String, String>.unmodifiable(next);
+  }
+
   String _avatarLabelForName(String name) {
     final parts =
         name.split(RegExp(r'\s+')).where((part) => part.isNotEmpty).toList();
@@ -261,6 +312,7 @@ class FakeChatRepository implements ChatRepository {
       attachments: List<ChatAttachment>.unmodifiable(
         message.attachments.map((attachment) => attachment.copyWith()),
       ),
+      reactions: Map<String, String>.unmodifiable(message.reactions),
     );
   }
 }

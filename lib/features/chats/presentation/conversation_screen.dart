@@ -21,6 +21,7 @@ import '../application/chats_controller.dart';
 import '../domain/chat_attachment.dart';
 import '../domain/chat_message.dart';
 import '../domain/chat_thread.dart';
+import '../domain/message_reaction.dart';
 import 'attachment_viewer_screen.dart';
 
 class ConversationScreen extends StatefulWidget {
@@ -336,6 +337,13 @@ class _ConversationScreenState extends State<ConversationScreen> {
                                   _handleAttachmentPreviewTap(
                                     attachment,
                                     threadName: thread.name,
+                                  );
+                                },
+                                onReactionTap: (emoji) {
+                                  widget.controller.toggleMessageReaction(
+                                    threadId: thread.id,
+                                    messageId: message.id,
+                                    emoji: emoji,
                                   );
                                 },
                               ),
@@ -1356,12 +1364,14 @@ class _MessageBubble extends StatelessWidget {
     required this.thread,
     required this.message,
     required this.onAttachmentTap,
+    required this.onReactionTap,
     this.onRetryTap,
   });
 
   final ChatThread thread;
   final ChatMessage message;
   final ValueChanged<ChatAttachment> onAttachmentTap;
+  final ValueChanged<String> onReactionTap;
   final VoidCallback? onRetryTap;
 
   @override
@@ -1388,120 +1398,214 @@ class _MessageBubble extends StatelessWidget {
 
     return Align(
       alignment: alignment,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 320),
-        child: Container(
-          decoration: BoxDecoration(
-            color: bubbleColor,
-            border: Border.all(
-              color: isFailed
-                  ? theme.colorScheme.error.withValues(alpha: 0.22)
-                  : isMine
-                      ? theme.colorScheme.primary.withValues(alpha: 0.14)
-                      : theme.colorScheme.outlineVariant
-                          .withValues(alpha: 0.18),
-            ),
-            borderRadius: BorderRadius.only(
-              topLeft: const Radius.circular(20),
-              topRight: const Radius.circular(20),
-              bottomLeft: Radius.circular(isMine ? 20 : 6),
-              bottomRight: Radius.circular(isMine ? 6 : 20),
-            ),
-          ),
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (thread.isGroup && !isMine)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Text(
-                    message.senderName,
-                    style: theme.textTheme.labelLarge?.copyWith(
-                      color: thread.accentColor,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
-              if (message.hasAttachments) ...[
-                _buildAttachmentsContent(context),
-                const SizedBox(height: 10),
-              ],
-              if (message.hasText)
-                Text(
-                  message.text,
-                  style: theme.textTheme.bodyLarge?.copyWith(
-                    color: contentColor,
-                    height: 1.36,
-                  ),
-                ),
-              const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    _timeLabelFor(message.sentAt),
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: contentColor.withValues(alpha: 0.75),
-                    ),
-                  ),
-                  if (isMine) ...[
-                    const SizedBox(width: 6),
-                    Icon(
-                      _deliveryIcon(message.deliveryState),
-                      size: 16,
-                      color: switch (message.deliveryState) {
-                        MessageDeliveryState.read => AppPalette.green,
-                        MessageDeliveryState.failed => theme.colorScheme.error,
-                        _ => contentColor.withValues(alpha: 0.78),
-                      },
-                    ),
-                  ],
-                ],
-              ),
-              if (isMine && isFailed) ...[
-                const SizedBox(height: 8),
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    Icon(
-                      Icons.error_outline_rounded,
-                      size: 16,
-                      color: theme.colorScheme.error,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      'Not sent',
-                      style: theme.textTheme.labelMedium?.copyWith(
-                        color: theme.colorScheme.error,
-                        fontWeight: FontWeight.w700,
+      // A Builder here (rather than reading `context` from this outer
+      // `build`) matters: this method's own `context` resolves through
+      // `Align` first, whose render box stretches to the full row width --
+      // using it for `_showReactionTray`'s position math would size the
+      // tray/badge off the whole row instead of the actual bubble.
+      child: Builder(
+        builder: (bubbleContext) {
+          return GestureDetector(
+            onLongPress: () => _showReactionTray(bubbleContext, isMine: isMine),
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 320),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: bubbleColor,
+                      border: Border.all(
+                        color: isFailed
+                            ? theme.colorScheme.error.withValues(alpha: 0.22)
+                            : isMine
+                                ? theme.colorScheme.primary
+                                    .withValues(alpha: 0.14)
+                                : theme.colorScheme.outlineVariant
+                                    .withValues(alpha: 0.18),
+                      ),
+                      borderRadius: BorderRadius.only(
+                        topLeft: const Radius.circular(20),
+                        topRight: const Radius.circular(20),
+                        bottomLeft: Radius.circular(isMine ? 20 : 6),
+                        bottomRight: Radius.circular(isMine ? 6 : 20),
                       ),
                     ),
-                    const SizedBox(width: 8),
-                    TextButton(
-                      key: Key('conversation_retry_button_${message.id}'),
-                      onPressed: onRetryTap,
-                      style: TextButton.styleFrom(
-                        foregroundColor: theme.colorScheme.error,
-                        minimumSize: Size.zero,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 6,
+                    padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (thread.isGroup && !isMine)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: Text(
+                              message.senderName,
+                              style: theme.textTheme.labelLarge?.copyWith(
+                                color: thread.accentColor,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                        if (message.hasAttachments) ...[
+                          _buildAttachmentsContent(context),
+                          const SizedBox(height: 10),
+                        ],
+                        if (message.hasText)
+                          Text(
+                            message.text,
+                            style: theme.textTheme.bodyLarge?.copyWith(
+                              color: contentColor,
+                              height: 1.36,
+                            ),
+                          ),
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              _timeLabelFor(message.sentAt),
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: contentColor.withValues(alpha: 0.75),
+                              ),
+                            ),
+                            if (isMine) ...[
+                              const SizedBox(width: 6),
+                              Icon(
+                                _deliveryIcon(message.deliveryState),
+                                size: 16,
+                                color: switch (message.deliveryState) {
+                                  MessageDeliveryState.read => AppPalette.green,
+                                  MessageDeliveryState.failed =>
+                                    theme.colorScheme.error,
+                                  _ => contentColor.withValues(alpha: 0.78),
+                                },
+                              ),
+                            ],
+                          ],
                         ),
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                      child: const Text('Retry'),
+                        if (isMine && isFailed) ...[
+                          const SizedBox(height: 8),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              Icon(
+                                Icons.error_outline_rounded,
+                                size: 16,
+                                color: theme.colorScheme.error,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Not sent',
+                                style: theme.textTheme.labelMedium?.copyWith(
+                                  color: theme.colorScheme.error,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              TextButton(
+                                key: Key(
+                                    'conversation_retry_button_${message.id}'),
+                                onPressed: onRetryTap,
+                                style: TextButton.styleFrom(
+                                  foregroundColor: theme.colorScheme.error,
+                                  minimumSize: Size.zero,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 6,
+                                  ),
+                                  tapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
+                                ),
+                                child: const Text('Retry'),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ],
                     ),
-                  ],
+                  ),
                 ),
+                if (message.hasReactions)
+                  Positioned(
+                    bottom: -12,
+                    right: isMine ? 8 : null,
+                    left: isMine ? null : 8,
+                    child: _ReactionBadge(reactions: message.reactions),
+                  ),
               ],
-            ],
-          ),
-        ),
+            ),
+          );
+        },
       ),
     );
+  }
+
+  Future<void> _showReactionTray(
+    BuildContext bubbleContext, {
+    required bool isMine,
+  }) async {
+    final renderBox = bubbleContext.findRenderObject() as RenderBox?;
+    if (renderBox == null || !renderBox.attached) {
+      return;
+    }
+    final bubbleTopLeft = renderBox.localToGlobal(Offset.zero);
+    final bubbleSize = renderBox.size;
+    final mediaQuery = MediaQuery.of(bubbleContext);
+    final screenSize = mediaQuery.size;
+
+    const trayHeight = 56.0;
+    const trayWidth = 268.0;
+    const trayMargin = 10.0;
+    final showAbove =
+        bubbleTopLeft.dy - trayHeight - trayMargin > mediaQuery.padding.top + 8;
+    final trayTop = showAbove
+        ? bubbleTopLeft.dy - trayHeight - trayMargin
+        : bubbleTopLeft.dy + bubbleSize.height + trayMargin;
+    final rawTrayLeft = isMine
+        ? bubbleTopLeft.dx + bubbleSize.width - trayWidth
+        : bubbleTopLeft.dx;
+    final trayLeft =
+        rawTrayLeft.clamp(12.0, screenSize.width - trayWidth - 12.0);
+
+    final selectedEmoji = await showGeneralDialog<String>(
+      context: bubbleContext,
+      barrierLabel: 'Reactions',
+      barrierColor: Colors.black26,
+      transitionDuration: const Duration(milliseconds: 160),
+      pageBuilder: (context, _, __) {
+        return SafeArea(
+          child: Stack(
+            children: [
+              Positioned(
+                left: trayLeft,
+                top: trayTop,
+                child: _ReactionTray(
+                  onSelected: (emoji) => Navigator.of(context).pop(emoji),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+      transitionBuilder: (context, animation, _, child) {
+        final curved =
+            CurvedAnimation(parent: animation, curve: Curves.easeOutCubic);
+        return FadeTransition(
+          opacity: curved,
+          child: ScaleTransition(
+            scale: Tween<double>(begin: 0.9, end: 1).animate(curved),
+            alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
+            child: child,
+          ),
+        );
+      },
+    );
+
+    if (selectedEmoji != null) {
+      onReactionTap(selectedEmoji);
+    }
   }
 
   /// Photo/video attachments render full-bleed (a grid when more than one
@@ -1556,6 +1660,78 @@ class _MessageBubble extends StatelessWidget {
       MessageDeliveryState.read => Icons.done_all_rounded,
       MessageDeliveryState.failed => Icons.error_outline_rounded,
     };
+  }
+}
+
+/// The floating glass reaction picker shown on long-press, in the style of
+/// iMessage's Tapback tray -- a horizontal row of quick-react emojis
+/// pinned near the bubble rather than WhatsApp's flatter below-bubble row.
+class _ReactionTray extends StatelessWidget {
+  const _ReactionTray({required this.onSelected});
+
+  final ValueChanged<String> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return LiquidGlassSurface(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (final emoji in kQuickReactionEmojis)
+            Material(
+              color: Colors.transparent,
+              shape: const CircleBorder(),
+              child: InkWell(
+                key: Key('reaction_option_$emoji'),
+                customBorder: const CircleBorder(),
+                onTap: () => onSelected(emoji),
+                child: Padding(
+                  padding: const EdgeInsets.all(6),
+                  child: Text(emoji, style: const TextStyle(fontSize: 24)),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The small badge overlapping a bubble's bottom corner once it has at
+/// least one reaction -- shows every distinct emoji used (deduped; several
+/// people reacting with the same emoji still shows it once).
+class _ReactionBadge extends StatelessWidget {
+  const _ReactionBadge({required this.reactions});
+
+  final Map<String, String> reactions;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final distinctEmojis = reactions.values.toSet().toList(growable: false);
+
+    return LiquidGlassSurface(
+      blurred: false,
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (final emoji in distinctEmojis)
+            Text(emoji, style: const TextStyle(fontSize: 13)),
+          if (reactions.length > 1) ...[
+            const SizedBox(width: 3),
+            Text(
+              '${reactions.length}',
+              style: theme.textTheme.labelSmall?.copyWith(
+                fontWeight: FontWeight.w700,
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.72),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
   }
 }
 
@@ -1621,9 +1797,8 @@ class _MediaAttachmentTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final localPath = attachment.localMediaPath;
     final isPhoto = attachment.type == ChatAttachmentType.photo;
-    final hasRealPhoto = isPhoto &&
-        localPath != null &&
-        statusMediaSourceExists(localPath);
+    final hasRealPhoto =
+        isPhoto && localPath != null && statusMediaSourceExists(localPath);
     final resolvedAspectRatio =
         (aspectRatio ?? attachment.aspectRatio).clamp(0.7, 1.5);
 
@@ -1740,8 +1915,8 @@ class _AttachmentPreviewCard extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurface
-                            .withValues(alpha: 0.68),
+                        color:
+                            theme.colorScheme.onSurface.withValues(alpha: 0.68),
                       ),
                     ),
                   ],

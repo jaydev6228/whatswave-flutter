@@ -384,6 +384,23 @@ class ChatsController extends ChangeNotifier {
     );
   }
 
+  Future<bool> toggleMessageReaction({
+    required String threadId,
+    required String messageId,
+    required String emoji,
+  }) {
+    return _runThreadMutation(
+      threadId,
+      () => _repository.toggleMessageReaction(
+        threadId: threadId,
+        messageId: messageId,
+        emoji: emoji,
+      ),
+      fallbackError: 'We could not update that reaction right now.',
+      clearSearch: false,
+    );
+  }
+
   String? _locationFailureMessage;
   String? get locationFailureMessage => _locationFailureMessage;
 

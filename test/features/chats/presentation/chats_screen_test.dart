@@ -232,6 +232,40 @@ void main() {
     expect(find.text('Tap to open in Maps'), findsOneWidget);
   });
 
+  testWidgets('long-pressing a bubble reacts, and reacting again removes it',
+      (tester) async {
+    await _pumpChatsScreen(
+      tester,
+      device: iphoneProProfile,
+      controller: ChatsController(
+        repository: FakeChatRepository(latency: Duration.zero),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('chat_tile_ava-patel')));
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.text(
+      'The onboarding shots look good. The motion pacing feels much cleaner.',
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('reaction_option_❤️')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('reaction_option_❤️')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('❤️'), findsOneWidget);
+
+    await tester.longPress(find.text(
+      'The onboarding shots look good. The motion pacing feels much cleaner.',
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('reaction_option_❤️')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('❤️'), findsNothing);
+  });
+
   testWidgets('keeps the attachment sheet overflow-free on compact phones',
       (tester) async {
     await _pumpChatsScreen(
@@ -716,6 +750,15 @@ class _FailingChatRepository implements ChatRepository {
   }
 
   @override
+  Future<List<Never>> toggleMessageReaction({
+    required String threadId,
+    required String messageId,
+    required String emoji,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
   Future<List<Never>> sendTextMessage({
     required String threadId,
     required String text,
@@ -785,6 +828,18 @@ class _FlakySendChatRepository implements ChatRepository {
         threadId: threadId,
         attachments: attachments,
         caption: caption,
+      );
+
+  @override
+  Future<List<ChatThread>> toggleMessageReaction({
+    required String threadId,
+    required String messageId,
+    required String emoji,
+  }) =>
+      _delegate.toggleMessageReaction(
+        threadId: threadId,
+        messageId: messageId,
+        emoji: emoji,
       );
 
   @override

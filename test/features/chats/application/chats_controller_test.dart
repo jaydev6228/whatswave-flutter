@@ -112,6 +112,58 @@ void main() {
           'I will send the polished handoff in five.');
     });
 
+    test('toggles a message reaction on, then off again', () async {
+      await controller.loadThreads();
+      final messageId = controller.threadById('ava-patel')!.messages.first.id;
+
+      await controller.toggleMessageReaction(
+        threadId: 'ava-patel',
+        messageId: messageId,
+        emoji: '❤️',
+      );
+
+      var message = controller
+          .threadById('ava-patel')!
+          .messages
+          .firstWhere((entry) => entry.id == messageId);
+      expect(message.hasReactions, isTrue);
+      expect(message.reactions.values, contains('❤️'));
+
+      await controller.toggleMessageReaction(
+        threadId: 'ava-patel',
+        messageId: messageId,
+        emoji: '❤️',
+      );
+
+      message = controller
+          .threadById('ava-patel')!
+          .messages
+          .firstWhere((entry) => entry.id == messageId);
+      expect(message.hasReactions, isFalse);
+    });
+
+    test('replaces an existing reaction with a different emoji', () async {
+      await controller.loadThreads();
+      final messageId = controller.threadById('ava-patel')!.messages.first.id;
+
+      await controller.toggleMessageReaction(
+        threadId: 'ava-patel',
+        messageId: messageId,
+        emoji: '👍',
+      );
+      await controller.toggleMessageReaction(
+        threadId: 'ava-patel',
+        messageId: messageId,
+        emoji: '😮',
+      );
+
+      final message = controller
+          .threadById('ava-patel')!
+          .messages
+          .firstWhere((entry) => entry.id == messageId);
+      expect(message.reactions.values, ['😮']);
+    });
+
     test('surfaces send failures and keeps the existing thread history intact',
         () async {
       final failingController = ChatsController(
@@ -299,6 +351,15 @@ class _FailingChatRepository implements ChatRepository {
   }
 
   @override
+  Future<List<ChatThread>> toggleMessageReaction({
+    required String threadId,
+    required String messageId,
+    required String emoji,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
   Future<List<ChatThread>> sendTextMessage({
     required String threadId,
     required String text,
@@ -368,6 +429,18 @@ class _SendFailingChatRepository implements ChatRepository {
   }) {
     throw const ChatRepositoryException('Message service offline');
   }
+
+  @override
+  Future<List<ChatThread>> toggleMessageReaction({
+    required String threadId,
+    required String messageId,
+    required String emoji,
+  }) =>
+      _delegate.toggleMessageReaction(
+        threadId: threadId,
+        messageId: messageId,
+        emoji: emoji,
+      );
 
   @override
   Future<List<ChatThread>> sendTextMessage({
