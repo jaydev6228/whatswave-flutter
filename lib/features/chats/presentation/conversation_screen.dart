@@ -1008,14 +1008,57 @@ class _ComposerBar extends StatelessWidget {
       }
 
       FocusScope.of(context).unfocus();
-      final selection = await showModalBottomSheet<ChatAttachmentType>(
+      final renderBox =
+          composerBarKey.currentContext?.findRenderObject() as RenderBox?;
+      if (renderBox == null || !renderBox.attached) {
+        return;
+      }
+      final composerTopLeft = renderBox.localToGlobal(Offset.zero);
+
+      const popupWidth = 216.0;
+      // 5 rows + 4 hairline dividers -- an estimate (matching the reaction
+      // tray's approach), not a measured layout. Positioning from the
+      // composer's own top (localToGlobal space) rather than subtracting
+      // from MediaQuery.size.height avoids a coordinate-space mismatch
+      // when the keyboard is open (view insets shrink MediaQuery.size but
+      // not the RenderBox's global offset space).
+      const popupHeight = 240.0;
+      const popupMargin = 10.0;
+      final popupTop = composerTopLeft.dy - popupHeight - popupMargin;
+
+      final selection = await showGeneralDialog<ChatAttachmentType>(
         context: context,
-        showDragHandle: true,
-        useSafeArea: true,
-        isScrollControlled: true,
-        builder: (sheetContext) => _AttachmentPickerSheet(
-          onSelected: (type) => Navigator.of(sheetContext).pop(type),
-        ),
+        barrierLabel: 'Attach',
+        barrierColor: Colors.black26,
+        transitionDuration: const Duration(milliseconds: 160),
+        pageBuilder: (dialogContext, _, __) {
+          return SafeArea(
+            child: Stack(
+              children: [
+                Positioned(
+                  left: 12,
+                  top: popupTop,
+                  child: _AttachmentPickerPopup(
+                    width: popupWidth,
+                    onSelected: (type) => Navigator.of(dialogContext).pop(type),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+        transitionBuilder: (context, animation, _, child) {
+          final curved =
+              CurvedAnimation(parent: animation, curve: Curves.easeOutCubic);
+          return FadeTransition(
+            opacity: curved,
+            child: ScaleTransition(
+              scale: Tween<double>(begin: 0.9, end: 1).animate(curved),
+              alignment: Alignment.bottomLeft,
+              child: child,
+            ),
+          );
+        },
       );
 
       if (selection != null) {
@@ -1142,15 +1185,19 @@ class _ComposerIconButton extends StatelessWidget {
   }
 }
 
-class _AttachmentPickerSheet extends StatelessWidget {
-  const _AttachmentPickerSheet({required this.onSelected});
+/// A compact floating glass menu (UIMenu-style), anchored just above the
+/// composer's attachment button -- replaces the previous full-width
+/// [showModalBottomSheet], which looked sparse and padded with only 5
+/// options in it.
+class _AttachmentPickerPopup extends StatelessWidget {
+  const _AttachmentPickerPopup({required this.width, required this.onSelected});
 
+  final double width;
   final ValueChanged<ChatAttachmentType> onSelected;
 
   @override
   Widget build(BuildContext context) {
-    final isCompactHeight = MediaQuery.sizeOf(context).height <= 700;
-    final horizontalPadding = isCompactHeight ? 18.0 : 20.0;
+    final theme = Theme.of(context);
     final options = <_AttachmentActionData>[
       _AttachmentActionData(
         actionKey: const Key('conversation_photo_button'),
@@ -1189,68 +1236,68 @@ class _AttachmentPickerSheet extends StatelessWidget {
       ),
     ];
 
-    return Padding(
+    return LiquidGlassSurface(
       key: const Key('conversation_attachment_sheet'),
-      padding: EdgeInsets.fromLTRB(
-        horizontalPadding,
-        isCompactHeight ? 12 : 18,
-        horizontalPadding,
-        isCompactHeight ? 20 : 28,
-      ),
-      child: Wrap(
-        alignment: WrapAlignment.center,
-        spacing: isCompactHeight ? 20 : 26,
-        runSpacing: 18,
-        children: [
-          for (final option in options)
-            _AttachmentGridTile(
-              actionKey: option.actionKey,
-              icon: option.icon,
-              color: option.color,
-              tooltip: option.label,
-              isCompact: isCompactHeight,
-              onTap: () => onSelected(option.type),
-            ),
-        ],
+      borderRadius: BorderRadius.circular(16),
+      padding: EdgeInsets.zero,
+      child: SizedBox(
+        width: width,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var i = 0; i < options.length; i++) ...[
+              if (i > 0)
+                Divider(
+                  height: 1,
+                  indent: 52,
+                  color: theme.colorScheme.outlineVariant
+                      .withValues(alpha: 0.24),
+                ),
+              _AttachmentPopupRow(
+                actionKey: options[i].actionKey,
+                icon: options[i].icon,
+                color: options[i].color,
+                label: options[i].label,
+                onTap: () => onSelected(options[i].type),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
 }
 
-class _AttachmentGridTile extends StatelessWidget {
-  const _AttachmentGridTile({
+class _AttachmentPopupRow extends StatelessWidget {
+  const _AttachmentPopupRow({
     required this.actionKey,
     required this.icon,
     required this.color,
-    required this.tooltip,
-    required this.isCompact,
+    required this.label,
     required this.onTap,
   });
 
   final Key actionKey;
   final IconData icon;
   final Color color;
-  final String tooltip;
-  final bool isCompact;
+  final String label;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final size = isCompact ? 52.0 : 58.0;
-
-    return Tooltip(
-      message: tooltip,
-      child: Material(
-        color: color.withValues(alpha: 0.14),
-        shape: const CircleBorder(),
-        child: InkWell(
-          key: actionKey,
-          onTap: onTap,
-          customBorder: const CircleBorder(),
-          child: SizedBox(
-            width: size,
-            height: size,
-            child: Icon(icon, color: color, size: isCompact ? 24 : 26),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        key: actionKey,
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Row(
+            children: [
+              Icon(icon, color: color, size: 22),
+              const SizedBox(width: 14),
+              Text(label, style: Theme.of(context).textTheme.bodyLarge),
+            ],
           ),
         ),
       ),
