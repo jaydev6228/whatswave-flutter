@@ -26,6 +26,28 @@ void main() {
     expect(controller.communities.first.title, 'Japan Food Club');
   });
 
+  test('deletes a community from the list', () async {
+    final controller = CommunitiesController(
+      repository: FakeCommunitiesRepository(latency: Duration.zero),
+      permissionService: MemoryAppPermissionService(),
+    );
+
+    await controller.loadOverview();
+    final originalCount = controller.communities.length;
+    expect(originalCount, greaterThan(0));
+    final communityToDelete = controller.communities.first;
+
+    final didDelete = await controller.deleteCommunity(communityToDelete.id);
+
+    expect(didDelete, isTrue);
+    expect(controller.communities.length, originalCount - 1);
+    expect(
+      controller.communities
+          .any((community) => community.id == communityToDelete.id),
+      isFalse,
+    );
+  });
+
   test('invites an on-app contact into a community', () async {
     final controller = CommunitiesController(
       repository: FakeCommunitiesRepository(latency: Duration.zero),

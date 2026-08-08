@@ -12,6 +12,7 @@ class FakeCallsRepository implements CallsRepository {
     this.failFetchOnce = false,
     this.failSaveNext = false,
     this.failClearNext = false,
+    this.failDeleteNext = false,
   })  : _favorites = List<CallContact>.unmodifiable(
           (initialFavorites ?? DemoData.buildCallFavorites())
               .map((contact) => contact.copyWith()),
@@ -24,6 +25,7 @@ class FakeCallsRepository implements CallsRepository {
   bool failFetchOnce;
   bool failSaveNext;
   bool failClearNext;
+  bool failDeleteNext;
 
   final List<CallContact> _favorites;
   List<CallHistoryEntry> _history;
@@ -67,6 +69,22 @@ class FakeCallsRepository implements CallsRepository {
         entry,
         ..._history.where((existing) => existing.id != entry.id),
       ]),
+    );
+    return _cloneHistory(_history);
+  }
+
+  @override
+  Future<List<CallHistoryEntry>> deleteHistoryEntry(String entryId) async {
+    await _wait();
+    if (failDeleteNext) {
+      failDeleteNext = false;
+      throw const CallsRepositoryException(
+        'We could not delete that call right now.',
+      );
+    }
+
+    _history = _cloneHistory(
+      _history.where((entry) => entry.id != entryId).toList(growable: false),
     );
     return _cloneHistory(_history);
   }

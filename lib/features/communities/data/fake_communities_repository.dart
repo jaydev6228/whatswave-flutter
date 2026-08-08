@@ -101,6 +101,15 @@ class FakeCommunitiesRepository implements CommunitiesRepository {
   }
 
   @override
+  Future<CommunitiesOverview> deleteCommunity(String communityId) async {
+    await _wait();
+    _communities = List<CommunityHub>.unmodifiable(
+      _communities.where((community) => community.id != communityId),
+    );
+    return _buildOverview();
+  }
+
+  @override
   Future<CommunitiesOverview> inviteContactToCommunity({
     required String communityId,
     required String contactId,

@@ -48,6 +48,33 @@ class CommunityDetailScreen extends StatelessWidget {
           key: const Key('community_detail_screen'),
           appBar: AppBar(
             title: Text(community.title),
+            actions: [
+              PopupMenuButton<_CommunityDetailMenuAction>(
+                key: const Key('community_detail_menu_button'),
+                onSelected: (action) async {
+                  switch (action) {
+                    case _CommunityDetailMenuAction.delete:
+                      await _confirmAndDeleteCommunity(
+                        context,
+                        controller: controller,
+                        community: community,
+                      );
+                  }
+                },
+                itemBuilder: (menuContext) => [
+                  PopupMenuItem(
+                    key: const Key('community_detail_delete_menu_item'),
+                    value: _CommunityDetailMenuAction.delete,
+                    child: Text(
+                      'Delete community',
+                      style: TextStyle(
+                        color: Theme.of(menuContext).colorScheme.error,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
           body: SafeArea(
             bottom: false,
@@ -126,6 +153,57 @@ class CommunityDetailScreen extends StatelessWidget {
         );
       },
     );
+  }
+}
+
+enum _CommunityDetailMenuAction { delete }
+
+Future<void> _confirmAndDeleteCommunity(
+  BuildContext context, {
+  required CommunitiesController controller,
+  required CommunityHub community,
+}) async {
+  final shouldDelete = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) {
+      return AlertDialog(
+        title: const Text('Delete community?'),
+        content: Text(
+          'This permanently removes "${community.title}" and its groups '
+          'for everyone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(
+              'Delete',
+              style: TextStyle(
+                color: Theme.of(dialogContext).colorScheme.error,
+              ),
+            ),
+          ),
+        ],
+      );
+    },
+  );
+
+  if (shouldDelete != true) {
+    return;
+  }
+
+  final didDelete = await controller.deleteCommunity(community.id);
+  if (!context.mounted) {
+    return;
+  }
+  if (didDelete) {
+    Navigator.of(context).pop();
+  } else if (controller.errorMessage != null) {
+    await showErrorDialog(context, controller.errorMessage!);
+    controller.clearError();
   }
 }
 

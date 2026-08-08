@@ -106,6 +106,18 @@ class FirestoreCallsRepository implements CallsRepository {
   }
 
   @override
+  Future<List<CallHistoryEntry>> deleteHistoryEntry(String entryId) async {
+    try {
+      await _historyRef.doc(entryId).delete();
+    } on FirebaseException catch (e) {
+      throw CallsRepositoryException(
+        e.message ?? 'We could not delete that call right now.',
+      );
+    }
+    return _fetchHistory();
+  }
+
+  @override
   Future<List<CallHistoryEntry>> clearHistory() async {
     final uid = _requireCurrentUid;
     try {

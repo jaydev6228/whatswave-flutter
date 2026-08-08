@@ -49,6 +49,51 @@ void main() {
     expect(controller.history.first.type, CallType.video);
   });
 
+  test('deletes a single call history entry', () async {
+    final controller = CallsController(
+      repository: FakeCallsRepository(latency: Duration.zero),
+      permissionService: MemoryAppPermissionService(),
+      durationTickInterval: Duration.zero,
+    );
+
+    await controller.loadOverview();
+    final initialCount = controller.history.length;
+    expect(initialCount, greaterThan(0));
+
+    final entryToDelete = controller.history.first;
+    final didDelete = await controller.deleteHistoryEntry(entryToDelete.id);
+
+    expect(didDelete, isTrue);
+    expect(controller.history.length, initialCount - 1);
+    expect(
+      controller.history.any((entry) => entry.id == entryToDelete.id),
+      isFalse,
+    );
+  });
+
+  test('surfaces an error when deleting a call history entry fails',
+      () async {
+    final repository = FakeCallsRepository(latency: Duration.zero);
+    final controller = CallsController(
+      repository: repository,
+      permissionService: MemoryAppPermissionService(),
+      durationTickInterval: Duration.zero,
+    );
+
+    await controller.loadOverview();
+    final entryToDelete = controller.history.first;
+    repository.failDeleteNext = true;
+
+    final didDelete = await controller.deleteHistoryEntry(entryToDelete.id);
+
+    expect(didDelete, isFalse);
+    expect(controller.errorMessage, isNotNull);
+    expect(
+      controller.history.any((entry) => entry.id == entryToDelete.id),
+      isTrue,
+    );
+  });
+
   test('marks an unanswered incoming call as missed', () async {
     final controller = CallsController(
       repository: FakeCallsRepository(latency: Duration.zero),

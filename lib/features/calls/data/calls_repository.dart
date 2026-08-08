@@ -6,6 +6,8 @@ abstract class CallsRepository {
 
   Future<List<CallHistoryEntry>> saveHistoryEntry(CallHistoryEntry entry);
 
+  Future<List<CallHistoryEntry>> deleteHistoryEntry(String entryId);
+
   Future<List<CallHistoryEntry>> clearHistory();
 }
 

@@ -71,6 +71,49 @@ void main() {
     );
   });
 
+  testWidgets('deletes a community from its detail screen', (tester) async {
+    final controller = CommunitiesController(
+      repository: FakeCommunitiesRepository(latency: Duration.zero),
+      permissionService: MemoryAppPermissionService(
+        contactsStatus: ContactAccessStatus.granted,
+      ),
+    );
+
+    await _pumpCommunitiesScreen(
+      tester,
+      device: iphoneProProfile,
+      controller: controller,
+    );
+    final targetCommunityId = controller.communities.first.id;
+
+    await _scrollUntilVisible(
+      tester,
+      find.byKey(Key('community_card_$targetCommunityId')),
+    );
+    await tester.tap(find.byKey(Key('community_card_$targetCommunityId')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('community_detail_screen')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('community_detail_menu_button')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const Key('community_detail_delete_menu_item')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Delete community?'), findsOneWidget);
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('community_detail_screen')), findsNothing);
+    expect(
+      controller.communities
+          .any((community) => community.id == targetCommunityId),
+      isFalse,
+    );
+  });
+
   testWidgets('shows an error card and retries after a failed load',
       (tester) async {
     final controller = CommunitiesController(

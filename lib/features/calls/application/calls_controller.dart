@@ -59,6 +59,7 @@ class CallsController extends ChangeNotifier {
   bool _hasLoaded = false;
   bool _isLoading = false;
   bool _isClearingHistory = false;
+  final Set<String> _deletingHistoryEntryIds = <String>{};
   String? _errorMessage;
   List<CallContact> _favorites = const <CallContact>[];
   List<CallHistoryEntry> _history = const <CallHistoryEntry>[];
@@ -79,6 +80,8 @@ class CallsController extends ChangeNotifier {
   bool get hasLoaded => _hasLoaded;
   bool get isLoading => _isLoading;
   bool get isClearingHistory => _isClearingHistory;
+  bool isDeletingHistoryEntry(String entryId) =>
+      _deletingHistoryEntryIds.contains(entryId);
   String? get errorMessage => _errorMessage;
   List<CallContact> get favorites => List<CallContact>.unmodifiable(_favorites);
   List<CallHistoryEntry> get history =>
@@ -144,6 +147,48 @@ class CallsController extends ChangeNotifier {
 
     _isLoading = false;
     notifyListeners();
+  }
+
+  Future<bool> deleteHistoryEntry(String entryId) async {
+    if (_deletingHistoryEntryIds.contains(entryId)) {
+      return false;
+    }
+
+    _deletingHistoryEntryIds.add(entryId);
+    _errorMessage = null;
+    notifyListeners();
+
+    var didDelete = false;
+    try {
+      _history = await _repository.deleteHistoryEntry(entryId);
+      didDelete = true;
+      _telemetry.recordInteraction(
+        'call_history_entry_deleted',
+        attributes: <String, Object?>{
+          'history_count': _history.length,
+        },
+      );
+    } on CallsRepositoryException catch (error, stackTrace) {
+      _errorMessage = error.message;
+      _telemetry.recordError(
+        error,
+        stackTrace,
+        source: 'call_history_entry_delete',
+        fatal: false,
+      );
+    } catch (error, stackTrace) {
+      _errorMessage = 'We could not delete that call right now.';
+      _telemetry.recordError(
+        error,
+        stackTrace,
+        source: 'call_history_entry_delete',
+        fatal: false,
+      );
+    }
+
+    _deletingHistoryEntryIds.remove(entryId);
+    notifyListeners();
+    return didDelete;
   }
 
   Future<void> clearHistory() async {

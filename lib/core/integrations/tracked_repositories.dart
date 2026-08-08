@@ -599,6 +599,37 @@ class TrackedCommunitiesRepository implements CommunitiesRepository {
   }
 
   @override
+  Future<CommunitiesOverview> deleteCommunity(String communityId) async {
+    try {
+      final overview = await _delegate.deleteCommunity(communityId);
+      unawaited(
+        _integrations.recordSyncSuccess(
+          source: 'Communities',
+          title: 'Community deleted',
+        ),
+      );
+      return overview;
+    } on CommunitiesRepositoryException catch (error) {
+      unawaited(
+        _integrations.recordSyncFailure(
+          source: 'Communities',
+          title: 'Community deletion failed',
+          details: error.message,
+        ),
+      );
+      rethrow;
+    } catch (_) {
+      unawaited(
+        _integrations.recordSyncFailure(
+          source: 'Communities',
+          title: 'Community deletion failed',
+        ),
+      );
+      rethrow;
+    }
+  }
+
+  @override
   Future<CommunitiesOverview> inviteContactToCommunity({
     required String communityId,
     required String contactId,
@@ -713,6 +744,37 @@ class TrackedCallsRepository implements CallsRepository {
         _integrations.recordSyncFailure(
           source: 'Calls',
           title: 'Call history sync failed',
+        ),
+      );
+      rethrow;
+    }
+  }
+
+  @override
+  Future<List<CallHistoryEntry>> deleteHistoryEntry(String entryId) async {
+    try {
+      final history = await _delegate.deleteHistoryEntry(entryId);
+      unawaited(
+        _integrations.recordSyncSuccess(
+          source: 'Calls',
+          title: 'Call deleted',
+        ),
+      );
+      return history;
+    } on CallsRepositoryException catch (error) {
+      unawaited(
+        _integrations.recordSyncFailure(
+          source: 'Calls',
+          title: 'Call delete failed',
+          details: error.message,
+        ),
+      );
+      rethrow;
+    } catch (_) {
+      unawaited(
+        _integrations.recordSyncFailure(
+          source: 'Calls',
+          title: 'Call delete failed',
         ),
       );
       rethrow;

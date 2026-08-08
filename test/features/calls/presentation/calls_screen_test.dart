@@ -167,6 +167,48 @@ void main() {
     expect(controller.currentSession?.type, recentEntry.type);
   });
 
+  testWidgets('swipe-deletes a call from recent history', (tester) async {
+    final controller = CallsController(
+      repository: FakeCallsRepository(latency: Duration.zero),
+      permissionService: MemoryAppPermissionService(),
+      durationTickInterval: Duration.zero,
+    );
+
+    await _pumpCallsScreen(
+      tester,
+      device: iphoneProProfile,
+      controller: controller,
+    );
+    final initialCount = controller.history.length;
+    final entryToDelete = controller.history.first;
+
+    await tester.drag(
+      find.byKey(const Key('calls_screen')),
+      const Offset(0, -520),
+    );
+    await tester.pumpAndSettle();
+    await tester.drag(
+      find.byKey(Key('call_swipe_${entryToDelete.id}')),
+      const Offset(-500, 0),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Delete this call?'), findsOneWidget);
+    await tester.tap(
+      find.descendant(
+        of: find.byType(AlertDialog),
+        matching: find.text('Delete'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(controller.history.length, initialCount - 1);
+    expect(
+      controller.history.any((entry) => entry.id == entryToDelete.id),
+      isFalse,
+    );
+  });
+
   testWidgets(
       'keeps the video status and local preview separated on compact phones',
       (tester) async {

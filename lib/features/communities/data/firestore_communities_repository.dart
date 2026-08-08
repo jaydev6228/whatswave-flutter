@@ -207,6 +207,19 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
   }
 
   @override
+  Future<CommunitiesOverview> deleteCommunity(String communityId) async {
+    _requireCurrentUid;
+    try {
+      await _communitiesRef.doc(communityId).delete();
+    } on FirebaseException catch (e) {
+      throw CommunitiesRepositoryException(
+        e.message ?? 'Could not delete that community.',
+      );
+    }
+    return fetchOverview();
+  }
+
+  @override
   Future<CommunitiesOverview> inviteContactToCommunity({
     required String communityId,
     required String contactId,

@@ -4,6 +4,7 @@ import '../../chats/application/chats_controller.dart';
 import '../../chats/domain/chat_thread.dart';
 import '../../shared/widgets/avatar_badge.dart';
 import '../../shared/widgets/empty_state_card.dart';
+import '../../shared/widgets/swipe_action_background.dart';
 import '../application/calls_controller.dart';
 import '../domain/call_contact.dart';
 import '../domain/call_history_entry.dart';
@@ -221,23 +222,47 @@ class _CallsScreenState extends State<CallsScreen> {
                         ...widget.controller.history.map((entry) {
                           return Padding(
                             padding: const EdgeInsets.only(bottom: 10),
-                            child: _RecentCallCard(
-                              entry: entry,
-                              onPressed: () {
-                                startCallFlow(
-                                  context,
-                                  controller: widget.controller,
-                                  contact: CallContact(
-                                    id: entry.contactId,
-                                    name: entry.name,
-                                    avatarLabel: entry.avatarLabel,
-                                    accentColor: entry.accentColor,
-                                    isGroup: entry.isGroup,
-                                    uid: entry.uid,
-                                  ),
-                                  type: entry.type,
+                            child: Dismissible(
+                              key: Key('call_swipe_${entry.id}'),
+                              direction:
+                                  widget.controller.isDeletingHistoryEntry(
+                                entry.id,
+                              )
+                                      ? DismissDirection.none
+                                      : DismissDirection.endToStart,
+                              background: SwipeActionBackground(
+                                alignment: Alignment.centerRight,
+                                icon: Icons.delete_outline_rounded,
+                                label: 'Delete',
+                                color: theme.colorScheme.errorContainer,
+                                foregroundColor:
+                                    theme.colorScheme.onErrorContainer,
+                              ),
+                              confirmDismiss: (_) =>
+                                  _confirmDeleteCall(entry),
+                              onDismissed: (_) {
+                                widget.controller.deleteHistoryEntry(
+                                  entry.id,
                                 );
                               },
+                              child: _RecentCallCard(
+                                entry: entry,
+                                onPressed: () {
+                                  startCallFlow(
+                                    context,
+                                    controller: widget.controller,
+                                    contact: CallContact(
+                                      id: entry.contactId,
+                                      name: entry.name,
+                                      avatarLabel: entry.avatarLabel,
+                                      accentColor: entry.accentColor,
+                                      isGroup: entry.isGroup,
+                                      uid: entry.uid,
+                                    ),
+                                    type: entry.type,
+                                  );
+                                },
+                              ),
                             ),
                           );
                         }),
@@ -278,6 +303,34 @@ class _CallsScreenState extends State<CallsScreen> {
     if (shouldClear == true) {
       await widget.controller.clearHistory();
     }
+  }
+
+  Future<bool> _confirmDeleteCall(CallHistoryEntry entry) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Delete this call?'),
+          content: Text('This removes the call with ${entry.name} from your recent calls.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: Text(
+                'Delete',
+                style: TextStyle(
+                  color: Theme.of(dialogContext).colorScheme.error,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+    return result ?? false;
   }
 
   /// Only threads with a real other-participant uid can actually be called

@@ -10,6 +10,7 @@ import '../../shared/widgets/avatar_badge.dart';
 import '../../shared/widgets/empty_state_card.dart';
 import '../../shared/widgets/error_dialog.dart';
 import '../../shared/widgets/liquid_glass.dart';
+import '../../shared/widgets/swipe_action_background.dart';
 import '../../updates/application/updates_controller.dart';
 import '../../updates/presentation/status_compose_actions.dart';
 import '../../updates/presentation/story_viewer_launcher.dart';
@@ -785,12 +786,12 @@ class _ArchiveableChatListItem extends StatelessWidget {
           movementDuration: const Duration(milliseconds: 220),
           resizeDuration: const Duration(milliseconds: 180),
           background: isArchivedView
-              ? const _SwipeActionBackground(
+              ? const SwipeActionBackground(
                   alignment: Alignment.centerLeft,
                   icon: Icons.unarchive_rounded,
                   label: 'Move to inbox',
                 )
-              : _SwipeActionBackground(
+              : SwipeActionBackground(
                   alignment: Alignment.centerLeft,
                   icon: Icons.delete_outline_rounded,
                   label: 'Delete',
@@ -798,14 +799,14 @@ class _ArchiveableChatListItem extends StatelessWidget {
                   foregroundColor: theme.colorScheme.onErrorContainer,
                 ),
           secondaryBackground: isArchivedView
-              ? _SwipeActionBackground(
+              ? SwipeActionBackground(
                   alignment: Alignment.centerRight,
                   icon: Icons.delete_outline_rounded,
                   label: 'Delete',
                   color: theme.colorScheme.errorContainer,
                   foregroundColor: theme.colorScheme.onErrorContainer,
                 )
-              : const _SwipeActionBackground(
+              : const SwipeActionBackground(
                   alignment: Alignment.centerRight,
                   icon: Icons.archive_outlined,
                   label: 'Archive',
@@ -874,67 +875,6 @@ class _ArchiveableChatListItem extends StatelessWidget {
   }
 }
 
-class _SwipeActionBackground extends StatelessWidget {
-  const _SwipeActionBackground({
-    required this.alignment,
-    required this.icon,
-    required this.label,
-    this.color,
-    this.foregroundColor,
-  });
-
-  final Alignment alignment;
-  final IconData icon;
-  final String label;
-  final Color? color;
-  final Color? foregroundColor;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final padding = alignment == Alignment.centerLeft
-        ? const EdgeInsets.only(left: 22)
-        : const EdgeInsets.only(right: 22);
-    final resolvedForeground =
-        foregroundColor ?? theme.colorScheme.onPrimaryContainer;
-
-    return Container(
-      color: (color ?? theme.colorScheme.primaryContainer)
-          .withValues(alpha: 0.78),
-      alignment: alignment,
-      padding: padding,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (alignment == Alignment.centerRight) ...[
-            Text(
-              label,
-              style: theme.textTheme.labelLarge?.copyWith(
-                color: resolvedForeground,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(width: 8),
-          ],
-          Icon(
-            icon,
-            color: resolvedForeground,
-          ),
-          if (alignment == Alignment.centerLeft) ...[
-            const SizedBox(width: 8),
-            Text(
-              label,
-              style: theme.textTheme.labelLarge?.copyWith(
-                color: resolvedForeground,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
 
 
 

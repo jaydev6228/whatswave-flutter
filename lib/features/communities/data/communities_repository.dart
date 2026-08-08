@@ -10,6 +10,8 @@ abstract class CommunitiesRepository {
 
   Future<CommunitiesOverview> markCommunityOpened(String communityId);
 
+  Future<CommunitiesOverview> deleteCommunity(String communityId);
+
   Future<CommunitiesOverview> inviteContactToCommunity({
     required String communityId,
     required String contactId,

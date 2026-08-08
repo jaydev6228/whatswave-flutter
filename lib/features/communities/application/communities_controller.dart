@@ -334,6 +334,28 @@ class CommunitiesController extends ChangeNotifier {
     );
   }
 
+  Future<bool> deleteCommunity(String communityId) async {
+    _busyCommunityIds.add(communityId);
+    _errorMessage = null;
+    notifyListeners();
+
+    var didSucceed = false;
+    try {
+      final overview = await _repository.deleteCommunity(communityId);
+      _communities = overview.communities;
+      _contacts = overview.contacts;
+      didSucceed = true;
+    } on CommunitiesRepositoryException catch (error) {
+      _errorMessage = error.message;
+    } catch (_) {
+      _errorMessage = 'We could not delete that community right now.';
+    }
+
+    _busyCommunityIds.remove(communityId);
+    notifyListeners();
+    return didSucceed;
+  }
+
   Future<bool> inviteContactToCommunity({
     required String communityId,
     required String contactId,
