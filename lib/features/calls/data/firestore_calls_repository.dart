@@ -167,6 +167,7 @@ class FirestoreCallsRepository implements CallsRepository {
       status: CallHistoryStatus.values.byName(data['status'] as String),
       durationSeconds: (data['durationSeconds'] as int?) ?? 0,
       isGroup: (data['isGroup'] as bool?) ?? false,
+      avatarUrl: profile?.avatarUrl,
       uid: uid,
     );
   }

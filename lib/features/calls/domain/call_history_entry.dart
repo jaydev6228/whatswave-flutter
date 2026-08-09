@@ -48,6 +48,7 @@ class CallHistoryEntry {
     this.durationSeconds = 0,
     this.isGroup = false,
     this.uid,
+    this.avatarUrl,
   });
 
   final String id;
@@ -55,6 +56,11 @@ class CallHistoryEntry {
   final String name;
   final String avatarLabel;
   final Color accentColor;
+
+  /// The other party's uploaded profile photo (see
+  /// FirebaseAuthRepository.updateAvatar), resolved the same way as their
+  /// live name/avatarLabel/accentColor -- see FirestoreCallsRepository.
+  final String? avatarUrl;
   final DateTime startedAt;
   final CallType type;
   final CallDirection direction;
@@ -80,6 +86,7 @@ class CallHistoryEntry {
     int? durationSeconds,
     bool? isGroup,
     String? uid,
+    String? avatarUrl,
   }) {
     return CallHistoryEntry(
       id: id ?? this.id,
@@ -94,6 +101,7 @@ class CallHistoryEntry {
       durationSeconds: durationSeconds ?? this.durationSeconds,
       isGroup: isGroup ?? this.isGroup,
       uid: uid ?? this.uid,
+      avatarUrl: avatarUrl ?? this.avatarUrl,
     );
   }
 }

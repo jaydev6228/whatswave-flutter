@@ -472,6 +472,7 @@ class _RecentCallCard extends StatelessWidget {
                   AvatarBadge(
                     label: entry.avatarLabel,
                     color: entry.accentColor,
+                    avatarUrl: entry.avatarUrl,
                     size: 52,
                   ),
                   const SizedBox(width: 12),

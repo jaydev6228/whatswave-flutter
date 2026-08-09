@@ -551,6 +551,7 @@ class StatusStory {
     this.seenSegments = 0,
     this.segments = const <StatusStorySegment>[],
     this.postedAt,
+    this.avatarUrl,
   });
 
   final String id;
@@ -559,6 +560,11 @@ class StatusStory {
   final String previewText;
   final String timeLabel;
   final Color accentColor;
+
+  /// This story's author's uploaded profile photo (see
+  /// FirebaseAuthRepository.updateAvatar), resolved the same way as their
+  /// live name/avatarLabel/accentColor. Null if they haven't set one.
+  final String? avatarUrl;
   final StatusStoryType type;
   final bool isMine;
   final int totalSegments;
@@ -623,6 +629,8 @@ class StatusStory {
     int? seenSegments,
     List<StatusStorySegment>? segments,
     DateTime? postedAt,
+    String? avatarUrl,
+    bool clearAvatarUrl = false,
   }) {
     return StatusStory(
       id: id ?? this.id,
@@ -639,6 +647,7 @@ class StatusStory {
         segments ?? this.segments,
       ),
       postedAt: postedAt ?? this.postedAt,
+      avatarUrl: clearAvatarUrl ? null : avatarUrl ?? this.avatarUrl,
     );
   }
 

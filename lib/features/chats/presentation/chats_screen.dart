@@ -3,7 +3,9 @@ import 'package:flutter/rendering.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../app/theme/app_palette.dart';
+import '../../../core/models/app_user.dart';
 import '../../../core/models/status_story.dart';
+import '../../auth/application/auth_controller.dart';
 import '../../calls/application/calls_controller.dart';
 import '../../communities/application/communities_controller.dart';
 import '../../shared/widgets/avatar_badge.dart';
@@ -29,6 +31,7 @@ class ChatsScreen extends StatefulWidget {
     required this.communitiesController,
     required this.controller,
     required this.updatesController,
+    required this.authController,
     this.animateTypingIndicators,
     super.key,
   });
@@ -37,6 +40,7 @@ class ChatsScreen extends StatefulWidget {
   final CommunitiesController communitiesController;
   final ChatsController controller;
   final UpdatesController updatesController;
+  final AuthController authController;
   final bool? animateTypingIndicators;
 
   @override
@@ -76,6 +80,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
       animation: Listenable.merge([
         widget.controller,
         widget.updatesController,
+        widget.authController,
       ]),
       builder: (context, _) {
         final theme = Theme.of(context);
@@ -139,6 +144,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
                     child: _StatusStrip(
                       controller: widget.updatesController,
                       imagePicker: _imagePicker,
+                      currentUser: widget.authController.currentUser,
                     ),
                   ),
                 ),
@@ -1066,6 +1072,7 @@ class _ChatAvatar extends StatelessWidget {
             key: ValueKey<String>('chat_story_ring_${thread.id}'),
             label: thread.avatarLabel,
             color: thread.accentColor,
+            avatarUrl: thread.avatarUrl,
             totalSegments: story?.totalSegments ?? 1,
             seenSegments: story?.clampedSeenSegments ?? 0,
             size: size,
@@ -1073,6 +1080,7 @@ class _ChatAvatar extends StatelessWidget {
         : AvatarBadge(
             label: thread.avatarLabel,
             color: thread.accentColor,
+            avatarUrl: thread.avatarUrl,
             size: size,
           );
 
@@ -1341,10 +1349,17 @@ class _StatusStrip extends StatelessWidget {
   const _StatusStrip({
     required this.controller,
     required this.imagePicker,
+    required this.currentUser,
   });
 
   final UpdatesController controller;
   final ImagePicker imagePicker;
+
+  /// Backs the "My status" circle's initials/photo fallback for a user who
+  /// hasn't posted a status segment yet -- controller.myStatus is null in
+  /// that case (see hasMyStatus below), so without this the circle showed
+  /// a hardcoded placeholder instead of the signed-in user's own avatar.
+  final AppUser? currentUser;
 
   @override
   Widget build(BuildContext context) {
@@ -1363,6 +1378,7 @@ class _StatusStrip extends StatelessWidget {
         children: [
           _MyStatusStripItem(
             status: hasMyStatus ? myStatus : null,
+            currentUser: currentUser,
             isBusy: controller.isComposingStatus,
             onView: hasMyStatus
                 ? () => openStatusStoryViewer(
@@ -1393,12 +1409,14 @@ class _StatusStrip extends StatelessWidget {
 class _MyStatusStripItem extends StatelessWidget {
   const _MyStatusStripItem({
     required this.status,
+    required this.currentUser,
     required this.isBusy,
     required this.onView,
     required this.onAdd,
   });
 
   final StatusStory? status;
+  final AppUser? currentUser;
   final bool isBusy;
   final VoidCallback? onView;
   final VoidCallback onAdd;
@@ -1420,14 +1438,16 @@ class _MyStatusStripItem extends StatelessWidget {
                 StatusRingAvatar(
                   label: status!.avatarLabel,
                   color: status!.accentColor,
+                  avatarUrl: status!.avatarUrl ?? currentUser?.avatarUrl,
                   totalSegments: status!.totalSegments,
                   seenSegments: status!.seenSegments,
                   size: 56,
                 )
               else
-                const AvatarBadge(
-                  label: 'JD',
-                  color: AppPalette.emerald,
+                AvatarBadge(
+                  label: currentUser?.avatarLabel ?? 'WW',
+                  color: currentUser?.accentColor ?? AppPalette.emerald,
+                  avatarUrl: currentUser?.avatarUrl,
                   size: 56,
                 ),
               Positioned(

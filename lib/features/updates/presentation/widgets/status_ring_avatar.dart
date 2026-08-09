@@ -11,6 +11,7 @@ class StatusRingAvatar extends StatelessWidget {
     required this.totalSegments,
     required this.seenSegments,
     this.size = 72,
+    this.avatarUrl,
     super.key,
   });
 
@@ -19,6 +20,7 @@ class StatusRingAvatar extends StatelessWidget {
   final int totalSegments;
   final int seenSegments;
   final double size;
+  final String? avatarUrl;
 
   @override
   Widget build(BuildContext context) {
@@ -40,6 +42,7 @@ class StatusRingAvatar extends StatelessWidget {
           child: AvatarBadge(
             label: label,
             color: color,
+            avatarUrl: avatarUrl,
             size: size - (avatarInset * 2),
           ),
         ),

@@ -469,6 +469,7 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
       avatarLabel: profile?.avatarLabel,
       accentColor:
           profile?.accentColorArgb == null ? null : Color(profile!.accentColorArgb!),
+      avatarUrl: profile?.avatarUrl,
     );
   }
 

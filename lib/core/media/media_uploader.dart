@@ -41,9 +41,14 @@ class FirebaseMediaUploader implements MediaUploader {
         file,
         contentType == null ? null : SettableMetadata(contentType: contentType),
       );
-      return task.ref.getDownloadURL();
+      return await task.ref.getDownloadURL();
     } on FirebaseException catch (e) {
       throw MediaUploadException(e.message ?? 'Could not upload that file.');
+    } catch (e) {
+      // Storage/platform-channel failures don't always surface as a
+      // FirebaseException (e.g. a raw PlatformException) -- callers that
+      // catch MediaUploadException specifically must still see one.
+      throw MediaUploadException('Could not upload that file: $e');
     }
   }
 }

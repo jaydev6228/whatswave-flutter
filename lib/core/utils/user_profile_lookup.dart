@@ -32,6 +32,7 @@ class UserProfileLookup {
         name: name,
         avatarLabel: data?['avatarLabel'] as String?,
         accentColorArgb: data?['accentColorArgb'] as int?,
+        avatarUrl: data?['avatarUrl'] as String?,
       );
     } on FirebaseException {
       return null;
@@ -44,9 +45,14 @@ class UserProfileSnapshot {
     required this.name,
     this.avatarLabel,
     this.accentColorArgb,
+    this.avatarUrl,
   });
 
   final String name;
   final String? avatarLabel;
   final int? accentColorArgb;
+
+  /// A Firebase Storage download URL for this user's uploaded profile
+  /// photo, if they've set one -- see FirebaseAuthRepository.updateAvatar.
+  final String? avatarUrl;
 }

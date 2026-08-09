@@ -34,6 +34,7 @@ class ProfileHeaderCard extends StatelessWidget {
               AvatarBadge(
                 label: user.avatarLabel,
                 color: user.accentColor,
+                avatarUrl: user.avatarUrl,
                 size: 58,
               ),
               const SizedBox(width: 14),

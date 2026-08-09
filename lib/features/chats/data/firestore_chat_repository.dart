@@ -444,6 +444,7 @@ class FirestoreChatRepository implements ChatRepository {
     var name = 'WhatsWave user';
     var avatarLabel = '?';
     var accentColor = AppPalette.slate;
+    String? avatarUrl;
     final isGroup = (data['isGroup'] as bool?) ?? false;
 
     final participantUids =
@@ -486,6 +487,7 @@ class FirestoreChatRepository implements ChatRepository {
         name = profile.name;
         avatarLabel = profile.avatarLabel ?? avatarLabel;
         accentColor = Color(profile.accentColorArgb ?? accentColor.toARGB32());
+        avatarUrl = profile.avatarUrl;
       }
     }
 
@@ -502,6 +504,7 @@ class FirestoreChatRepository implements ChatRepository {
       name: name,
       avatarLabel: avatarLabel,
       accentColor: accentColor,
+      avatarUrl: avatarUrl,
       messages: messages,
       unreadCount:
           (data['unreadCounts'] as Map<String, dynamic>?)?[currentUid]
@@ -585,7 +588,13 @@ class FirestoreChatRepository implements ChatRepository {
         storagePath: 'chatMedia/$threadId/$messageId-${attachment.id}$extension',
       );
       return attachment.copyWith(localMediaPath: downloadUrl);
-    } on MediaUploadException {
+    } catch (e) {
+      // Best-effort -- see doc comment above. Deliberately catches
+      // everything, not just MediaUploadException: a raw platform/plugin
+      // error here must never fail the whole send (it previously did,
+      // surfacing as "Not sent" on every photo/video message regardless of
+      // whether the text-only send would have worked fine).
+      debugPrint('Attachment upload failed, sending with local path only: $e');
       return attachment;
     }
   }

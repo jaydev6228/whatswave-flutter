@@ -19,6 +19,7 @@ class ChatThread {
     this.typingPreview,
     this.participantUid,
     this.isCommunityGroup = false,
+    this.avatarUrl,
   });
 
   final String id;
@@ -50,6 +51,13 @@ class ChatThread {
   /// ChatsController.threadsForView) and only reachable through the
   /// Communities flow that created it.
   final bool isCommunityGroup;
+
+  /// The other 1:1 participant's uploaded profile photo (see
+  /// FirebaseAuthRepository.updateAvatar), resolved the same way as their
+  /// live name -- see FirestoreChatRepository's class doc comment. Null
+  /// for groups (which have no single other participant) and for anyone
+  /// who hasn't set one, falling back to [avatarLabel]/[accentColor].
+  final String? avatarUrl;
 
   ChatMessage? get latestMessage => messages.isEmpty ? null : messages.last;
 
@@ -136,6 +144,7 @@ class ChatThread {
     bool clearTypingPreview = false,
     String? participantUid,
     bool? isCommunityGroup,
+    String? avatarUrl,
   }) {
     return ChatThread(
       id: id ?? this.id,
@@ -154,6 +163,7 @@ class ChatThread {
           clearTypingPreview ? null : typingPreview ?? this.typingPreview,
       participantUid: participantUid ?? this.participantUid,
       isCommunityGroup: isCommunityGroup ?? this.isCommunityGroup,
+      avatarUrl: avatarUrl ?? this.avatarUrl,
     );
   }
 }

@@ -4,6 +4,8 @@ import 'package:image_picker_platform_interface/image_picker_platform_interface.
 import 'package:whatswave/app/theme/app_theme.dart';
 import 'package:whatswave/core/permissions/app_permission_service.dart';
 import 'package:whatswave/core/permissions/device_location_service.dart';
+import 'package:whatswave/features/auth/application/auth_controller.dart';
+import 'package:whatswave/features/auth/data/fake_auth_repository.dart';
 import 'package:whatswave/features/calls/application/calls_controller.dart';
 import 'package:whatswave/features/calls/data/fake_calls_repository.dart';
 import 'package:whatswave/features/communities/application/communities_controller.dart';
@@ -706,6 +708,7 @@ Future<void> _pumpChatsScreen(
   required TestDeviceProfile device,
   required ChatsController controller,
   UpdatesController? updatesController,
+  AuthController? authController,
   bool animateTypingIndicators = false,
 }) async {
   await tester.binding.setSurfaceSize(device.size);
@@ -713,6 +716,10 @@ Future<void> _pumpChatsScreen(
   final resolvedUpdatesController = updatesController ??
       UpdatesController(
         repository: FakeUpdatesRepository(latency: Duration.zero),
+      );
+  final resolvedAuthController = authController ??
+      AuthController(
+        repository: FakeAuthRepository(latency: Duration.zero),
       );
 
   await tester.pumpWidget(
@@ -730,6 +737,7 @@ Future<void> _pumpChatsScreen(
           ),
           controller: controller,
           updatesController: resolvedUpdatesController,
+          authController: resolvedAuthController,
           animateTypingIndicators: animateTypingIndicators,
         ),
       ),

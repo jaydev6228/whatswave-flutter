@@ -193,6 +193,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
                         ? StatusRingAvatar(
                             label: thread.avatarLabel,
                             color: thread.accentColor,
+                            avatarUrl: thread.avatarUrl,
                             totalSegments: story?.totalSegments ?? 1,
                             seenSegments: story?.clampedSeenSegments ?? 0,
                             size: 44,
@@ -200,6 +201,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
                         : AvatarBadge(
                             label: thread.avatarLabel,
                             color: thread.accentColor,
+                            avatarUrl: thread.avatarUrl,
                             size: 44,
                           ),
                   ),
@@ -278,26 +280,36 @@ class _ConversationScreenState extends State<ConversationScreen> {
             child: Column(
               children: [
                 Expanded(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.surface.withValues(
-                        alpha:
-                            theme.brightness == Brightness.dark ? 0.94 : 0.98,
+                  child: GestureDetector(
+                    // Tapping empty space (background, between bubbles)
+                    // dismisses the keyboard, matching WhatsApp -- message
+                    // bubbles keep their own tap/long-press handling since
+                    // they claim the gesture first; this only ever fires
+                    // for taps nothing else already handled. Translucent,
+                    // not opaque, so it doesn't block the ListView's own
+                    // scroll/drag gesture recognition underneath it.
+                    behavior: HitTestBehavior.translucent,
+                    onTap: () => FocusScope.of(context).unfocus(),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surface.withValues(
+                          alpha:
+                              theme.brightness == Brightness.dark ? 0.94 : 0.98,
+                        ),
                       ),
-                    ),
-                    child: ListView.builder(
-                      key: const Key('conversation_message_list'),
-                      controller: _messageListController,
-                      keyboardDismissBehavior:
-                          ScrollViewKeyboardDismissBehavior.onDrag,
-                      padding: EdgeInsets.fromLTRB(
-                        16,
-                        16,
-                        16,
-                        _messageListBottomPadding,
-                      ),
-                      itemCount: visibleMessages.length,
-                      itemBuilder: (context, index) {
+                      child: ListView.builder(
+                        key: const Key('conversation_message_list'),
+                        controller: _messageListController,
+                        keyboardDismissBehavior:
+                            ScrollViewKeyboardDismissBehavior.onDrag,
+                        padding: EdgeInsets.fromLTRB(
+                          16,
+                          16,
+                          16,
+                          _messageListBottomPadding,
+                        ),
+                        itemCount: visibleMessages.length,
+                        itemBuilder: (context, index) {
                         final message = visibleMessages[index];
                         final previous =
                             index == 0 ? null : visibleMessages[index - 1];
@@ -351,7 +363,8 @@ class _ConversationScreenState extends State<ConversationScreen> {
                               const SizedBox(height: 12),
                           ],
                         );
-                      },
+                        },
+                      ),
                     ),
                   ),
                 ),
@@ -1031,12 +1044,12 @@ class _ComposerBar extends StatelessWidget {
         context,
         barrierLabel: 'Attach',
         scaleAlignment: Alignment.bottomLeft,
-        positionedChildBuilder: (dialogContext) => Positioned(
+        positionedChildBuilder: (overlayContext, close) => Positioned(
           left: 12,
           top: popupTop,
           child: _AttachmentPickerPopup(
             width: popupWidth,
-            onSelected: (type) => Navigator.of(dialogContext).pop(type),
+            onSelected: close,
           ),
         ),
       );
@@ -1601,11 +1614,11 @@ class _MessageBubble extends StatelessWidget {
       bubbleContext,
       barrierLabel: 'Reactions',
       scaleAlignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
-      positionedChildBuilder: (dialogContext) => Positioned(
+      positionedChildBuilder: (overlayContext, close) => Positioned(
         left: trayLeft,
         top: trayTop,
         child: _ReactionTray(
-          onSelected: (emoji) => Navigator.of(dialogContext).pop(emoji),
+          onSelected: close,
         ),
       ),
     );

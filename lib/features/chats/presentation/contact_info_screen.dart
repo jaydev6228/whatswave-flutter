@@ -103,6 +103,7 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                               AvatarBadge(
                                 label: thread.avatarLabel,
                                 color: thread.accentColor,
+                                avatarUrl: thread.avatarUrl,
                                 size: 84,
                               ),
                               const SizedBox(height: 14),

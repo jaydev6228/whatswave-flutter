@@ -25,6 +25,14 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
   late final TextEditingController _nameController;
   late final TextEditingController _aboutController;
 
+  /// A picked-but-not-yet-saved photo -- previewed locally, but not
+  /// uploaded (and the real profile photo not replaced) until Save is
+  /// tapped, matching how the name/about fields already stage edits in
+  /// their own TextEditingControllers rather than writing on every
+  /// keystroke.
+  File? _pendingAvatarFile;
+  bool _isSavingAvatar = false;
+
   @override
   void initState() {
     super.initState();
@@ -39,7 +47,27 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
     super.dispose();
   }
 
+  bool get _isBusy => widget.authController.isBusy || _isSavingAvatar;
+
   Future<void> _saveProfile() async {
+    final pendingAvatar = _pendingAvatarFile;
+    if (pendingAvatar != null) {
+      setState(() => _isSavingAvatar = true);
+      final didUploadAvatar =
+          await widget.authController.updateAvatar(pendingAvatar);
+      if (!mounted) {
+        return;
+      }
+      setState(() => _isSavingAvatar = false);
+      if (!didUploadAvatar) {
+        // Leaves the local preview + error message in place so the user
+        // can see what failed and retry via Save again, instead of
+        // silently discarding the photo they picked.
+        return;
+      }
+      _pendingAvatarFile = null;
+    }
+
     final didSave = await widget.authController.updateCurrentProfile(
       name: _nameController.text,
       about: _aboutController.text,
@@ -61,7 +89,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
     if (picked == null || !mounted) {
       return;
     }
-    await widget.authController.updateAvatar(File(picked.path));
+    setState(() => _pendingAvatarFile = File(picked.path));
   }
 
   @override
@@ -80,8 +108,8 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
             actions: [
               TextButton(
                 key: const Key('profile_save_button'),
-                onPressed: widget.authController.isBusy ? null : _saveProfile,
-                child: widget.authController.isBusy
+                onPressed: _isBusy ? null : _saveProfile,
+                child: _isBusy
                     ? const SizedBox(
                         width: 18,
                         height: 18,
@@ -111,18 +139,26 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                           children: [
                             GestureDetector(
                               key: const Key('profile_avatar_change_button'),
-                              onTap: widget.authController.isBusy
-                                  ? null
-                                  : _changeAvatar,
+                              onTap: _isBusy ? null : _changeAvatar,
                               child: Stack(
                                 clipBehavior: Clip.none,
                                 children: [
-                                  AvatarBadge(
-                                    label: currentUser.avatarLabel,
-                                    color: currentUser.accentColor,
-                                    avatarUrl: currentUser.avatarUrl,
-                                    size: 70,
-                                  ),
+                                  if (_pendingAvatarFile != null)
+                                    ClipOval(
+                                      child: Image.file(
+                                        _pendingAvatarFile!,
+                                        width: 70,
+                                        height: 70,
+                                        fit: BoxFit.cover,
+                                      ),
+                                    )
+                                  else
+                                    AvatarBadge(
+                                      label: currentUser.avatarLabel,
+                                      color: currentUser.accentColor,
+                                      avatarUrl: currentUser.avatarUrl,
+                                      size: 70,
+                                    ),
                                   Positioned(
                                     right: -2,
                                     bottom: -2,
