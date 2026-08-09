@@ -412,33 +412,21 @@ class TrackedChatRepository implements ChatRepository {
     final combinedLabel = attachments.length == 1
         ? attachments.single.compactLabel
         : '${attachments.length} attachments';
+    final List<ChatThread> threads;
     try {
-      for (final attachment in attachments) {
-        final transfer = await _integrations.queueMediaTransfer(
-          source: 'Chats',
-          label: attachment.compactLabel,
-          kind: _kindForChatAttachment(attachment.type),
-        );
-        if (transfer.state == MediaTransferState.failed) {
-          throw const ChatRepositoryException(
-            'We could not upload that attachment right now.',
-          );
-        }
-      }
-
-      final threads = await _delegate.sendAttachmentMessage(
+      // The real send happens first, unconditionally -- queueMediaTransfer
+      // below is a demo/telemetry recording for the "Backend and sync"
+      // activity feed, not a real upload of anything. It must never gate
+      // whether the actual message goes out: it previously ran BEFORE this
+      // call and threw if a manually-maintained "is Storage ready" flag
+      // happened to be stale, which silently blocked every photo/video/
+      // document/voice-note/location send regardless of whether Storage
+      // itself was actually working.
+      threads = await _delegate.sendAttachmentMessage(
         threadId: threadId,
         attachments: attachments,
         caption: caption,
       );
-      unawaited(
-        _integrations.recordSyncSuccess(
-          source: 'Chats',
-          title: 'Attachment synced',
-          details: combinedLabel,
-        ),
-      );
-      return threads;
     } on ChatRepositoryException catch (error) {
       unawaited(
         _integrations.recordSyncFailure(
@@ -457,6 +445,24 @@ class TrackedChatRepository implements ChatRepository {
       );
       rethrow;
     }
+
+    for (final attachment in attachments) {
+      unawaited(
+        _integrations.queueMediaTransfer(
+          source: 'Chats',
+          label: attachment.compactLabel,
+          kind: _kindForChatAttachment(attachment.type),
+        ),
+      );
+    }
+    unawaited(
+      _integrations.recordSyncSuccess(
+        source: 'Chats',
+        title: 'Attachment synced',
+        details: combinedLabel,
+      ),
+    );
+    return threads;
   }
 }
 
@@ -489,27 +495,12 @@ class TrackedUpdatesRepository implements UpdatesRepository {
     StatusMusicTrack? musicTrack,
     int? durationMillis,
   }) async {
+    final List<StatusStory> stories;
     try {
-      if (type == StatusStoryType.photo || type == StatusStoryType.video) {
-        final transfer = await _integrations.queueMediaTransfer(
-          source: 'Updates',
-          label: caption?.trim().isNotEmpty == true
-              ? caption!.trim()
-              : type == StatusStoryType.photo
-                  ? 'New photo status'
-                  : 'New video status',
-          kind: type == StatusStoryType.photo
-              ? MediaTransferKind.statusPhoto
-              : MediaTransferKind.statusVideo,
-        );
-        if (transfer.state == MediaTransferState.failed) {
-          throw const UpdatesRepositoryException(
-            'We could not upload that status right now.',
-          );
-        }
-      }
-
-      final stories = await _delegate.createStatus(
+      // The real post happens first, unconditionally -- see the matching
+      // comment on TrackedChatRepository.sendAttachmentMessage for why
+      // queueMediaTransfer must never run (and gate) before this.
+      stories = await _delegate.createStatus(
         type: type,
         caption: caption,
         localMediaPath: localMediaPath,
@@ -521,15 +512,6 @@ class TrackedUpdatesRepository implements UpdatesRepository {
         musicTrack: musicTrack,
         durationMillis: durationMillis,
       );
-      unawaited(
-        _integrations.recordSyncSuccess(
-          source: 'Updates',
-          title: 'Status synced',
-          details:
-              caption?.trim().isNotEmpty == true ? caption!.trim() : type.name,
-        ),
-      );
-      return stories;
     } on UpdatesRepositoryException catch (error) {
       unawaited(
         _integrations.recordSyncFailure(
@@ -548,6 +530,31 @@ class TrackedUpdatesRepository implements UpdatesRepository {
       );
       rethrow;
     }
+
+    if (type == StatusStoryType.photo || type == StatusStoryType.video) {
+      unawaited(
+        _integrations.queueMediaTransfer(
+          source: 'Updates',
+          label: caption?.trim().isNotEmpty == true
+              ? caption!.trim()
+              : type == StatusStoryType.photo
+                  ? 'New photo status'
+                  : 'New video status',
+          kind: type == StatusStoryType.photo
+              ? MediaTransferKind.statusPhoto
+              : MediaTransferKind.statusVideo,
+        ),
+      );
+    }
+    unawaited(
+      _integrations.recordSyncSuccess(
+        source: 'Updates',
+        title: 'Status synced',
+        details:
+            caption?.trim().isNotEmpty == true ? caption!.trim() : type.name,
+      ),
+    );
+    return stories;
   }
 
   @override
