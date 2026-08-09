@@ -1,9 +1,11 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:pdfx/pdfx.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../../app/theme/app_palette.dart';
@@ -157,6 +159,19 @@ class _AttachmentCanvas extends StatelessWidget {
         attachment.type == ChatAttachmentType.file &&
         !isBundledStatusMediaPath(localPath);
     if (hasRealDocument) {
+      // Real in-app rendering for formats that have a practical renderer
+      // (PDF via pdfx, plain text/CSV by just reading the bytes) --
+      // everything else (Word/Excel/PowerPoint, or if in-app rendering
+      // itself fails) falls back to the OS's own native viewer, which is
+      // still a real, full-fidelity preview, just outside this app's
+      // direct control.
+      final kind = attachment.documentKind;
+      if (kind == ChatDocumentKind.pdf) {
+        return _PdfDocumentCanvas(attachment: attachment);
+      }
+      if (kind == ChatDocumentKind.text || attachment.fileExtension == '.csv') {
+        return _TextDocumentCanvas(attachment: attachment);
+      }
       return _DocumentPreviewCanvas(attachment: attachment);
     }
 
@@ -181,12 +196,38 @@ class _AttachmentCanvas extends StatelessWidget {
   }
 }
 
-/// A real document (PDF/Word/Excel/CSV/etc) attachment -- rather than
-/// hand-building a renderer for every office format, this opens the file in
-/// the OS's own native viewer (QuickLook on iOS, an Intent chooser on
-/// Android), which is a real, full-fidelity preview of the actual document.
-/// Downloads a remote (Storage-uploaded) attachment to a temp file first,
-/// since the native viewers need a local path, not a URL.
+/// Resolves an attachment's media path to a real local file path, on-device
+/// -- a Storage-uploaded attachment's `localMediaPath` is a download URL by
+/// the time anyone but the sender views it, but every renderer here (PDF,
+/// text, or the OS's own native viewer) needs an actual local file, not a
+/// URL. Downloads to a temp file the first time; harmless to call again for
+/// an already-local path, which is returned unchanged.
+Future<String> _resolveAttachmentLocalPath(
+  ChatAttachment attachment,
+  String path,
+) async {
+  if (!isRemoteStatusMediaPath(path)) {
+    return path;
+  }
+  final response = await http.get(Uri.parse(path));
+  if (response.statusCode != 200) {
+    throw Exception('Download failed (${response.statusCode})');
+  }
+  final tempDirectory = await getTemporaryDirectory();
+  final extension = attachment.fileExtension;
+  final file = File(
+    '${tempDirectory.path}/attachment_${attachment.id}$extension',
+  );
+  await file.writeAsBytes(response.bodyBytes);
+  return file.path;
+}
+
+/// A document attachment with no practical in-app renderer here
+/// (Word/Excel/PowerPoint) -- opens the file in the OS's own native viewer
+/// (QuickLook on iOS, an Intent chooser on Android) instead, which is still
+/// a real, full-fidelity preview of the actual document, just outside this
+/// app's direct control. Also the failure fallback other document canvases
+/// (PDF, text) offer when in-app rendering itself doesn't work.
 class _DocumentPreviewCanvas extends StatefulWidget {
   const _DocumentPreviewCanvas({required this.attachment});
 
@@ -217,7 +258,8 @@ class _DocumentPreviewCanvasState extends State<_DocumentPreviewCanvas> {
       _error = null;
     });
     try {
-      final localPath = await _resolveLocalPath(rawPath);
+      final localPath =
+          await _resolveAttachmentLocalPath(widget.attachment, rawPath);
       final result = await OpenFilex.open(localPath);
       if (result.type != ResultType.done && mounted) {
         setState(() {
@@ -240,86 +282,339 @@ class _DocumentPreviewCanvasState extends State<_DocumentPreviewCanvas> {
     }
   }
 
-  Future<String> _resolveLocalPath(String path) async {
-    if (!isRemoteStatusMediaPath(path)) {
-      return path;
-    }
-    final response = await http.get(Uri.parse(path));
-    if (response.statusCode != 200) {
-      throw Exception('Download failed (${response.statusCode})');
-    }
-    final tempDirectory = await getTemporaryDirectory();
-    final extension = widget.attachment.fileExtension;
-    final file = File(
-      '${tempDirectory.path}/attachment_${widget.attachment.id}$extension',
-    );
-    await file.writeAsBytes(response.bodyBytes);
-    return file.path;
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final (icon, color) =
         documentKindVisual(widget.attachment.documentKind, widget.attachment.tintColor);
 
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 420),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 28),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              CircleAvatar(
-                radius: 44,
-                backgroundColor: color.withValues(alpha: 0.16),
-                child: Icon(icon, size: 42, color: color),
-              ),
-              const SizedBox(height: 18),
-              Text(
-                widget.attachment.title,
-                textAlign: TextAlign.center,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w800,
+    return ColoredBox(
+      color: Colors.black,
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 28),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircleAvatar(
+                  radius: 44,
+                  backgroundColor: color.withValues(alpha: 0.22),
+                  child: Icon(icon, size: 42, color: color),
                 ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                widget.attachment.details,
-                textAlign: TextAlign.center,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.68),
-                ),
-              ),
-              const SizedBox(height: 22),
-              if (_error != null) ...[
+                const SizedBox(height: 18),
                 Text(
-                  _error!,
+                  widget.attachment.title,
                   textAlign: TextAlign.center,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.error,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 6),
+                Text(
+                  widget.attachment.details,
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: Colors.white.withValues(alpha: 0.68),
+                  ),
+                ),
+                const SizedBox(height: 22),
+                if (_error != null) ...[
+                  Text(
+                    _error!,
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.error,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                FilledButton.icon(
+                  key: const Key('attachment_viewer_open_document_button'),
+                  onPressed: _isOpening ? null : _openDocument,
+                  icon: _isOpening
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.open_in_new_rounded),
+                  label: Text(_isOpening ? 'Opening…' : 'Open document'),
+                ),
               ],
-              FilledButton.icon(
-                key: const Key('attachment_viewer_open_document_button'),
-                onPressed: _isOpening ? null : _openDocument,
-                icon: _isOpening
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.open_in_new_rounded),
-                label: Text(_isOpening ? 'Opening…' : 'Open document'),
-              ),
-            ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A shared error state for the in-app document canvases ([_PdfDocumentCanvas],
+/// [_TextDocumentCanvas]) -- offers a retry (transient network/read
+/// failures are common for a Storage-hosted attachment) and, per the
+/// "if it's hard to preview in-app, fall back to the current flow"
+/// direction, a way to still open it in the OS's own native viewer.
+class _DocumentErrorFallback extends StatelessWidget {
+  const _DocumentErrorFallback({
+    required this.attachment,
+    required this.message,
+    required this.onRetry,
+  });
+
+  final ChatAttachment attachment;
+  final String message;
+  final VoidCallback onRetry;
+
+  Future<void> _openExternally() async {
+    final rawPath = attachment.localMediaPath?.trim();
+    if (rawPath == null || rawPath.isEmpty) {
+      return;
+    }
+    try {
+      final localPath = await _resolveAttachmentLocalPath(attachment, rawPath);
+      await OpenFilex.open(localPath);
+    } catch (_) {
+      // Best-effort -- there's no further fallback beyond this one, and the
+      // visible error state already told the reader something's wrong.
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final (icon, color) =
+        documentKindVisual(attachment.documentKind, attachment.tintColor);
+
+    return ColoredBox(
+      color: Colors.black,
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 380),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 28),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircleAvatar(
+                  radius: 40,
+                  backgroundColor: color.withValues(alpha: 0.22),
+                  child: Icon(icon, size: 38, color: color),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  attachment.title,
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  message,
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: Colors.white70,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 8,
+                  alignment: WrapAlignment.center,
+                  children: [
+                    OutlinedButton.icon(
+                      key: const Key('attachment_viewer_document_retry_button'),
+                      onPressed: onRetry,
+                      icon: const Icon(Icons.refresh_rounded),
+                      label: const Text('Try again'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        side: const BorderSide(color: Colors.white54),
+                      ),
+                    ),
+                    FilledButton.icon(
+                      key: const Key('attachment_viewer_open_document_button'),
+                      onPressed: _openExternally,
+                      icon: const Icon(Icons.open_in_new_rounded),
+                      label: const Text('Open externally'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A real PDF, rendered and paginated in-app (pinch-zoom, page scroll) via
+/// pdfx rather than handed off to the OS viewer -- matches the pinch/zoom
+/// convention this app's photo viewer already uses.
+class _PdfDocumentCanvas extends StatefulWidget {
+  const _PdfDocumentCanvas({required this.attachment});
+
+  final ChatAttachment attachment;
+
+  @override
+  State<_PdfDocumentCanvas> createState() => _PdfDocumentCanvasState();
+}
+
+class _PdfDocumentCanvasState extends State<_PdfDocumentCanvas> {
+  PdfControllerPinch? _controller;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  void _load() {
+    final rawPath = widget.attachment.localMediaPath?.trim();
+    if (rawPath == null || rawPath.isEmpty) {
+      setState(() => _error = 'This document is no longer available.');
+      return;
+    }
+    _controller?.dispose();
+    setState(() {
+      _error = null;
+      _controller = PdfControllerPinch(
+        document: _resolveAttachmentLocalPath(widget.attachment, rawPath)
+            .then(PdfDocument.openFile),
+      );
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_error != null) {
+      return _DocumentErrorFallback(
+        attachment: widget.attachment,
+        message: _error!,
+        onRetry: _load,
+      );
+    }
+    final controller = _controller;
+    if (controller == null) {
+      return const ColoredBox(
+        color: Colors.black,
+        child: Center(child: CircularProgressIndicator(color: Colors.white)),
+      );
+    }
+    return ColoredBox(
+      color: Colors.black,
+      child: PdfViewPinch(
+        controller: controller,
+        onDocumentError: (_) {
+          if (mounted) {
+            setState(() {
+              _error =
+                  'Could not open this PDF. Check your connection and try again.';
+            });
+          }
+        },
+      ),
+    );
+  }
+}
+
+/// A plain-text or CSV attachment, read directly and shown as scrollable
+/// text -- no renderer package needed, both are already human-readable
+/// bytes.
+class _TextDocumentCanvas extends StatefulWidget {
+  const _TextDocumentCanvas({required this.attachment});
+
+  final ChatAttachment attachment;
+
+  @override
+  State<_TextDocumentCanvas> createState() => _TextDocumentCanvasState();
+}
+
+class _TextDocumentCanvasState extends State<_TextDocumentCanvas> {
+  String? _content;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _error = null;
+      _content = null;
+    });
+    final rawPath = widget.attachment.localMediaPath?.trim();
+    if (rawPath == null || rawPath.isEmpty) {
+      setState(() => _error = 'This document is no longer available.');
+      return;
+    }
+    try {
+      final localPath =
+          await _resolveAttachmentLocalPath(widget.attachment, rawPath);
+      final bytes = await File(localPath).readAsBytes();
+      if (!mounted) {
+        return;
+      }
+      setState(() => _content = utf8.decode(bytes, allowMalformed: true));
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _error =
+              'Could not open this document. Check your connection and try again.';
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_error != null) {
+      return _DocumentErrorFallback(
+        attachment: widget.attachment,
+        message: _error!,
+        onRetry: _load,
+      );
+    }
+    final content = _content;
+    if (content == null) {
+      return const ColoredBox(
+        color: Colors.black,
+        child: Center(child: CircularProgressIndicator(color: Colors.white)),
+      );
+    }
+    return ColoredBox(
+      color: Colors.black,
+      child: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 64, 20, 32),
+          child: SelectableText(
+            content,
+            style: const TextStyle(
+              color: Colors.white,
+              fontFamily: 'monospace',
+              fontSize: 14,
+              height: 1.5,
+            ),
           ),
         ),
       ),

@@ -45,10 +45,14 @@ dependencies:
   # firebase_* dependency above to versions that also want 12.17.0+.
   firebase_storage: 13.4.5
   file_picker: ^11.0.3
-  # Opens a document attachment (PDF/Word/Excel/CSV/etc) in the OS's own
-  # native viewer -- QuickLook on iOS, an Intent chooser on Android --
-  # rather than hand-building a renderer per file format.
+  # Opens a document attachment in the OS's own native viewer -- QuickLook
+  # on iOS, an Intent chooser on Android -- as the fallback for formats
+  # (Word/Excel/PowerPoint) with no practical in-app renderer here.
   open_filex: ^4.7.0
+  # Real in-app PDF rendering (pinch-zoom, page scroll) instead of handing
+  # every PDF off to the OS viewer -- MIT-licensed, no commercial license
+  # required (unlike some other Flutter PDF viewers).
+  pdfx: ^2.9.2
   # Renders a real, interactive OpenStreetMap-tiled map with a pin for
   # location attachments -- no API key/billing setup required, unlike
   # Google Maps' own Flutter map widget.
