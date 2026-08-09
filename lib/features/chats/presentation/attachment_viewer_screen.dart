@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../../app/theme/app_palette.dart';
+import '../../shared/widgets/liquid_glass.dart';
 import '../../updates/presentation/widgets/status_media_source.dart';
 import '../domain/chat_attachment.dart';
 
@@ -228,6 +229,7 @@ class _AttachmentVideoCanvas extends StatefulWidget {
 class _AttachmentVideoCanvasState extends State<_AttachmentVideoCanvas> {
   late final VideoPlayerController _controller;
   late final Future<void> _initialization;
+  double _volumeBeforeMute = 1;
 
   @override
   void initState() {
@@ -245,6 +247,19 @@ class _AttachmentVideoCanvasState extends State<_AttachmentVideoCanvas> {
   void dispose() {
     _controller.dispose();
     super.dispose();
+  }
+
+  void _togglePlayback() {
+    _controller.value.isPlaying ? _controller.pause() : _controller.play();
+  }
+
+  void _toggleMute() {
+    if (_controller.value.volume > 0) {
+      _volumeBeforeMute = _controller.value.volume;
+      _controller.setVolume(0);
+    } else {
+      _controller.setVolume(_volumeBeforeMute > 0 ? _volumeBeforeMute : 1);
+    }
   }
 
   @override
@@ -266,20 +281,153 @@ class _AttachmentVideoCanvasState extends State<_AttachmentVideoCanvas> {
           minScale: 1,
           maxScale: 5,
           child: GestureDetector(
-            onTap: () {
-              setState(() {
-                _controller.value.isPlaying
-                    ? _controller.pause()
-                    : _controller.play();
-              });
-            },
+            onTap: _togglePlayback,
             child: ColoredBox(
               color: Colors.black,
-              child: Center(
-                child: AspectRatio(
-                  aspectRatio: _controller.value.aspectRatio,
-                  child: VideoPlayer(_controller),
-                ),
+              child: Stack(
+                children: [
+                  Center(
+                    child: AspectRatio(
+                      aspectRatio: _controller.value.aspectRatio,
+                      child: VideoPlayer(_controller),
+                    ),
+                  ),
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: _VideoControlBar(
+                      controller: _controller,
+                      onPlayPause: _togglePlayback,
+                      onToggleMute: _toggleMute,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// WhatsApp-style controls floating over the video itself -- play/pause,
+/// a seek bar with elapsed/total time, and mute/unmute. Rebuilds off
+/// [controller] directly (it's a ValueListenable) so position/play-state
+/// stay live without the parent needing setState on every frame.
+class _VideoControlBar extends StatelessWidget {
+  const _VideoControlBar({
+    required this.controller,
+    required this.onPlayPause,
+    required this.onToggleMute,
+  });
+
+  final VideoPlayerController controller;
+  final VoidCallback onPlayPause;
+  final VoidCallback onToggleMute;
+
+  String _formatDuration(Duration duration) {
+    final hours = duration.inHours;
+    final minutes = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return hours > 0 ? '$hours:$minutes:$seconds' : '$minutes:$seconds';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<VideoPlayerValue>(
+      valueListenable: controller,
+      builder: (context, value, _) {
+        final durationMs = value.duration.inMilliseconds;
+        final positionMs = value.position.inMilliseconds
+            .clamp(0, durationMs > 0 ? durationMs : 0)
+            .toDouble();
+        final isMuted = value.volume <= 0;
+
+        return DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Colors.black.withValues(alpha: 0),
+                Colors.black.withValues(alpha: 0.55),
+              ],
+            ),
+          ),
+          child: SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 28, 16, 12),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SliderTheme(
+                    data: SliderTheme.of(context).copyWith(
+                      trackHeight: 2.5,
+                      thumbShape:
+                          const RoundSliderThumbShape(enabledThumbRadius: 6),
+                      overlayShape:
+                          const RoundSliderOverlayShape(overlayRadius: 14),
+                      activeTrackColor: Colors.white,
+                      inactiveTrackColor: Colors.white.withValues(alpha: 0.28),
+                      thumbColor: Colors.white,
+                    ),
+                    child: Slider(
+                      key: const Key('attachment_video_seek_slider'),
+                      min: 0,
+                      max: durationMs > 0 ? durationMs.toDouble() : 1,
+                      value: positionMs,
+                      onChanged: durationMs > 0
+                          ? (newValue) => controller.seekTo(
+                                Duration(milliseconds: newValue.round()),
+                              )
+                          : null,
+                    ),
+                  ),
+                  Row(
+                    children: [
+                      LiquidGlassIconButton(
+                        actionKey:
+                            const Key('attachment_video_play_pause_button'),
+                        icon: value.isPlaying
+                            ? Icons.pause_rounded
+                            : Icons.play_arrow_rounded,
+                        onTap: onPlayPause,
+                        size: 40,
+                        blurred: false,
+                        color: Colors.black.withValues(alpha: 0.42),
+                        iconColor: Colors.white,
+                        tooltip: value.isPlaying ? 'Pause' : 'Play',
+                      ),
+                      const SizedBox(width: 10),
+                      Text(
+                        '${_formatDuration(value.position)} / '
+                        '${_formatDuration(value.duration)}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          fontFeatures: [FontFeature.tabularFigures()],
+                        ),
+                      ),
+                      const Spacer(),
+                      LiquidGlassIconButton(
+                        actionKey: const Key('attachment_video_mute_button'),
+                        icon: isMuted
+                            ? Icons.volume_off_rounded
+                            : Icons.volume_up_rounded,
+                        onTap: onToggleMute,
+                        size: 40,
+                        blurred: false,
+                        color: Colors.black.withValues(alpha: 0.42),
+                        iconColor: Colors.white,
+                        tooltip: isMuted ? 'Unmute' : 'Mute',
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
           ),

@@ -62,6 +62,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
   final List<ChatMessage> _localMessages = <ChatMessage>[];
   Timer? _composerUnlockTimer;
   Timer? _animatedMessageCleanupTimer;
+  final List<Timer> _scrollCatchUpTimers = <Timer>[];
 
   @override
   void initState() {
@@ -74,6 +75,10 @@ class _ConversationScreenState extends State<ConversationScreen> {
   void dispose() {
     _composerUnlockTimer?.cancel();
     _animatedMessageCleanupTimer?.cancel();
+    for (final timer in _scrollCatchUpTimers) {
+      timer.cancel();
+    }
+    _scrollCatchUpTimers.clear();
     _composerController.dispose();
     _messageListController.dispose();
     super.dispose();
@@ -597,6 +602,29 @@ class _ConversationScreenState extends State<ConversationScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _scrollToLatestMessage(animated: animated);
     });
+    // A network-image attachment (an uploaded photo's Storage URL, unlike
+    // an optimistic local file, which decodes instantly) can still be
+    // mid-fetch on this first frame -- once it finishes, the list grows
+    // taller and the earlier scroll's target offset falls short of the
+    // new true bottom, leaving the latest message hidden behind the
+    // composer. Re-snap a couple of times shortly after to catch up once
+    // any in-flight image has actually finished loading and settled the
+    // list's real height, without a second visible scroll animation.
+    for (final timer in _scrollCatchUpTimers) {
+      timer.cancel();
+    }
+    _scrollCatchUpTimers.clear();
+    for (final delay in const [
+      Duration(milliseconds: 150),
+      Duration(milliseconds: 450),
+    ]) {
+      _scrollCatchUpTimers.add(Timer(delay, () {
+        if (!mounted || !_isNearLatestMessage(tolerance: 400)) {
+          return;
+        }
+        _scrollToLatestMessage(animated: false);
+      }));
+    }
   }
 
   void _lockComposerHeight() {
