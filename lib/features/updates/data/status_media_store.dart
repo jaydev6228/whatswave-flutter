@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../../core/media/media_uploader.dart';
@@ -118,13 +119,23 @@ class FirebaseStatusMediaStore implements StatusMediaStore {
     MediaUploader? uploader,
     fb_auth.FirebaseAuth? firebaseAuth,
     FirebaseStorage? storage,
+    StatusMediaStore? localFallback,
   })  : _uploader = uploader ?? FirebaseMediaUploader(storage: storage),
         _firebaseAuth = firebaseAuth ?? fb_auth.FirebaseAuth.instance,
-        _storage = storage ?? FirebaseStorage.instance;
+        _storage = storage ?? FirebaseStorage.instance,
+        _localFallback = localFallback ?? const LocalStatusMediaStore();
 
   final MediaUploader _uploader;
   final fb_auth.FirebaseAuth _firebaseAuth;
   final FirebaseStorage _storage;
+
+  /// Falls back to a plain on-device copy (same as this class's whole
+  /// reason for existing not being available) when the Storage upload
+  /// itself fails -- best-effort, matching FirestoreChatRepository's
+  /// attachment upload: a status is still worth posting even if only the
+  /// poster's own device can render its media, rather than blocking the
+  /// entire post (including its caption) over a transient upload failure.
+  final StatusMediaStore _localFallback;
 
   @override
   Future<String> importMedia(
@@ -163,8 +174,9 @@ class FirebaseStatusMediaStore implements StatusMediaStore {
         sourceFile,
         storagePath: 'statusMedia/$uid/$filename',
       );
-    } on MediaUploadException catch (e) {
-      throw UpdatesRepositoryException(e.message);
+    } catch (e) {
+      debugPrint('Status media upload failed, falling back to local: $e');
+      return _localFallback.importMedia(normalizedSourcePath, type: type);
     }
   }
 

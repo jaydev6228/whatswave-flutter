@@ -44,6 +44,7 @@ dependencies:
   # SDK package at once. Bump this only alongside bumping every other
   # firebase_* dependency above to versions that also want 12.17.0+.
   firebase_storage: 13.4.5
+  file_picker: ^11.0.3
 
 dev_dependencies:
   flutter_test:

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -863,56 +864,54 @@ class _ConversationScreenState extends State<ConversationScreen> {
       ];
     }
 
-    return [_buildDemoAttachment(threadId: threadId, type: type)];
+    if (type == ChatAttachmentType.file) {
+      final result = await FilePicker.pickFiles();
+      if (!mounted || result == null || result.files.isEmpty) {
+        return null;
+      }
+      final picked = result.files.single;
+      final path = picked.path;
+      if (path == null) {
+        return null;
+      }
+      return [
+        ChatAttachment(
+          id: '$threadId-file-${DateTime.now().millisecondsSinceEpoch}',
+          type: ChatAttachmentType.file,
+          title: picked.name,
+          details: '${_formatFileSize(picked.size)} • shared from Files',
+          tintColor: AppPalette.amber,
+          localMediaPath: path,
+        ),
+      ];
+    }
+
+    // Voice notes are the one remaining attachment type with no real
+    // capture flow behind it yet (no recording package wired up) -- a
+    // placeholder until that's built, unlike photo/video/file above.
+    return [_buildDemoVoiceNote(threadId: threadId)];
   }
 
-  ChatAttachment _buildDemoAttachment({
-    required String threadId,
-    required ChatAttachmentType type,
-  }) {
+  String _formatFileSize(int bytes) {
+    if (bytes < 1024) {
+      return '$bytes B';
+    }
+    if (bytes < 1024 * 1024) {
+      return '${(bytes / 1024).toStringAsFixed(0)} KB';
+    }
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+
+  ChatAttachment _buildDemoVoiceNote({required String threadId}) {
     final messageSeed = DateTime.now().millisecondsSinceEpoch;
-    return switch (type) {
-      ChatAttachmentType.photo => ChatAttachment(
-          id: '$threadId-photo-$messageSeed',
-          type: ChatAttachmentType.photo,
-          title: 'New gallery pick',
-          details: 'High-resolution photo preview',
-          tintColor: AppPalette.green,
-          aspectRatio: 1.05,
-        ),
-      ChatAttachmentType.video => ChatAttachment(
-          id: '$threadId-video-$messageSeed',
-          type: ChatAttachmentType.video,
-          title: 'Walkthrough clip',
-          details: '0:18 preview video',
-          tintColor: AppPalette.sky,
-          aspectRatio: 0.7,
-        ),
-      ChatAttachmentType.file => ChatAttachment(
-          id: '$threadId-file-$messageSeed',
-          type: ChatAttachmentType.file,
-          title: 'Release-Notes.pdf',
-          details: '268 KB • shared from Files',
-          tintColor: AppPalette.amber,
-          aspectRatio: 1.3,
-        ),
-      ChatAttachmentType.location => ChatAttachment(
-          id: '$threadId-location-$messageSeed',
-          type: ChatAttachmentType.location,
-          title: 'Shibuya Crossing',
-          details: 'Pinned location • Tokyo meetup point',
-          tintColor: AppPalette.rose,
-          aspectRatio: 1.18,
-        ),
-      ChatAttachmentType.voiceNote => ChatAttachment(
-          id: '$threadId-voice-$messageSeed',
-          type: ChatAttachmentType.voiceNote,
-          title: 'Voice note',
-          details: '0:21 quick update',
-          tintColor: AppPalette.purple,
-          aspectRatio: 1.55,
-        ),
-    };
+    return ChatAttachment(
+      id: '$threadId-voice-$messageSeed',
+      type: ChatAttachmentType.voiceNote,
+      title: 'Voice note',
+      details: '0:21 quick update',
+      tintColor: AppPalette.purple,
+      aspectRatio: 1.55,
+    );
   }
 
   ChatMessage _buildLocalMessage({

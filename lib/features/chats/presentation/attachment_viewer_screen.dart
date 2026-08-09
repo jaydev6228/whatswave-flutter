@@ -24,12 +24,12 @@ class AttachmentViewerScreen extends StatelessWidget {
     final theme = Theme.of(context);
 
     return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
+            child: Row(
               children: [
                 IconButton(
                   key: const Key('attachment_viewer_close_button'),
@@ -53,20 +53,15 @@ class AttachmentViewerScreen extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-            Expanded(
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 520),
-                  child: AspectRatio(
-                    aspectRatio: attachment.aspectRatio,
-                    child: _AttachmentCanvas(attachment: attachment),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
+          ),
+          // Full-bleed, no side padding -- lets a real photo/video reach the
+          // screen edges instead of sitting in a constrained card. Only the
+          // placeholder canvas (file/location/voice, which has nothing real
+          // to show full-bleed) still centers itself in a bounded card.
+          Expanded(
+            child: _AttachmentCanvas(attachment: attachment),
+          ),
+        ],
       ),
     );
   }
@@ -123,23 +118,101 @@ class _AttachmentCanvas extends StatelessWidget {
             attachment.type == ChatAttachmentType.video);
 
     if (hasRealMedia) {
-      return ClipRRect(
-        borderRadius: BorderRadius.circular(32),
+      // Full-bleed, no corner rounding, and pinch/double-tap-to-zoom via
+      // InteractiveViewer -- matching a real photo viewer instead of the
+      // constrained, rounded card every other (placeholder) attachment
+      // type still uses below.
+      return ColoredBox(
+        color: Colors.black,
         child: attachment.type == ChatAttachmentType.photo
-            ? ColoredBox(
-                color: Colors.black,
-                child: Image(
-                  image: imageProviderForStatusMediaPath(localPath)!,
-                  fit: BoxFit.contain,
-                  errorBuilder: (_, __, ___) =>
-                      _AttachmentPlaceholderCanvas(attachment: attachment),
-                ),
+            ? _ZoomableImage(
+                imageProvider: imageProviderForStatusMediaPath(localPath)!,
+                errorBuilder: () =>
+                    _AttachmentPlaceholderCanvas(attachment: attachment),
               )
             : _AttachmentVideoCanvas(localMediaPath: localPath),
       );
     }
 
-    return _AttachmentPlaceholderCanvas(attachment: attachment);
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 520),
+        child: AspectRatio(
+          aspectRatio: attachment.aspectRatio,
+          child: _AttachmentPlaceholderCanvas(attachment: attachment),
+        ),
+      ),
+    );
+  }
+}
+
+/// A photo that pans/zooms via pinch or double-tap, matching WhatsApp's own
+/// attachment viewer -- InteractiveViewer handles both gestures natively.
+class _ZoomableImage extends StatefulWidget {
+  const _ZoomableImage({
+    required this.imageProvider,
+    required this.errorBuilder,
+  });
+
+  final ImageProvider imageProvider;
+  final Widget Function() errorBuilder;
+
+  @override
+  State<_ZoomableImage> createState() => _ZoomableImageState();
+}
+
+class _ZoomableImageState extends State<_ZoomableImage>
+    with SingleTickerProviderStateMixin {
+  final TransformationController _transformController =
+      TransformationController();
+  TapDownDetails? _doubleTapDetails;
+  bool _hasError = false;
+
+  @override
+  void dispose() {
+    _transformController.dispose();
+    super.dispose();
+  }
+
+  void _handleDoubleTap() {
+    final isZoomedIn = _transformController.value != Matrix4.identity();
+    if (isZoomedIn) {
+      _transformController.value = Matrix4.identity();
+      return;
+    }
+    final tapPosition = _doubleTapDetails?.localPosition ?? Offset.zero;
+    _transformController.value = Matrix4.identity()
+      ..translateByDouble(-tapPosition.dx * 2, -tapPosition.dy * 2, 0, 1)
+      ..scaleByDouble(3.0, 3.0, 3.0, 1);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_hasError) {
+      return widget.errorBuilder();
+    }
+
+    return GestureDetector(
+      onDoubleTapDown: (details) => _doubleTapDetails = details,
+      onDoubleTap: _handleDoubleTap,
+      child: InteractiveViewer(
+        minScale: 1,
+        maxScale: 5,
+        transformationController: _transformController,
+        child: Center(
+          child: Image(
+            image: widget.imageProvider,
+            fit: BoxFit.contain,
+            errorBuilder: (_, __, ___) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted) setState(() => _hasError = true);
+              });
+              return const SizedBox.shrink();
+            },
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -189,20 +262,24 @@ class _AttachmentVideoCanvasState extends State<_AttachmentVideoCanvas> {
           );
         }
 
-        return GestureDetector(
-          onTap: () {
-            setState(() {
-              _controller.value.isPlaying
-                  ? _controller.pause()
-                  : _controller.play();
-            });
-          },
-          child: ColoredBox(
-            color: Colors.black,
-            child: Center(
-              child: AspectRatio(
-                aspectRatio: _controller.value.aspectRatio,
-                child: VideoPlayer(_controller),
+        return InteractiveViewer(
+          minScale: 1,
+          maxScale: 5,
+          child: GestureDetector(
+            onTap: () {
+              setState(() {
+                _controller.value.isPlaying
+                    ? _controller.pause()
+                    : _controller.play();
+              });
+            },
+            child: ColoredBox(
+              color: Colors.black,
+              child: Center(
+                child: AspectRatio(
+                  aspectRatio: _controller.value.aspectRatio,
+                  child: VideoPlayer(_controller),
+                ),
               ),
             ),
           ),

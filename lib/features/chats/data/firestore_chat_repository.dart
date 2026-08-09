@@ -569,7 +569,9 @@ class FirestoreChatRepository implements ChatRepository {
         !localPath.startsWith('http://') &&
         !localPath.startsWith('https://') &&
         (attachment.type == ChatAttachmentType.photo ||
-            attachment.type == ChatAttachmentType.video);
+            attachment.type == ChatAttachmentType.video ||
+            attachment.type == ChatAttachmentType.file ||
+            attachment.type == ChatAttachmentType.voiceNote);
     if (!isUploadable) {
       return attachment;
     }
@@ -582,7 +584,12 @@ class FirestoreChatRepository implements ChatRepository {
     try {
       final extension = localPath.contains('.')
           ? localPath.substring(localPath.lastIndexOf('.'))
-          : (attachment.type == ChatAttachmentType.photo ? '.jpg' : '.mp4');
+          : switch (attachment.type) {
+              ChatAttachmentType.photo => '.jpg',
+              ChatAttachmentType.video => '.mp4',
+              ChatAttachmentType.voiceNote => '.m4a',
+              _ => '',
+            };
       final downloadUrl = await _mediaUploader.uploadFile(
         file,
         storagePath: 'chatMedia/$threadId/$messageId-${attachment.id}$extension',
