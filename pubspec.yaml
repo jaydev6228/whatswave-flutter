@@ -54,6 +54,9 @@ dependencies:
   # Google Maps' own Flutter map widget.
   flutter_map: ^8.2.2
   latlong2: ^0.9.1
+  # Real microphone recording for voice notes (AVAudioRecorder on iOS,
+  # MediaRecorder on Android) -- handles its own mic-permission request.
+  record: ^6.1.1
 
 dev_dependencies:
   flutter_test:

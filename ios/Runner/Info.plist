@@ -44,7 +44,7 @@
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Whatswave uses your location to share your current location in a chat when you choose to.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Whatswave uses the microphone for audio and video calls.</string>
+	<string>Whatswave uses the microphone for audio and video calls, and to record voice notes.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Whatswave uses your photo library so you can share status photos and videos.</string>
 	<key>UIApplicationSceneManifest</key>

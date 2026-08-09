@@ -26,6 +26,8 @@ import '../domain/message_reaction.dart';
 import 'attachment_viewer_screen.dart';
 import 'contact_info_screen.dart';
 import 'widgets/location_map_preview.dart';
+import 'widgets/voice_note_bubble.dart';
+import 'widgets/voice_note_recorder_sheet.dart';
 
 class ConversationScreen extends StatefulWidget {
   const ConversationScreen({
@@ -830,11 +832,12 @@ class _ConversationScreenState extends State<ConversationScreen> {
     );
   }
 
-  /// Resolves what to actually send for an attachment-sheet tap. Photo and
-  /// video pick real device media (local-only -- no Firebase Storage is
-  /// configured, so it renders on this device but won't sync to the other
-  /// participant); every other type still uses a simulated demo
-  /// attachment, as before. Returns null if the user cancelled the picker.
+  /// Resolves what to actually send for an attachment-sheet tap: photo/video
+  /// pick real device media, file opens the document picker, location
+  /// shares a real device fix, and voice note opens a real recording sheet
+  /// (see [showVoiceNoteRecorderSheet]). Every type uploads to Firebase
+  /// Storage on send (see FirestoreChatRepository). Returns null if the
+  /// user cancelled.
   Future<List<ChatAttachment>?> _resolveAttachmentsForTap({
     required String threadId,
     required ChatAttachmentType type,
@@ -898,10 +901,11 @@ class _ConversationScreenState extends State<ConversationScreen> {
       ];
     }
 
-    // Voice notes are the one remaining attachment type with no real
-    // capture flow behind it yet (no recording package wired up) -- a
-    // placeholder until that's built, unlike photo/video/file above.
-    return [_buildDemoVoiceNote(threadId: threadId)];
+    final recorded = await showVoiceNoteRecorderSheet(context, threadId: threadId);
+    if (!mounted || recorded == null) {
+      return null;
+    }
+    return [recorded];
   }
 
   String _formatFileSize(int bytes) {
@@ -912,18 +916,6 @@ class _ConversationScreenState extends State<ConversationScreen> {
       return '${(bytes / 1024).toStringAsFixed(0)} KB';
     }
     return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-  }
-
-  ChatAttachment _buildDemoVoiceNote({required String threadId}) {
-    final messageSeed = DateTime.now().millisecondsSinceEpoch;
-    return ChatAttachment(
-      id: '$threadId-voice-$messageSeed',
-      type: ChatAttachmentType.voiceNote,
-      title: 'Voice note',
-      details: '0:21 quick update',
-      tintColor: AppPalette.purple,
-      aspectRatio: 1.55,
-    );
   }
 
   ChatMessage _buildLocalMessage({
@@ -1700,12 +1692,30 @@ class _MessageBubble extends StatelessWidget {
         for (final attachment in attachments)
           Padding(
             padding: const EdgeInsets.only(bottom: 6),
-            child: _AttachmentPreviewCard(
-              attachment: attachment,
-              onTap: () => onAttachmentTap(attachment),
-            ),
+            child: _buildAttachmentRow(attachment),
           ),
       ],
+    );
+  }
+
+  /// A real voice note (a real recorded file, not a placeholder) renders as
+  /// an inline playable bubble instead of a tap-through row -- everything
+  /// else keeps [_AttachmentPreviewCard]'s icon+title+details row.
+  Widget _buildAttachmentRow(ChatAttachment attachment) {
+    final localPath = attachment.localMediaPath;
+    if (attachment.type == ChatAttachmentType.voiceNote &&
+        localPath != null &&
+        statusMediaSourceExists(localPath)) {
+      return VoiceNoteBubble(
+        key: Key('voice_note_${attachment.id}'),
+        localMediaPath: localPath,
+        fallbackLabel: attachment.details,
+        accentColor: attachment.tintColor,
+      );
+    }
+    return _AttachmentPreviewCard(
+      attachment: attachment,
+      onTap: () => onAttachmentTap(attachment),
     );
   }
 
