@@ -71,6 +71,7 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
   VideoPlayerController? _musicController;
   String? _activeMusicAssetPath;
   bool _isDeletingSegment = false;
+  bool _isMuted = false;
   late StatusStory _storyData;
 
   StatusStory get _story => _storyData;
@@ -80,6 +81,32 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
   StatusStoryType get _currentSegmentType =>
       _currentSegment?.type ?? _story.type;
   double get _segmentProgress => _segmentProgressController.value;
+
+  bool get _currentSegmentHasMusic =>
+      _currentSegment?.musicTrack?.previewAssetPath?.trim().isNotEmpty ==
+      true;
+
+  /// Whether the current segment has anything audible to mute -- either its
+  /// own video audio track, or an overlaid music track (never both: a video
+  /// with music has its own audio silenced in favor of the music, matching
+  /// _configureVideoPlayback's existing volume logic below).
+  bool get _hasAudibleAudio =>
+      _currentSegmentHasMusic ||
+      (_currentSegmentType == StatusStoryType.video &&
+          _currentSegment?.hasLocalMedia == true);
+
+  void _toggleMute() {
+    setState(() => _isMuted = !_isMuted);
+    final hasMusic = _currentSegmentHasMusic;
+    if (!hasMusic &&
+        _videoController != null &&
+        _videoController!.value.isInitialized) {
+      unawaited(_videoController!.setVolume(_isMuted ? 0 : 1));
+    }
+    if (_musicController != null && _musicController!.value.isInitialized) {
+      unawaited(_musicController!.setVolume(_isMuted ? 0 : 1));
+    }
+  }
 
   @override
   void initState() {
@@ -244,9 +271,8 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
 
       await controller.setLooping(true);
       final musicAssetPath = segment?.musicTrack?.previewAssetPath?.trim();
-      await controller.setVolume(
-        musicAssetPath == null || musicAssetPath.isEmpty ? 1 : 0,
-      );
+      final hasMusic = musicAssetPath != null && musicAssetPath.isNotEmpty;
+      await controller.setVolume(!hasMusic && !_isMuted ? 1 : 0);
       if (!_isPausedByHold) {
         await controller.play();
       }
@@ -308,7 +334,7 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
       }
 
       await controller.setLooping(true);
-      await controller.setVolume(1);
+      await controller.setVolume(_isMuted ? 0 : 1);
       if (!_isPausedByHold) {
         await controller.play();
       }
@@ -803,6 +829,21 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
                             ],
                           ),
                         ),
+                        if (_hasAudibleAudio) ...[
+                          _StoryIconButton(
+                            key: const Key('updates_story_mute_button'),
+                            tooltip: _isMuted ? 'Unmute' : 'Mute',
+                            onPressed: _toggleMute,
+                            child: Icon(
+                              _isMuted
+                                  ? Icons.volume_off_rounded
+                                  : Icons.volume_up_rounded,
+                              color: Colors.white,
+                              size: 20,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                        ],
                         if (story.isMine && widget.onDeleteSegment != null)
                           _StoryIconButton(
                             key: const Key('updates_story_delete_button'),
