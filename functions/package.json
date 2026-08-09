@@ -1,0 +1,19 @@
+{
+  "name": "whatswave-functions",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Firebase Cloud Functions for WhatsWave. Currently: generates a real thumbnail image for every video attachment uploaded to chatMedia/ or statusMedia/, since no client-side video-thumbnail package here can compile on both iOS and Android (see the video_thumbnail revert in the app's commit history).",
+  "main": "index.js",
+  "engines": {
+    "node": "22"
+  },
+  "scripts": {
+    "deploy": "firebase deploy --only functions"
+  },
+  "dependencies": {
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
+    "firebase-admin": "^13.0.0",
+    "firebase-functions": "^6.0.0",
+    "fluent-ffmpeg": "^2.1.3"
+  }
+}

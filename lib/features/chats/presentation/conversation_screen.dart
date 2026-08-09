@@ -27,6 +27,7 @@ import '../domain/message_reaction.dart';
 import 'attachment_viewer_screen.dart';
 import 'contact_info_screen.dart';
 import 'widgets/location_map_preview.dart';
+import 'widgets/video_thumbnail_source.dart';
 import 'widgets/voice_note_bubble.dart';
 import 'widgets/voice_note_recorder_sheet.dart';
 
@@ -1896,14 +1897,13 @@ class _AttachmentPhotoGrid extends StatelessWidget {
 /// A single full-bleed photo or video tile -- no title/subtitle text, the
 /// media itself fills the bubble (matching the reference WhatsApp/iMessage
 /// bubble style). Real photos render via [imageProviderForStatusMediaPath];
-/// video shows a fixed dark placeholder with a play affordance rather than
-/// a decoded first-frame thumbnail (the video_thumbnail package's own
-/// Android build depends on the long-deprecated jcenter() Maven repo and
-/// fails to compile on any current Android Gradle setup -- tried and
-/// reverted; a genuinely cross-platform-safe thumbnail package would need
-/// more research before trying again). Falls back to a tinted swatch with a
-/// type icon when there's no local media to show (a demo attachment, or
-/// media missing on this device/other participant's device).
+/// video shows a real thumbnail via [resolveVideoThumbnailUrl], generated
+/// server-side (functions/generateVideoThumbnail) since no client-side
+/// video-frame-extraction package here could be made to compile on both
+/// iOS and Android (video_thumbnail's own Android build depends on the
+/// long-dead jcenter() Maven repo). Falls back to a tinted swatch with a
+/// type icon when there's no local media to show, the video hasn't
+/// finished uploading yet, or the server-side thumbnail isn't ready yet.
 class _MediaAttachmentTile extends StatelessWidget {
   const _MediaAttachmentTile({
     required this.attachment,
@@ -1922,6 +1922,12 @@ class _MediaAttachmentTile extends StatelessWidget {
         attachment.type == ChatAttachmentType.photo || attachment.isImageDocument;
     final hasRealPhoto =
         isPhoto && localPath != null && statusMediaSourceExists(localPath);
+    // Only a Storage-uploaded (remote) video has any chance of a
+    // server-generated thumbnail existing yet -- an optimistic local path,
+    // before upload finishes, never will.
+    final hasRemoteVideo = attachment.type == ChatAttachmentType.video &&
+        localPath != null &&
+        (localPath.startsWith('http://') || localPath.startsWith('https://'));
     final resolvedAspectRatio =
         (aspectRatio ?? attachment.aspectRatio).clamp(0.7, 1.5);
 
@@ -1948,6 +1954,27 @@ class _MediaAttachmentTile extends StatelessWidget {
                       return _loadingPlaceholder();
                     },
                     errorBuilder: (_, __, ___) => _placeholder(),
+                  )
+                else if (hasRemoteVideo)
+                  FutureBuilder<String?>(
+                    future: resolveVideoThumbnailUrl(localPath),
+                    builder: (context, snapshot) {
+                      final thumbnailUrl = snapshot.data;
+                      if (thumbnailUrl == null) {
+                        return _placeholder();
+                      }
+                      return Image(
+                        image: NetworkImage(thumbnailUrl),
+                        fit: BoxFit.cover,
+                        loadingBuilder: (context, child, loadingProgress) {
+                          if (loadingProgress == null) {
+                            return child;
+                          }
+                          return _loadingPlaceholder();
+                        },
+                        errorBuilder: (_, __, ___) => _placeholder(),
+                      );
+                    },
                   )
                 else
                   _placeholder(),
