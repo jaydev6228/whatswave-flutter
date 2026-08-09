@@ -1000,7 +1000,15 @@ class _ComposerBar extends StatelessWidget {
         return;
       }
 
-      FocusScope.of(context).unfocus();
+      // Deliberately not calling FocusScope.unfocus() here -- dismissing
+      // the keyboard first meant this popup's position was measured and
+      // locked in on the same frame the dismiss animation *started*, while
+      // the composer was still at its keyboard-open height. The popup then
+      // stayed frozen there as the composer dropped to its resting
+      // position underneath it over the next ~250ms, which is exactly the
+      // "popup stuck in place while the keyboard closes" gap. Anchoring to
+      // wherever the composer currently and stably is -- keyboard open or
+      // not -- avoids racing that animation entirely.
       final renderBox =
           composerBarKey.currentContext?.findRenderObject() as RenderBox?;
       if (renderBox == null || !renderBox.attached) {
