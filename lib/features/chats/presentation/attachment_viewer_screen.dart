@@ -679,6 +679,12 @@ class _ZoomableImageState extends State<_ZoomableImage>
           child: Image(
             image: widget.imageProvider,
             fit: BoxFit.contain,
+            loadingBuilder: (context, child, loadingProgress) {
+              if (loadingProgress == null) {
+                return child;
+              }
+              return const CircularProgressIndicator(color: Colors.white);
+            },
             errorBuilder: (_, __, ___) {
               WidgetsBinding.instance.addPostFrameCallback((_) {
                 if (mounted) setState(() => _hasError = true);

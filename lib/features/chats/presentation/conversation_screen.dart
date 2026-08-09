@@ -1941,6 +1941,12 @@ class _MediaAttachmentTile extends StatelessWidget {
                   Image(
                     image: imageProviderForStatusMediaPath(localPath)!,
                     fit: BoxFit.cover,
+                    loadingBuilder: (context, child, loadingProgress) {
+                      if (loadingProgress == null) {
+                        return child;
+                      }
+                      return _loadingPlaceholder();
+                    },
                     errorBuilder: (_, __, ___) => _placeholder(),
                   )
                 else
@@ -1979,6 +1985,26 @@ class _MediaAttachmentTile extends StatelessWidget {
               : Icons.photo_outlined,
           color: attachment.tintColor,
           size: 32,
+        ),
+      ),
+    );
+  }
+
+  /// Shown while a network (Storage-hosted) photo attachment is still
+  /// fetching -- the tinted swatch [_placeholder] uses, but with a spinner
+  /// instead of the type icon, so a genuinely-loading tile reads
+  /// differently from a genuinely-missing one.
+  Widget _loadingPlaceholder() {
+    return ColoredBox(
+      color: attachment.tintColor.withValues(alpha: 0.18),
+      child: Center(
+        child: SizedBox(
+          width: 24,
+          height: 24,
+          child: CircularProgressIndicator(
+            strokeWidth: 2.4,
+            color: attachment.tintColor,
+          ),
         ),
       ),
     );

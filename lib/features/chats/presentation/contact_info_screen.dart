@@ -390,6 +390,24 @@ class _SharedMediaGrid extends StatelessWidget {
                     Image(
                       image: imageProviderForStatusMediaPath(localPath)!,
                       fit: BoxFit.cover,
+                      loadingBuilder: (context, child, loadingProgress) {
+                        if (loadingProgress == null) {
+                          return child;
+                        }
+                        return ColoredBox(
+                          color: attachment.tintColor.withValues(alpha: 0.18),
+                          child: Center(
+                            child: SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: attachment.tintColor,
+                              ),
+                            ),
+                          ),
+                        );
+                      },
                     )
                   else
                     ColoredBox(

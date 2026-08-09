@@ -316,6 +316,17 @@ class _StatusStoryMediaSurfaceState extends State<StatusStoryMediaSurface> {
         height: sourceSize.height,
         fit: BoxFit.cover,
         alignment: Alignment.center,
+        loadingBuilder: (context, child, loadingProgress) {
+          if (loadingProgress == null) {
+            return child;
+          }
+          return const ColoredBox(
+            color: Colors.black,
+            child: Center(
+              child: CircularProgressIndicator(color: Colors.white),
+            ),
+          );
+        },
         errorBuilder: (_, __, ___) {
           return _StatusMediaUnavailableState(
             message: widget.unavailableMessage ??
