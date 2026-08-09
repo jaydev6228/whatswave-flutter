@@ -1,44 +1,45 @@
-import 'package:firebase_storage/firebase_storage.dart';
+import 'package:flutter/foundation.dart';
+import 'package:get_video_thumbnail/get_video_thumbnail.dart';
+import 'package:get_video_thumbnail/index.dart' show ImageFormat;
 
-/// Caches resolved video-thumbnail download URLs in memory, keyed by the
-/// video's own URL -- a chat bubble tile rebuilds often (typing
-/// indicators, reactions on other messages, scroll-driven rebuilds), and
-/// re-resolving with a real network round-trip on every one of those would
-/// be wasteful and would flicker.
-final Map<String, Future<String?>> _thumbnailUrlCache = {};
+import '../../../updates/presentation/widgets/status_media_source.dart';
 
-/// Looks up the download URL for a video attachment's server-generated
-/// thumbnail (see functions/index.js's generateVideoThumbnail), which lives
-/// at a deterministic sibling Storage path -- the video's own path with its
-/// extension replaced by `_thumb.jpg`.
+/// Caches generated video-attachment thumbnails in memory, keyed by the
+/// video's path -- a chat bubble tile rebuilds often (typing indicators,
+/// reactions on other messages, scroll-driven rebuilds), and regenerating
+/// the thumbnail on every one of those would be wasteful and would flicker.
+final Map<String, Future<Uint8List?>> _videoThumbnailCache = {};
+
+/// A real thumbnail image for a video attachment, generated on-device --
+/// works for both a local (not-yet-uploaded) file and a remote Storage
+/// download URL, so it's available immediately rather than waiting on any
+/// upload/server round-trip. Returns null if generation fails (a bundled
+/// demo asset, an unreadable/missing file, an unsupported codec) --
+/// callers fall back to a placeholder tile in that case.
 ///
-/// No client-side video-frame-extraction package here could be made to
-/// compile on both iOS and Android (video_thumbnail's own Android build
-/// depends on the long-dead jcenter() Maven repo), so thumbnail generation
-/// happens server-side instead, asynchronously after upload -- this just
-/// looks for the result.
-///
-/// Returns null if the thumbnail doesn't exist yet (the Cloud Function
-/// hasn't finished, or never will for a corrupt/unsupported upload) or if
-/// [videoUrl] isn't a real Storage download URL yet (a local file path
-/// before upload finishes) -- callers fall back to a placeholder tile in
-/// either case.
-Future<String?> resolveVideoThumbnailUrl(String videoUrl) {
-  return _thumbnailUrlCache.putIfAbsent(videoUrl, () => _resolve(videoUrl));
+/// Uses get_video_thumbnail (a maintained fork of the original
+/// video_thumbnail package): the original's Android build depends on the
+/// long-dead jcenter() Maven repo and fails to compile on any current
+/// Android Gradle setup, which is also why an earlier, server-side
+/// (Cloud Function) version of this feature was replaced with this
+/// on-device approach.
+Future<Uint8List?> videoThumbnailFor(String videoPath) {
+  return _videoThumbnailCache.putIfAbsent(videoPath, () => _generate(videoPath));
 }
 
-Future<String?> _resolve(String videoUrl) async {
-  if (!videoUrl.startsWith('http://') && !videoUrl.startsWith('https://')) {
+Future<Uint8List?> _generate(String videoPath) async {
+  if (isBundledStatusMediaPath(videoPath)) {
+    // A packaged Flutter asset path (asset://...), not a real
+    // filesystem/network path -- the plugin can't read it directly.
     return null;
   }
   try {
-    final videoPath = FirebaseStorage.instance.refFromURL(videoUrl).fullPath;
-    final lastDot = videoPath.lastIndexOf('.');
-    if (lastDot <= 0) {
-      return null;
-    }
-    final thumbnailPath = '${videoPath.substring(0, lastDot)}_thumb.jpg';
-    return await FirebaseStorage.instance.ref(thumbnailPath).getDownloadURL();
+    return await VideoThumbnail.thumbnailData(
+      video: videoPath,
+      imageFormat: ImageFormat.JPEG,
+      maxWidth: 480,
+      quality: 65,
+    );
   } catch (_) {
     return null;
   }

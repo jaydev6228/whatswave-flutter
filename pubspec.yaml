@@ -59,6 +59,11 @@ dependencies:
   # every PDF off to the OS viewer -- MIT-licensed, no commercial license
   # required (unlike some other Flutter PDF viewers).
   pdfx: ^2.9.2
+  # On-device video thumbnail generation -- a maintained fork of
+  # video_thumbnail with the same API, whose Android build no longer
+  # depends on the shut-down jcenter() repo (unlike the original package,
+  # which failed every Android build -- see git history).
+  get_video_thumbnail: ^0.9.0
   # Renders a real, interactive OpenStreetMap-tiled map with a pin for
   # location attachments -- no API key/billing setup required, unlike
   # Google Maps' own Flutter map widget.

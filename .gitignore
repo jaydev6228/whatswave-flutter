@@ -52,8 +52,3 @@ server/livekit-token/.vercel/
 server/livekit-token/.env
 server/livekit-token/.env.*
 !server/livekit-token/.env.example
-
-# Firebase Cloud Functions (functions/) -- video thumbnail generation
-functions/node_modules/
-functions/.env
-functions/.env.*
