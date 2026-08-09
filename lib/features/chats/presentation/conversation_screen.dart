@@ -13,6 +13,7 @@ import '../../calls/domain/call_history_entry.dart';
 import '../../calls/presentation/call_flow.dart';
 import '../../shared/widgets/avatar_badge.dart';
 import '../../shared/widgets/error_dialog.dart';
+import '../../shared/widgets/floating_glass_popup.dart';
 import '../../shared/widgets/liquid_glass.dart';
 import '../../updates/application/updates_controller.dart';
 import '../../updates/presentation/story_viewer_launcher.dart';
@@ -1015,42 +1016,21 @@ class _ComposerBar extends StatelessWidget {
       // when the keyboard is open (view insets shrink MediaQuery.size but
       // not the RenderBox's global offset space).
       const popupHeight = 240.0;
-      const popupMargin = 10.0;
+      const popupMargin = 12.0;
       final popupTop = composerTopLeft.dy - popupHeight - popupMargin;
 
-      final selection = await showGeneralDialog<ChatAttachmentType>(
-        context: context,
+      final selection = await showFloatingGlassPopup<ChatAttachmentType>(
+        context,
         barrierLabel: 'Attach',
-        barrierColor: Colors.black26,
-        transitionDuration: const Duration(milliseconds: 160),
-        pageBuilder: (dialogContext, _, __) {
-          return SafeArea(
-            child: Stack(
-              children: [
-                Positioned(
-                  left: 12,
-                  top: popupTop,
-                  child: _AttachmentPickerPopup(
-                    width: popupWidth,
-                    onSelected: (type) => Navigator.of(dialogContext).pop(type),
-                  ),
-                ),
-              ],
-            ),
-          );
-        },
-        transitionBuilder: (context, animation, _, child) {
-          final curved =
-              CurvedAnimation(parent: animation, curve: Curves.easeOutCubic);
-          return FadeTransition(
-            opacity: curved,
-            child: ScaleTransition(
-              scale: Tween<double>(begin: 0.9, end: 1).animate(curved),
-              alignment: Alignment.bottomLeft,
-              child: child,
-            ),
-          );
-        },
+        scaleAlignment: Alignment.bottomLeft,
+        positionedChildBuilder: (dialogContext) => Positioned(
+          left: 12,
+          top: popupTop,
+          child: _AttachmentPickerPopup(
+            width: popupWidth,
+            onSelected: (type) => Navigator.of(dialogContext).pop(type),
+          ),
+        ),
       );
 
       if (selection != null) {
@@ -1609,38 +1589,17 @@ class _MessageBubble extends StatelessWidget {
     final trayLeft =
         rawTrayLeft.clamp(12.0, screenSize.width - trayWidth - 12.0);
 
-    final selectedEmoji = await showGeneralDialog<String>(
-      context: bubbleContext,
+    final selectedEmoji = await showFloatingGlassPopup<String>(
+      bubbleContext,
       barrierLabel: 'Reactions',
-      barrierColor: Colors.black26,
-      transitionDuration: const Duration(milliseconds: 160),
-      pageBuilder: (context, _, __) {
-        return SafeArea(
-          child: Stack(
-            children: [
-              Positioned(
-                left: trayLeft,
-                top: trayTop,
-                child: _ReactionTray(
-                  onSelected: (emoji) => Navigator.of(context).pop(emoji),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-      transitionBuilder: (context, animation, _, child) {
-        final curved =
-            CurvedAnimation(parent: animation, curve: Curves.easeOutCubic);
-        return FadeTransition(
-          opacity: curved,
-          child: ScaleTransition(
-            scale: Tween<double>(begin: 0.9, end: 1).animate(curved),
-            alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
-            child: child,
-          ),
-        );
-      },
+      scaleAlignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
+      positionedChildBuilder: (dialogContext) => Positioned(
+        left: trayLeft,
+        top: trayTop,
+        child: _ReactionTray(
+          onSelected: (emoji) => Navigator.of(dialogContext).pop(emoji),
+        ),
+      ),
     );
 
     if (selectedEmoji != null) {
