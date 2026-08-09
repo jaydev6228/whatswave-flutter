@@ -16,6 +16,17 @@ import 'widgets/location_map_preview.dart';
 /// [showAttachmentPreview]) rather than pushed as a separate route -- a
 /// plain full-bleed canvas with a close button, no AppBar/back-chevron
 /// chrome pretending it's a whole new screen.
+///
+/// The close button floats over the canvas (a [Stack], not a [Column] that
+/// pushes the media down under a separate header bar) so it always reads
+/// correctly whether the canvas underneath is the black photo/video
+/// background or a themed placeholder/document card -- a frosted glass
+/// circle adapts to whatever's behind it, unlike a solid app-bar-style row
+/// that only matched some of those backgrounds. Ignores the bottom safe
+/// area entirely (the canvas and any per-canvas bottom controls, like the
+/// video control bar or the map's "Open in Maps" button, already handle
+/// their own bottom inset) so there's no stray blank gap above the home
+/// indicator.
 class AttachmentViewerScreen extends StatelessWidget {
   const AttachmentViewerScreen({
     required this.attachment,
@@ -28,47 +39,46 @@ class AttachmentViewerScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return SafeArea(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-            child: Row(
-              children: [
-                IconButton(
+    return Semantics(
+      // threadName no longer shows as visible text (a floating close
+      // button over the media is all the chrome this screen needs), but
+      // still gives screen-reader users the same context sighted users get
+      // from the surrounding conversation.
+      label: '${attachment.compactLabel} from $threadName',
+      container: true,
+      child: Stack(
+      fit: StackFit.expand,
+      children: [
+        _AttachmentCanvas(attachment: attachment),
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          child: SafeArea(
+            bottom: false,
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: LiquidGlassIconButton(
                   key: const Key('attachment_viewer_close_button'),
-                  onPressed: () => Navigator.of(context).pop(),
-                  icon: const Icon(Icons.close_rounded),
+                  icon: Icons.close_rounded,
+                  tooltip: 'Close',
+                  size: 40,
+                  onTap: () => Navigator.of(context).pop(),
+                  // A fixed dark-glass chrome regardless of app theme --
+                  // this floats over media/black canvases, not the app's
+                  // own surface, so it must stay legible in both light and
+                  // dark mode (same reasoning as the video control bar's
+                  // buttons and in-call controls).
+                  color: Colors.black.withValues(alpha: 0.42),
+                  iconColor: Colors.white,
                 ),
-                const SizedBox(width: 4),
-                Expanded(
-                  child: MediaQuery.withClampedTextScaling(
-                    maxScaleFactor: 1.3,
-                    child: Text(
-                      threadName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.labelMedium?.copyWith(
-                        color:
-                            theme.colorScheme.onSurface.withValues(alpha: 0.7),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
+              ),
             ),
           ),
-          // Full-bleed, no side padding -- lets a real photo/video reach the
-          // screen edges instead of sitting in a constrained card. Only the
-          // placeholder canvas (file/location/voice, which has nothing real
-          // to show full-bleed) still centers itself in a bounded card.
-          Expanded(
-            child: _AttachmentCanvas(attachment: attachment),
-          ),
-        ],
+        ),
+      ],
       ),
     );
   }
