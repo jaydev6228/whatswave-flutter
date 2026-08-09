@@ -53,6 +53,9 @@ dependencies:
   # every PDF off to the OS viewer -- MIT-licensed, no commercial license
   # required (unlike some other Flutter PDF viewers).
   pdfx: ^2.9.2
+  # Generates a real first-frame thumbnail image for a video attachment's
+  # chat-bubble tile, instead of a flat placeholder.
+  video_thumbnail: ^0.5.3
   # Renders a real, interactive OpenStreetMap-tiled map with a pin for
   # location attachments -- no API key/billing setup required, unlike
   # Google Maps' own Flutter map widget.
