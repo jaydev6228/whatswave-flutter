@@ -1642,7 +1642,9 @@ class _MessageBubble extends StatelessWidget {
     final screenSize = mediaQuery.size;
 
     const trayHeight = 56.0;
-    const trayWidth = 268.0;
+    // 6 emoji options at 44pt each (see _ReactionTray's tap targets) plus
+    // LiquidGlassSurface's own 8pt horizontal padding on each side.
+    const trayWidth = 280.0;
     const trayMargin = 10.0;
     final showAbove =
         bubbleTopLeft.dy - trayHeight - trayMargin > mediaQuery.padding.top + 8;
@@ -1795,9 +1797,17 @@ class _ReactionTray extends StatelessWidget {
                 key: Key('reaction_option_$emoji'),
                 customBorder: const CircleBorder(),
                 onTap: () => onSelected(emoji),
-                child: Padding(
-                  padding: const EdgeInsets.all(6),
-                  child: Text(emoji, style: const TextStyle(fontSize: 24)),
+                // Minimum 44x44pt tap target (docs/ui_layout_guidelines.md
+                // rule 7) -- the previous Padding(6) around a 24px glyph
+                // gave each of these six tightly-packed circles only ~36px,
+                // easy for a real finger to miss even though it looked
+                // tappable, unlike a widget test's exact-center tap.
+                child: SizedBox(
+                  width: 44,
+                  height: 44,
+                  child: Center(
+                    child: Text(emoji, style: const TextStyle(fontSize: 24)),
+                  ),
                 ),
               ),
             ),
