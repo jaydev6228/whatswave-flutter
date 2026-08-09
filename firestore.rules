@@ -74,7 +74,13 @@ service cloud.firestore {
                       && request.resource.data.memberUids == [request.auth.uid];
       allow update: if request.auth != null
                       && request.auth.uid == resource.data.ownerUid;
-      allow delete: if false;
+      // Unlike chatThreads' soft "hide for me" delete, deleting a community
+      // is meant to remove it for everyone (there's no other participant's
+      // separate view to preserve the way a 1:1 chat has) -- a real delete,
+      // restricted to the owner, matching callHistory's owner-scoped
+      // delete below.
+      allow delete: if request.auth != null
+                      && request.auth.uid == resource.data.ownerUid;
     }
 
     match /phoneDirectory/{phoneKey} {
@@ -148,13 +154,15 @@ service cloud.firestore {
       // A personal call log, one entry per side of a call (see
       // FirestoreCallsRepository) -- ownerUid must always match the
       // signed-in caller, so nobody can read, write, or enumerate anyone
-      // else's history. Unlike every other collection in this file (which
-      // deliberately never hard-deletes -- chatThreads/communities/
-      // phoneDirectory all use `allow delete: if false` and a soft-delete
-      // pattern instead, e.g. chatThreads' hiddenFor array), a real delete
-      // is allowed here: clearing call history removes only the owner's
-      // own private data, with no other participant's view of anything at
-      // risk the way there would be for a shared chat thread.
+      // else's history. Unlike chatThreads/phoneDirectory (which
+      // deliberately never hard-delete -- `allow delete: if false` and a
+      // soft-delete pattern instead, e.g. chatThreads' hiddenFor array), a
+      // real delete is allowed here: clearing call history removes only
+      // the owner's own private data, with no other participant's view of
+      // anything at risk the way there would be for a shared chat thread.
+      // (communities allows a real owner-scoped delete too, for the same
+      // "meant to be gone for everyone, by the owner" reason -- see that
+      // match block above.)
       allow read: if request.auth != null
                     && request.auth.uid == resource.data.ownerUid;
       allow create: if request.auth != null
