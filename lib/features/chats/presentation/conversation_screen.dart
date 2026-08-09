@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../../app/theme/app_palette.dart';
 import '../../../core/models/status_story.dart';
@@ -13,7 +12,6 @@ import '../../calls/domain/call_contact.dart';
 import '../../calls/domain/call_history_entry.dart';
 import '../../calls/presentation/call_flow.dart';
 import '../../shared/widgets/avatar_badge.dart';
-import '../../shared/widgets/error_dialog.dart';
 import '../../shared/widgets/floating_glass_popup.dart';
 import '../../shared/widgets/liquid_glass.dart';
 import '../../updates/application/updates_controller.dart';
@@ -27,6 +25,7 @@ import '../domain/chat_thread.dart';
 import '../domain/message_reaction.dart';
 import 'attachment_viewer_screen.dart';
 import 'contact_info_screen.dart';
+import 'widgets/location_map_preview.dart';
 
 class ConversationScreen extends StatefulWidget {
   const ConversationScreen({
@@ -520,25 +519,10 @@ class _ConversationScreenState extends State<ConversationScreen> {
     ChatAttachment attachment, {
     required String threadName,
   }) async {
-    if (attachment.type == ChatAttachmentType.location &&
-        attachment.hasCoordinates) {
-      final uri = Uri.parse(
-        'https://www.google.com/maps/search/?api=1&query='
-        '${attachment.latitude},${attachment.longitude}',
-      );
-      final didLaunch = await launchUrl(
-        uri,
-        mode: LaunchMode.externalApplication,
-      );
-      if (!didLaunch && mounted) {
-        await showErrorDialog(
-          context,
-          'We could not open Maps for that location.',
-        );
-      }
-      return;
-    }
-
+    // Location attachments now open the same in-app full preview as every
+    // other attachment type (a real map with a pin), rather than jumping
+    // straight out to an external Maps app -- "Open in Maps" inside that
+    // preview (see LocationMapCanvas) is the deliberate exit point.
     await showAttachmentPreview(
       context,
       attachment: attachment,
@@ -1656,9 +1640,11 @@ class _MessageBubble extends StatelessWidget {
   }
 
   /// Photo/video attachments render full-bleed (a grid when more than one
-  /// photo was sent together); file/location/voice-note attachments keep
-  /// the icon+title+details row -- see docs on [_AttachmentPreviewCard] and
-  /// [_MediaAttachmentTile].
+  /// photo was sent together); a single location attachment with a real fix
+  /// renders a real map snippet with a pin; file/voice-note attachments (and
+  /// anything without real coordinates/media) keep the icon+title+details
+  /// row -- see docs on [_AttachmentPreviewCard], [_MediaAttachmentTile],
+  /// and [LocationMapSnippet].
   Widget _buildAttachmentsContent(BuildContext context) {
     final attachments = message.attachments;
     final isMediaGroup = attachments.every(
@@ -1682,6 +1668,29 @@ class _MessageBubble extends StatelessWidget {
         child: _MediaAttachmentTile(
           attachment: attachment,
           onTap: () => onAttachmentTap(attachment),
+        ),
+      );
+    }
+
+    if (attachments.length == 1 &&
+        attachments.single.type == ChatAttachmentType.location &&
+        attachments.single.hasCoordinates) {
+      final attachment = attachments.single;
+      return ConstrainedBox(
+        constraints: const BoxConstraints(maxHeight: 200),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(14),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              key: Key('attachment_preview_${attachment.id}'),
+              onTap: () => onAttachmentTap(attachment),
+              child: LocationMapSnippet(
+                latitude: attachment.latitude!,
+                longitude: attachment.longitude!,
+              ),
+            ),
+          ),
         ),
       );
     }

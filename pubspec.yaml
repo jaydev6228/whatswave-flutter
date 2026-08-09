@@ -49,6 +49,11 @@ dependencies:
   # native viewer -- QuickLook on iOS, an Intent chooser on Android --
   # rather than hand-building a renderer per file format.
   open_filex: ^4.7.0
+  # Renders a real, interactive OpenStreetMap-tiled map with a pin for
+  # location attachments -- no API key/billing setup required, unlike
+  # Google Maps' own Flutter map widget.
+  flutter_map: ^8.2.2
+  latlong2: ^0.9.1
 
 dev_dependencies:
   flutter_test:

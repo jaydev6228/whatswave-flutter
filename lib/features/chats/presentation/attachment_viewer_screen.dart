@@ -10,6 +10,7 @@ import '../../../app/theme/app_palette.dart';
 import '../../shared/widgets/liquid_glass.dart';
 import '../../updates/presentation/widgets/status_media_source.dart';
 import '../domain/chat_attachment.dart';
+import 'widgets/location_map_preview.dart';
 
 /// Shown as an in-place overlay over the current screen (see
 /// [showAttachmentPreview]) rather than pushed as a separate route -- a
@@ -147,6 +148,15 @@ class _AttachmentCanvas extends StatelessWidget {
         !isBundledStatusMediaPath(localPath);
     if (hasRealDocument) {
       return _DocumentPreviewCanvas(attachment: attachment);
+    }
+
+    if (attachment.type == ChatAttachmentType.location &&
+        attachment.hasCoordinates) {
+      return LocationMapCanvas(
+        latitude: attachment.latitude!,
+        longitude: attachment.longitude!,
+        label: attachment.title,
+      );
     }
 
     return Center(

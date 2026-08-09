@@ -19,6 +19,7 @@ import 'package:whatswave/features/chats/domain/chat_attachment.dart';
 import 'package:whatswave/features/chats/domain/chat_message.dart';
 import 'package:whatswave/features/chats/domain/chat_thread.dart';
 import 'package:whatswave/features/chats/presentation/chats_screen.dart';
+import 'package:whatswave/features/chats/presentation/widgets/location_map_preview.dart';
 import 'package:whatswave/features/updates/presentation/widgets/status_ring_avatar.dart';
 
 import '../../../support/device_matrix.dart';
@@ -230,8 +231,9 @@ void main() {
     await tester.tap(find.byKey(const Key('conversation_location_button')));
     await tester.pumpAndSettle();
 
-    expect(find.text('Current location'), findsOneWidget);
-    expect(find.text('Tap to open in Maps'), findsOneWidget);
+    // The location bubble renders a real map snippet with a pin rather
+    // than a title/subtitle text row.
+    expect(find.byType(LocationMapSnippet), findsOneWidget);
   });
 
   testWidgets('long-pressing a bubble reacts, and reacting again removes it',
