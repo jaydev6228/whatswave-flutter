@@ -1441,14 +1441,14 @@ class _MyStatusStripItem extends StatelessWidget {
                   avatarUrl: status!.avatarUrl ?? currentUser?.avatarUrl,
                   totalSegments: status!.totalSegments,
                   seenSegments: status!.seenSegments,
-                  size: 56,
+                  size: 64,
                 )
               else
                 AvatarBadge(
                   label: currentUser?.avatarLabel ?? 'WW',
                   color: currentUser?.accentColor ?? AppPalette.emerald,
                   avatarUrl: currentUser?.avatarUrl,
-                  size: 56,
+                  size: 64,
                 ),
               Positioned(
                 right: -2,
@@ -1461,8 +1461,8 @@ class _MyStatusStripItem extends StatelessWidget {
                     customBorder: const CircleBorder(),
                     onTap: isBusy ? null : onAdd,
                     child: Container(
-                      width: 20,
-                      height: 20,
+                      width: 22,
+                      height: 22,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         border: Border.all(
@@ -1473,16 +1473,16 @@ class _MyStatusStripItem extends StatelessWidget {
                       child: Center(
                         child: isBusy
                             ? SizedBox(
-                                width: 10,
-                                height: 10,
+                                width: 11,
+                                height: 11,
                                 child: CircularProgressIndicator(
-                                  strokeWidth: 1.6,
+                                  strokeWidth: 1.8,
                                   color: theme.colorScheme.onPrimary,
                                 ),
                               )
                             : Icon(
                                 Icons.add_rounded,
-                                size: 13,
+                                size: 14,
                                 color: theme.colorScheme.onPrimary,
                               ),
                       ),
@@ -1495,7 +1495,7 @@ class _MyStatusStripItem extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         SizedBox(
-          width: 68,
+          width: 76,
           child: Text(
             'My status',
             maxLines: 1,
@@ -1533,13 +1533,14 @@ class _StatusStripItem extends StatelessWidget {
           StatusRingAvatar(
             label: story.avatarLabel,
             color: story.accentColor,
+            avatarUrl: story.avatarUrl,
             totalSegments: story.totalSegments,
             seenSegments: story.seenSegments,
-            size: 56,
+            size: 64,
           ),
           const SizedBox(height: 4),
           SizedBox(
-            width: 62,
+            width: 70,
             child: Text(
               story.name,
               maxLines: 1,
