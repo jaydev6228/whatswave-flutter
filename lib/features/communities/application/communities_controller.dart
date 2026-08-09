@@ -19,6 +19,7 @@ enum ContactListFilter { all, onWhatsWave, invite }
 typedef GroupThreadCreator = Future<String?> Function({
   required String name,
   required List<String> memberUids,
+  bool isCommunityGroup,
 });
 
 class CommunitiesController extends ChangeNotifier {
@@ -443,6 +444,7 @@ class CommunitiesController extends ChangeNotifier {
       final threadId = await createThread(
         name: group.name,
         memberUids: memberUids,
+        isCommunityGroup: true,
       );
       if (threadId == null) {
         return;

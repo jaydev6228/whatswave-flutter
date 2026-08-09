@@ -270,8 +270,13 @@ class TrackedChatRepository implements ChatRepository {
   Future<ChatThread> createGroup({
     required String name,
     required List<String> memberUids,
+    bool isCommunityGroup = false,
   }) {
-    return _delegate.createGroup(name: name, memberUids: memberUids);
+    return _delegate.createGroup(
+      name: name,
+      memberUids: memberUids,
+      isCommunityGroup: isCommunityGroup,
+    );
   }
 
   @override

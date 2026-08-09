@@ -783,6 +783,7 @@ class _FailingChatRepository implements ChatRepository {
   Future<ChatThread> createGroup({
     required String name,
     required List<String> memberUids,
+    bool isCommunityGroup = false,
   }) {
     throw UnimplementedError();
   }
@@ -880,8 +881,13 @@ class _FlakySendChatRepository implements ChatRepository {
   Future<ChatThread> createGroup({
     required String name,
     required List<String> memberUids,
+    bool isCommunityGroup = false,
   }) =>
-      _delegate.createGroup(name: name, memberUids: memberUids);
+      _delegate.createGroup(
+        name: name,
+        memberUids: memberUids,
+        isCommunityGroup: isCommunityGroup,
+      );
 
   @override
   Future<List<ChatThread>> setThreadBlocked({

@@ -49,12 +49,25 @@ class ChatsController extends ChangeNotifier {
   ChatListFilter get selectedFilter => _selectedFilter;
   bool get showArchivedOnly => _showArchivedOnly;
   List<ChatThread> get threads => List<ChatThread>.unmodifiable(_threads);
-  int get archivedCount => _threads.where((thread) => thread.isArchived).length;
-  int get activeCount => _threads.where((thread) => !thread.isArchived).length;
+
+  /// Threads eligible for the Chats tab's own list views/counts --
+  /// everything except community-backed group threads, which are a
+  /// separate feature (see [ChatThread.isCommunityGroup]) and stay
+  /// reachable only through the Communities flow that created them.
+  /// [threadById] deliberately does NOT use this filter, since
+  /// ConversationScreen still needs to resolve a community thread by id
+  /// when opened from there.
+  Iterable<ChatThread> get _chatsTabThreads =>
+      _threads.where((thread) => !thread.isCommunityGroup);
+
+  int get archivedCount =>
+      _chatsTabThreads.where((thread) => thread.isArchived).length;
+  int get activeCount =>
+      _chatsTabThreads.where((thread) => !thread.isArchived).length;
 
   /// Count of non-archived chats with at least one unread message -- drives
   /// the Chats tab's bottom-nav badge.
-  int get unreadThreadCount => _threads
+  int get unreadThreadCount => _chatsTabThreads
       .where((thread) => !thread.isArchived && thread.unreadCount > 0)
       .length;
 
@@ -91,7 +104,7 @@ class ChatsController extends ChangeNotifier {
   }) {
     final normalizedQuery = (query ?? _searchQuery).trim().toLowerCase();
     final activeFilter = filter ?? _selectedFilter;
-    final filteredThreads = _threads.where((thread) {
+    final filteredThreads = _chatsTabThreads.where((thread) {
       // A thread startThreadWith() just created (or one someone opened
       // and never messaged) has no messages yet -- keep it out of every
       // list view until there's an actual conversation, same idea as an
@@ -340,9 +353,14 @@ class ChatsController extends ChangeNotifier {
 
   /// Creates a new group thread with [memberUids] and returns its id, or
   /// null on failure (see [errorMessage]).
+  ///
+  /// [isCommunityGroup] should only be true when called on a community's
+  /// behalf (see [ChatThread.isCommunityGroup]) -- it keeps the resulting
+  /// thread out of every Chats list view.
   Future<String?> createGroup({
     required String name,
     required List<String> memberUids,
+    bool isCommunityGroup = false,
   }) async {
     _errorMessage = null;
     notifyListeners();
@@ -351,6 +369,7 @@ class ChatsController extends ChangeNotifier {
       final thread = await _repository.createGroup(
         name: name,
         memberUids: memberUids,
+        isCommunityGroup: isCommunityGroup,
       );
       _threads = await _repository.fetchThreads();
       notifyListeners();

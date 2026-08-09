@@ -18,6 +18,7 @@ class ChatThread {
     this.isBlocked = false,
     this.typingPreview,
     this.participantUid,
+    this.isCommunityGroup = false,
   });
 
   final String id;
@@ -39,6 +40,16 @@ class ChatThread {
   /// silently falling back to the local simulated flow. Null for Fake/demo
   /// threads, which have no real other-account uid to call.
   final String? participantUid;
+
+  /// True for a group thread created to back a community's messaging (see
+  /// CommunitiesController._ensureGroupThreadIfPossible). Communities are a
+  /// separate feature from Chats -- real WhatsApp merged community
+  /// sub-groups into the main chat list only after removing its dedicated
+  /// Communities tab, but this app keeps that tab, so a community-backed
+  /// thread is filtered out of every Chats list view (see
+  /// ChatsController.threadsForView) and only reachable through the
+  /// Communities flow that created it.
+  final bool isCommunityGroup;
 
   ChatMessage? get latestMessage => messages.isEmpty ? null : messages.last;
 
@@ -124,6 +135,7 @@ class ChatThread {
     String? typingPreview,
     bool clearTypingPreview = false,
     String? participantUid,
+    bool? isCommunityGroup,
   }) {
     return ChatThread(
       id: id ?? this.id,
@@ -141,6 +153,7 @@ class ChatThread {
       typingPreview:
           clearTypingPreview ? null : typingPreview ?? this.typingPreview,
       participantUid: participantUid ?? this.participantUid,
+      isCommunityGroup: isCommunityGroup ?? this.isCommunityGroup,
     );
   }
 }

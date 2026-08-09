@@ -72,6 +72,7 @@ class FakeChatRepository implements ChatRepository {
   Future<ChatThread> createGroup({
     required String name,
     required List<String> memberUids,
+    bool isCommunityGroup = false,
   }) async {
     await _wait();
     final trimmedName = name.trim();
@@ -89,6 +90,7 @@ class FakeChatRepository implements ChatRepository {
       accentColor: _accentColorForName(trimmedName),
       messages: const [],
       isGroup: true,
+      isCommunityGroup: isCommunityGroup,
     );
     _threads = [thread, ..._threads];
     return thread;

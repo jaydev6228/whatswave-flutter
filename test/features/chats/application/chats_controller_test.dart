@@ -33,6 +33,58 @@ void main() {
       expect(controller.visibleThreads.first.name, 'Design Sprint');
     });
 
+    test(
+        'excludes community group threads from every Chats list view, '
+        'but still resolves them by id', () async {
+      await controller.loadThreads();
+      final activeCountBefore = controller.activeCount;
+      final unreadCountBefore = controller.unreadThreadCount;
+
+      final threadId = await controller.createGroup(
+        name: 'Trailhead Announcements',
+        memberUids: const ['someone-uid'],
+        isCommunityGroup: true,
+      );
+
+      expect(threadId, isNotNull);
+      // A community thread starts with no messages, so it wouldn't show up
+      // in list views anyway until someone sends the first message -- send
+      // one so this test actually exercises the isCommunityGroup filter,
+      // not just the "no messages yet" filter every fresh thread hits.
+      await controller.sendTextMessage(threadId: threadId!, text: 'Welcome!');
+
+      expect(controller.activeCount, activeCountBefore);
+      expect(
+        controller.inboxThreads().any((thread) => thread.id == threadId),
+        isFalse,
+      );
+      expect(
+        controller.visibleThreads.any((thread) => thread.id == threadId),
+        isFalse,
+      );
+      expect(controller.unreadThreadCount, unreadCountBefore);
+
+      // threadById is what ConversationScreen relies on when opened from
+      // the Communities flow -- it must still resolve the thread even
+      // though every list view hides it.
+      final thread = controller.threadById(threadId);
+      expect(thread, isNotNull);
+      expect(thread!.isCommunityGroup, isTrue);
+      expect(thread.name, 'Trailhead Announcements');
+    });
+
+    test('a regular new group is not marked as a community group', () async {
+      await controller.loadThreads();
+
+      final threadId = await controller.createGroup(
+        name: 'Weekend Trip',
+        memberUids: const ['friend-uid'],
+      );
+
+      expect(threadId, isNotNull);
+      expect(controller.threadById(threadId!)?.isCommunityGroup, isFalse);
+    });
+
     test('filters by unread state and search query', () async {
       await controller.loadThreads();
 
@@ -385,6 +437,7 @@ class _FailingChatRepository implements ChatRepository {
   Future<ChatThread> createGroup({
     required String name,
     required List<String> memberUids,
+    bool isCommunityGroup = false,
   }) {
     throw UnimplementedError();
   }
@@ -466,8 +519,13 @@ class _SendFailingChatRepository implements ChatRepository {
   Future<ChatThread> createGroup({
     required String name,
     required List<String> memberUids,
+    bool isCommunityGroup = false,
   }) =>
-      _delegate.createGroup(name: name, memberUids: memberUids);
+      _delegate.createGroup(
+        name: name,
+        memberUids: memberUids,
+        isCommunityGroup: isCommunityGroup,
+      );
 
   @override
   Future<List<ChatThread>> setThreadBlocked({

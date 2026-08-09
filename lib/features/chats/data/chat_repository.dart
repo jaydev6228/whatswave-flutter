@@ -27,9 +27,15 @@ abstract class ChatRepository {
   /// creates a fresh thread (no dedup against an existing group with the
   /// same members -- unlike [startThread], there's no natural deterministic
   /// id for an N-person group).
+  ///
+  /// [isCommunityGroup] marks the resulting thread as backing a community
+  /// (see [ChatThread.isCommunityGroup]) so it's excluded from the main
+  /// Chats list -- pass true only for threads created on a community's
+  /// behalf, never for a user-initiated group from New group.
   Future<ChatThread> createGroup({
     required String name,
     required List<String> memberUids,
+    bool isCommunityGroup = false,
   });
 
   Future<List<ChatThread>> setThreadArchived({

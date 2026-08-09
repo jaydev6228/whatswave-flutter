@@ -154,6 +154,7 @@ class FirestoreChatRepository implements ChatRepository {
   Future<ChatThread> createGroup({
     required String name,
     required List<String> memberUids,
+    bool isCommunityGroup = false,
   }) async {
     final uid = _requireCurrentUid;
     final trimmedName = name.trim();
@@ -170,6 +171,7 @@ class FirestoreChatRepository implements ChatRepository {
     try {
       await docRef.set(<String, Object?>{
         'isGroup': true,
+        'isCommunityGroup': isCommunityGroup,
         'groupName': trimmedName,
         'groupAvatarLabel': _avatarLabelForName(trimmedName),
         'groupAccentColorArgb': _accentColorForName(trimmedName).toARGB32(),
@@ -498,6 +500,7 @@ class FirestoreChatRepository implements ChatRepository {
       isBlocked: (data['isBlocked'] as bool?) ?? false,
       typingPreview: data['typingPreview'] as String?,
       participantUid: otherUid,
+      isCommunityGroup: (data['isCommunityGroup'] as bool?) ?? false,
     );
   }
 
