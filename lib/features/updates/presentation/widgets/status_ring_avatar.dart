@@ -25,7 +25,14 @@ class StatusRingAvatar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final avatarInset = (size * 0.176).clamp(9, 13.25).toDouble();
+    // The gap between the ring and the photo inside it -- was clamped to
+    // [9, 13.25], which on a typical status-strip-sized avatar ate up
+    // roughly a third of the whole diameter just for padding, leaving the
+    // actual profile photo looking noticeably smaller than a plain
+    // ring-less avatar at the same outer size. A thinner gap still reads
+    // clearly as a ring (see _SegmentedStoryRingPainter's own stroke width,
+    // unaffected by this) without shrinking the photo so much.
+    final avatarInset = (size * 0.09).clamp(4, 7).toDouble();
 
     return SizedBox(
       width: size,

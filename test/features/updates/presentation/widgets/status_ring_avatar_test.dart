@@ -43,10 +43,10 @@ void main() {
       ),
     );
     final padding = paddings.firstWhere(
-      (widget) => (widget.padding as EdgeInsets).left > 9,
+      (widget) => (widget.padding as EdgeInsets).left > 3,
     );
 
-    expect((padding.padding as EdgeInsets).left, greaterThan(9));
+    expect((padding.padding as EdgeInsets).left, greaterThan(3));
   });
 
   testWidgets('falls back to a placeholder when the label is empty',

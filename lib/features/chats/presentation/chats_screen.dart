@@ -1441,7 +1441,10 @@ class _MyStatusStripItem extends StatelessWidget {
                   avatarUrl: status!.avatarUrl ?? currentUser?.avatarUrl,
                   totalSegments: status!.totalSegments,
                   seenSegments: status!.seenSegments,
-                  size: 64,
+                  // A few points bigger than the ring-less AvatarBadge
+                  // below -- the ring's own inset otherwise leaves its
+                  // inner photo looking smaller at the same outer size.
+                  size: 70,
                 )
               else
                 AvatarBadge(
@@ -1536,7 +1539,7 @@ class _StatusStripItem extends StatelessWidget {
             avatarUrl: story.avatarUrl,
             totalSegments: story.totalSegments,
             seenSegments: story.seenSegments,
-            size: 64,
+            size: 70,
           ),
           const SizedBox(height: 4),
           SizedBox(
