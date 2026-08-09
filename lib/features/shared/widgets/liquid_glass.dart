@@ -156,6 +156,20 @@ class LiquidGlassIconButton extends StatelessWidget {
           key: actionKey,
           customBorder: const CircleBorder(),
           onTap: onTap,
+          // Material's ink-response widgets request keyboard focus on tap
+          // by default (so external-keyboard/switch-control users land on
+          // whatever was just activated) -- but every use of this button is
+          // a momentary icon action, never something meant to hold focus,
+          // and several sit right next to a TextField (e.g. the composer's
+          // attachment button). Left at its default, tapping one silently
+          // steals focus from that TextField and dismisses the keyboard,
+          // which is what made the attachment popup's position -- anchored
+          // to the composer's keyboard-open location -- go stale the moment
+          // the keyboard closed underneath it. Buttons stay fully usable by
+          // touch and screen readers either way; only keyboard/switch-
+          // control tab traversal skips them, an acceptable tradeoff for an
+          // icon-only action button.
+          canRequestFocus: false,
           child: SizedBox(
             // Minimum 48x48dp tap target (docs/ui_layout_guidelines.md
             // rule 7) even when the drawn circle itself is smaller.
