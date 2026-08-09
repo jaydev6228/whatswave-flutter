@@ -44,7 +44,13 @@ dependencies:
   # SDK package at once. Bump this only alongside bumping every other
   # firebase_* dependency above to versions that also want 12.17.0+.
   firebase_storage: 13.4.5
-  file_picker: ^11.0.3
+  # Pinned to 10.3.10 (not ^11.x) -- 11.0.0+'s android/build.gradle stopped
+  # applying the kotlin-android plugin, breaking every Android build with
+  # "cannot find symbol FilePickerPlugin" (a confirmed upstream regression,
+  # see miguelpruivo/flutter_file_picker#1952 and #1973). 10.3.10 is the
+  # last version before the regression that also carries the earlier
+  # 10.3.9 fix for the same class of issue.
+  file_picker: 10.3.10
   # Opens a document attachment in the OS's own native viewer -- QuickLook
   # on iOS, an Intent chooser on Android -- as the fallback for formats
   # (Word/Excel/PowerPoint) with no practical in-app renderer here.
@@ -53,9 +59,6 @@ dependencies:
   # every PDF off to the OS viewer -- MIT-licensed, no commercial license
   # required (unlike some other Flutter PDF viewers).
   pdfx: ^2.9.2
-  # Generates a real first-frame thumbnail image for a video attachment's
-  # chat-bubble tile, instead of a flat placeholder.
-  video_thumbnail: ^0.5.3
   # Renders a real, interactive OpenStreetMap-tiled map with a pin for
   # location attachments -- no API key/billing setup required, unlike
   # Google Maps' own Flutter map widget.

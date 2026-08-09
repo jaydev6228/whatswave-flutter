@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -28,7 +27,6 @@ import '../domain/message_reaction.dart';
 import 'attachment_viewer_screen.dart';
 import 'contact_info_screen.dart';
 import 'widgets/location_map_preview.dart';
-import 'widgets/video_thumbnail_cache.dart';
 import 'widgets/voice_note_bubble.dart';
 import 'widgets/voice_note_recorder_sheet.dart';
 
@@ -924,7 +922,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
     }
 
     if (type == ChatAttachmentType.file) {
-      final result = await FilePicker.pickFiles();
+      final result = await FilePicker.platform.pickFiles();
       if (!mounted || result == null || result.files.isEmpty) {
         return null;
       }
@@ -1898,11 +1896,14 @@ class _AttachmentPhotoGrid extends StatelessWidget {
 /// A single full-bleed photo or video tile -- no title/subtitle text, the
 /// media itself fills the bubble (matching the reference WhatsApp/iMessage
 /// bubble style). Real photos render via [imageProviderForStatusMediaPath];
-/// video shows a real first-frame thumbnail via [videoThumbnailFor], with a
-/// play affordance overlaid on top. Falls back to a tinted swatch with a
-/// type icon when there's no local media to show yet (a demo attachment,
-/// media missing on this device/other participant's device, or while the
-/// video thumbnail is still generating).
+/// video shows a fixed dark placeholder with a play affordance rather than
+/// a decoded first-frame thumbnail (the video_thumbnail package's own
+/// Android build depends on the long-deprecated jcenter() Maven repo and
+/// fails to compile on any current Android Gradle setup -- tried and
+/// reverted; a genuinely cross-platform-safe thumbnail package would need
+/// more research before trying again). Falls back to a tinted swatch with a
+/// type icon when there's no local media to show (a demo attachment, or
+/// media missing on this device/other participant's device).
 class _MediaAttachmentTile extends StatelessWidget {
   const _MediaAttachmentTile({
     required this.attachment,
@@ -1921,9 +1922,6 @@ class _MediaAttachmentTile extends StatelessWidget {
         attachment.type == ChatAttachmentType.photo || attachment.isImageDocument;
     final hasRealPhoto =
         isPhoto && localPath != null && statusMediaSourceExists(localPath);
-    final hasRealVideo = attachment.type == ChatAttachmentType.video &&
-        localPath != null &&
-        statusMediaSourceExists(localPath);
     final resolvedAspectRatio =
         (aspectRatio ?? attachment.aspectRatio).clamp(0.7, 1.5);
 
@@ -1944,21 +1942,6 @@ class _MediaAttachmentTile extends StatelessWidget {
                     image: imageProviderForStatusMediaPath(localPath)!,
                     fit: BoxFit.cover,
                     errorBuilder: (_, __, ___) => _placeholder(),
-                  )
-                else if (hasRealVideo)
-                  FutureBuilder<Uint8List?>(
-                    future: videoThumbnailFor(localPath),
-                    builder: (context, snapshot) {
-                      final bytes = snapshot.data;
-                      if (bytes == null) {
-                        return _placeholder();
-                      }
-                      return Image.memory(
-                        bytes,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => _placeholder(),
-                      );
-                    },
                   )
                 else
                   _placeholder(),
