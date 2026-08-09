@@ -1664,7 +1664,8 @@ class _MessageBubble extends StatelessWidget {
     final isMediaGroup = attachments.every(
       (attachment) =>
           attachment.type == ChatAttachmentType.photo ||
-          attachment.type == ChatAttachmentType.video,
+          attachment.type == ChatAttachmentType.video ||
+          attachment.isImageDocument,
     );
 
     if (isMediaGroup && attachments.length > 1) {
@@ -1843,7 +1844,8 @@ class _MediaAttachmentTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final localPath = attachment.localMediaPath;
-    final isPhoto = attachment.type == ChatAttachmentType.photo;
+    final isPhoto =
+        attachment.type == ChatAttachmentType.photo || attachment.isImageDocument;
     final hasRealPhoto =
         isPhoto && localPath != null && statusMediaSourceExists(localPath);
     final resolvedAspectRatio =
@@ -1922,6 +1924,7 @@ class _AttachmentPreviewCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final borderRadius = BorderRadius.circular(16);
+    final (icon, iconColor) = _iconAndColor(attachment);
 
     return Material(
       color: Colors.transparent,
@@ -1936,10 +1939,10 @@ class _AttachmentPreviewCard extends StatelessWidget {
             children: [
               CircleAvatar(
                 radius: 20,
-                backgroundColor: attachment.tintColor.withValues(alpha: 0.16),
+                backgroundColor: iconColor.withValues(alpha: 0.16),
                 child: Icon(
-                  _iconForType(attachment.type),
-                  color: attachment.tintColor,
+                  icon,
+                  color: iconColor,
                   size: 20,
                 ),
               ),
@@ -1984,14 +1987,18 @@ class _AttachmentPreviewCard extends StatelessWidget {
     );
   }
 
-  IconData _iconForType(ChatAttachmentType type) {
-    return switch (type) {
+  (IconData, Color) _iconAndColor(ChatAttachment attachment) {
+    if (attachment.type == ChatAttachmentType.file) {
+      return documentKindVisual(attachment.documentKind, attachment.tintColor);
+    }
+    final icon = switch (attachment.type) {
       ChatAttachmentType.photo => Icons.photo_outlined,
       ChatAttachmentType.video => Icons.videocam_outlined,
-      ChatAttachmentType.file => Icons.insert_drive_file_outlined,
       ChatAttachmentType.location => Icons.location_on_outlined,
       ChatAttachmentType.voiceNote => Icons.graphic_eq_rounded,
+      ChatAttachmentType.file => Icons.insert_drive_file_outlined,
     };
+    return (icon, attachment.tintColor);
   }
 }
 

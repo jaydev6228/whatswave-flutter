@@ -45,6 +45,10 @@ dependencies:
   # firebase_* dependency above to versions that also want 12.17.0+.
   firebase_storage: 13.4.5
   file_picker: ^11.0.3
+  # Opens a document attachment (PDF/Word/Excel/CSV/etc) in the OS's own
+  # native viewer -- QuickLook on iOS, an Intent chooser on Android --
+  # rather than hand-building a renderer per file format.
+  open_filex: ^4.7.0
 
 dev_dependencies:
   flutter_test:

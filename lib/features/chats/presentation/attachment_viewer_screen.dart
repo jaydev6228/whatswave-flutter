@@ -1,4 +1,9 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:open_filex/open_filex.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../../app/theme/app_palette.dart';
@@ -113,10 +118,11 @@ class _AttachmentCanvas extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final localPath = attachment.localMediaPath;
+    final isImageLike =
+        attachment.type == ChatAttachmentType.photo || attachment.isImageDocument;
     final hasRealMedia = localPath != null &&
         statusMediaSourceExists(localPath) &&
-        (attachment.type == ChatAttachmentType.photo ||
-            attachment.type == ChatAttachmentType.video);
+        (isImageLike || attachment.type == ChatAttachmentType.video);
 
     if (hasRealMedia) {
       // Full-bleed, no corner rounding, and pinch/double-tap-to-zoom via
@@ -125,7 +131,7 @@ class _AttachmentCanvas extends StatelessWidget {
       // type still uses below.
       return ColoredBox(
         color: Colors.black,
-        child: attachment.type == ChatAttachmentType.photo
+        child: isImageLike
             ? _ZoomableImage(
                 imageProvider: imageProviderForStatusMediaPath(localPath)!,
                 errorBuilder: () =>
@@ -135,12 +141,166 @@ class _AttachmentCanvas extends StatelessWidget {
       );
     }
 
+    final hasRealDocument = localPath != null &&
+        localPath.trim().isNotEmpty &&
+        attachment.type == ChatAttachmentType.file &&
+        !isBundledStatusMediaPath(localPath);
+    if (hasRealDocument) {
+      return _DocumentPreviewCanvas(attachment: attachment);
+    }
+
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 520),
         child: AspectRatio(
           aspectRatio: attachment.aspectRatio,
           child: _AttachmentPlaceholderCanvas(attachment: attachment),
+        ),
+      ),
+    );
+  }
+}
+
+/// A real document (PDF/Word/Excel/CSV/etc) attachment -- rather than
+/// hand-building a renderer for every office format, this opens the file in
+/// the OS's own native viewer (QuickLook on iOS, an Intent chooser on
+/// Android), which is a real, full-fidelity preview of the actual document.
+/// Downloads a remote (Storage-uploaded) attachment to a temp file first,
+/// since the native viewers need a local path, not a URL.
+class _DocumentPreviewCanvas extends StatefulWidget {
+  const _DocumentPreviewCanvas({required this.attachment});
+
+  final ChatAttachment attachment;
+
+  @override
+  State<_DocumentPreviewCanvas> createState() =>
+      _DocumentPreviewCanvasState();
+}
+
+class _DocumentPreviewCanvasState extends State<_DocumentPreviewCanvas> {
+  bool _isOpening = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _openDocument());
+  }
+
+  Future<void> _openDocument() async {
+    final rawPath = widget.attachment.localMediaPath?.trim();
+    if (rawPath == null || rawPath.isEmpty || !mounted) {
+      return;
+    }
+    setState(() {
+      _isOpening = true;
+      _error = null;
+    });
+    try {
+      final localPath = await _resolveLocalPath(rawPath);
+      final result = await OpenFilex.open(localPath);
+      if (result.type != ResultType.done && mounted) {
+        setState(() {
+          _error = result.message.trim().isNotEmpty
+              ? result.message
+              : 'Could not open this document.';
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _error =
+              'Could not open this document. Check your connection and try again.';
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isOpening = false);
+      }
+    }
+  }
+
+  Future<String> _resolveLocalPath(String path) async {
+    if (!isRemoteStatusMediaPath(path)) {
+      return path;
+    }
+    final response = await http.get(Uri.parse(path));
+    if (response.statusCode != 200) {
+      throw Exception('Download failed (${response.statusCode})');
+    }
+    final tempDirectory = await getTemporaryDirectory();
+    final extension = widget.attachment.fileExtension;
+    final file = File(
+      '${tempDirectory.path}/attachment_${widget.attachment.id}$extension',
+    );
+    await file.writeAsBytes(response.bodyBytes);
+    return file.path;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final (icon, color) =
+        documentKindVisual(widget.attachment.documentKind, widget.attachment.tintColor);
+
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircleAvatar(
+                radius: 44,
+                backgroundColor: color.withValues(alpha: 0.16),
+                child: Icon(icon, size: 42, color: color),
+              ),
+              const SizedBox(height: 18),
+              Text(
+                widget.attachment.title,
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                widget.attachment.details,
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.68),
+                ),
+              ),
+              const SizedBox(height: 22),
+              if (_error != null) ...[
+                Text(
+                  _error!,
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.error,
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
+              FilledButton.icon(
+                key: const Key('attachment_viewer_open_document_button'),
+                onPressed: _isOpening ? null : _openDocument,
+                icon: _isOpening
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.open_in_new_rounded),
+                label: Text(_isOpening ? 'Opening…' : 'Open document'),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -524,12 +684,15 @@ class _AttachmentPlaceholderCanvas extends StatelessWidget {
   }
 
   IconData _iconForType(ChatAttachmentType type) {
+    if (type == ChatAttachmentType.file) {
+      return documentKindVisual(attachment.documentKind, attachment.tintColor).$1;
+    }
     return switch (type) {
       ChatAttachmentType.photo => Icons.photo_outlined,
       ChatAttachmentType.video => Icons.videocam_outlined,
-      ChatAttachmentType.file => Icons.insert_drive_file_outlined,
       ChatAttachmentType.location => Icons.location_on_outlined,
       ChatAttachmentType.voiceNote => Icons.graphic_eq_rounded,
+      ChatAttachmentType.file => Icons.insert_drive_file_outlined,
     };
   }
 }
