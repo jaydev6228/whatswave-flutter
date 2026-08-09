@@ -12,6 +12,14 @@ abstract class CommunitiesRepository {
 
   Future<CommunitiesOverview> deleteCommunity(String communityId);
 
+  /// Records which real [ChatThread] backs a community group's messaging,
+  /// once one has been created (see CommunitiesController).
+  Future<CommunitiesOverview> attachGroupThread({
+    required String communityId,
+    required String groupId,
+    required String threadId,
+  });
+
   Future<CommunitiesOverview> inviteContactToCommunity({
     required String communityId,
     required String contactId,

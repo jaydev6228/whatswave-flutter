@@ -599,6 +599,19 @@ class TrackedCommunitiesRepository implements CommunitiesRepository {
   }
 
   @override
+  Future<CommunitiesOverview> attachGroupThread({
+    required String communityId,
+    required String groupId,
+    required String threadId,
+  }) {
+    return _delegate.attachGroupThread(
+      communityId: communityId,
+      groupId: groupId,
+      threadId: threadId,
+    );
+  }
+
+  @override
   Future<CommunitiesOverview> deleteCommunity(String communityId) async {
     try {
       final overview = await _delegate.deleteCommunity(communityId);

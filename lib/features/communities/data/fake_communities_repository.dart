@@ -110,6 +110,31 @@ class FakeCommunitiesRepository implements CommunitiesRepository {
   }
 
   @override
+  Future<CommunitiesOverview> attachGroupThread({
+    required String communityId,
+    required String groupId,
+    required String threadId,
+  }) async {
+    await _wait();
+    _communities = List<CommunityHub>.unmodifiable(
+      _communities.map((community) {
+        if (community.id != communityId) {
+          return community;
+        }
+        return community.copyWith(
+          groups: community.groups.map((group) {
+            if (group.id != groupId) {
+              return group;
+            }
+            return group.copyWith(threadId: threadId);
+          }).toList(growable: false),
+        );
+      }),
+    );
+    return _buildOverview();
+  }
+
+  @override
   Future<CommunitiesOverview> inviteContactToCommunity({
     required String communityId,
     required String contactId,

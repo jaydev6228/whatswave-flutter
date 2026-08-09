@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 
+import '../../calls/application/calls_controller.dart';
+import '../../chats/application/chats_controller.dart';
 import '../../shared/widgets/avatar_badge.dart';
 import '../../shared/widgets/empty_state_card.dart';
 import '../../shared/widgets/liquid_glass.dart';
+import '../../updates/application/updates_controller.dart';
 import '../application/communities_controller.dart';
 import '../domain/community_hub.dart';
 import 'community_detail_screen.dart';
@@ -13,10 +16,16 @@ const double _kCommunitiesRowHorizontalPadding = 18;
 class CommunitiesScreen extends StatefulWidget {
   const CommunitiesScreen({
     required this.controller,
+    required this.chatsController,
+    required this.callsController,
+    required this.updatesController,
     super.key,
   });
 
   final CommunitiesController controller;
+  final ChatsController chatsController;
+  final CallsController callsController;
+  final UpdatesController updatesController;
 
   @override
   State<CommunitiesScreen> createState() => _CommunitiesScreenState();
@@ -192,6 +201,9 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
       MaterialPageRoute<void>(
         builder: (_) => CommunityDetailScreen(
           controller: widget.controller,
+          chatsController: widget.chatsController,
+          callsController: widget.callsController,
+          updatesController: widget.updatesController,
           communityId: community.id,
         ),
       ),

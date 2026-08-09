@@ -13,15 +13,31 @@ enum CommunityListFilter { all, unread, announcements }
 
 enum ContactListFilter { all, onWhatsWave, invite }
 
+/// Creates a real group [ChatThread] for community messaging and returns
+/// its id, or null on failure -- matches ChatsController.createGroup's
+/// signature so it can be passed straight through at the composition root.
+typedef GroupThreadCreator = Future<String?> Function({
+  required String name,
+  required List<String> memberUids,
+});
+
 class CommunitiesController extends ChangeNotifier {
   CommunitiesController({
     required CommunitiesRepository repository,
     AppPermissionService? permissionService,
+    GroupThreadCreator? createGroupThread,
   })  : _repository = repository,
-        _permissionService = permissionService ?? MemoryAppPermissionService();
+        _permissionService = permissionService ?? MemoryAppPermissionService(),
+        _createGroupThread = createGroupThread;
 
   final CommunitiesRepository _repository;
   final AppPermissionService _permissionService;
+
+  /// Optional -- absent in contexts (e.g. most tests) that don't need real
+  /// group messaging wired up. When set, a community's first group gets a
+  /// real backing thread as soon as it has at least one on-WhatsWave
+  /// member (see _ensureGroupThreadIfPossible).
+  final GroupThreadCreator? _createGroupThread;
 
   bool _hasLoaded = false;
   bool _isLoading = false;
@@ -380,10 +396,67 @@ class CommunitiesController extends ChangeNotifier {
       _errorMessage = 'We could not send that community invite right now.';
     }
 
+    if (didSucceed) {
+      await _ensureGroupThreadIfPossible(communityId);
+    }
+
     _busyCommunityIds.remove(communityId);
     _busyContactIds.remove(contactId);
     notifyListeners();
     return didSucceed;
+  }
+
+  /// Backs a community's first group with a real [ChatThread] as soon as it
+  /// has at least one invited-or-member contact who's actually on WhatsWave
+  /// (has a real uid) -- creating a thread with zero members isn't possible
+  /// (ChatRepository.createGroup requires at least one), so a brand-new
+  /// community's group starts with no thread until this fires. Failures
+  /// here are swallowed rather than surfaced as _errorMessage -- the invite
+  /// itself already succeeded, and messaging setup is best-effort.
+  Future<void> _ensureGroupThreadIfPossible(String communityId) async {
+    final createThread = _createGroupThread;
+    if (createThread == null) {
+      return;
+    }
+
+    final community = communityById(communityId);
+    if (community == null || community.groups.isEmpty) {
+      return;
+    }
+    final group = community.groups.first;
+    if (group.threadId != null) {
+      return;
+    }
+
+    final memberUids = <String>[
+      for (final contact in _contacts)
+        if (contact.matchedUid != null &&
+            (contact.memberCommunityIds.contains(communityId) ||
+                contact.pendingCommunityInviteIds.contains(communityId)))
+          contact.matchedUid!,
+    ];
+    if (memberUids.isEmpty) {
+      return;
+    }
+
+    try {
+      final threadId = await createThread(
+        name: group.name,
+        memberUids: memberUids,
+      );
+      if (threadId == null) {
+        return;
+      }
+      final overview = await _repository.attachGroupThread(
+        communityId: communityId,
+        groupId: group.id,
+        threadId: threadId,
+      );
+      _communities = overview.communities;
+      _contacts = overview.contacts;
+    } catch (_) {
+      // Best-effort -- the invite itself already succeeded.
+    }
   }
 
   Future<bool> shareAppInvite(String contactId) async {

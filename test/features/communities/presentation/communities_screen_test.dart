@@ -2,10 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:whatswave/app/theme/app_theme.dart';
 import 'package:whatswave/core/permissions/app_permission_service.dart';
+import 'package:whatswave/core/sample/demo_data.dart';
+import 'package:whatswave/features/calls/application/calls_controller.dart';
+import 'package:whatswave/features/calls/data/fake_calls_repository.dart';
+import 'package:whatswave/features/chats/application/chats_controller.dart';
+import 'package:whatswave/features/chats/data/fake_chat_repository.dart';
 import 'package:whatswave/features/communities/application/communities_controller.dart';
 import 'package:whatswave/features/communities/data/fake_communities_repository.dart';
 import 'package:whatswave/features/communities/domain/contact_access_status.dart';
 import 'package:whatswave/features/communities/presentation/communities_screen.dart';
+import 'package:whatswave/features/updates/application/updates_controller.dart';
+import 'package:whatswave/features/updates/data/fake_updates_repository.dart';
 
 import '../../../support/device_matrix.dart';
 
@@ -112,6 +119,64 @@ void main() {
           .any((community) => community.id == targetCommunityId),
       isFalse,
     );
+  });
+
+  testWidgets(
+      'tapping a group preview with a real thread opens a conversation',
+      (tester) async {
+    final matchedContacts = DemoData.buildCommunityContacts().map((contact) {
+      if (contact.id != 'priya-rai') {
+        return contact;
+      }
+      return contact.copyWith(matchedUid: 'priya-rai-uid');
+    }).toList(growable: false);
+
+    final chatsController = ChatsController(
+      repository: FakeChatRepository(latency: Duration.zero),
+    );
+    final controller = CommunitiesController(
+      repository: FakeCommunitiesRepository(
+        latency: Duration.zero,
+        initialContacts: matchedContacts,
+      ),
+      permissionService: MemoryAppPermissionService(
+        contactsStatus: ContactAccessStatus.granted,
+      ),
+      createGroupThread: chatsController.createGroup,
+    );
+
+    await _pumpCommunitiesScreen(
+      tester,
+      device: iphoneProProfile,
+      controller: controller,
+      chatsController: chatsController,
+    );
+    final targetCommunityId = controller.communities.first.id;
+
+    final didInvite = await controller.inviteContactToCommunity(
+      communityId: targetCommunityId,
+      contactId: 'priya-rai',
+    );
+    expect(didInvite, isTrue);
+    await tester.pumpAndSettle();
+
+    await _scrollUntilVisible(
+      tester,
+      find.byKey(Key('community_card_$targetCommunityId')),
+    );
+    await tester.tap(find.byKey(Key('community_card_$targetCommunityId')));
+    await tester.pumpAndSettle();
+
+    final groupId = controller.communityById(targetCommunityId)!.groups.first.id;
+    await _scrollUntilVisibleInSheet(
+      tester,
+      sheetKey: const Key('community_detail_screen'),
+      finder: find.byKey(Key('community_detail_group_$groupId')),
+    );
+    await tester.tap(find.byKey(Key('community_detail_group_$groupId')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('conversation_composer_field')), findsOneWidget);
   });
 
   testWidgets('shows an error card and retries after a failed load',
@@ -243,6 +308,7 @@ Future<void> _pumpCommunitiesScreen(
   WidgetTester tester, {
   required TestDeviceProfile device,
   required CommunitiesController controller,
+  ChatsController? chatsController,
 }) async {
   await tester.binding.setSurfaceSize(device.size);
   addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -253,7 +319,21 @@ Future<void> _pumpCommunitiesScreen(
       theme: AppTheme.lightTheme(),
       darkTheme: AppTheme.darkTheme(),
       home: Scaffold(
-        body: CommunitiesScreen(controller: controller),
+        body: CommunitiesScreen(
+          controller: controller,
+          chatsController: chatsController ??
+              ChatsController(
+                repository: FakeChatRepository(latency: Duration.zero),
+              ),
+          callsController: CallsController(
+            repository: FakeCallsRepository(latency: Duration.zero),
+            permissionService: MemoryAppPermissionService(),
+            durationTickInterval: Duration.zero,
+          ),
+          updatesController: UpdatesController(
+            repository: FakeUpdatesRepository(latency: Duration.zero),
+          ),
+        ),
       ),
     ),
   );

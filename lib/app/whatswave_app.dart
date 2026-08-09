@@ -163,6 +163,7 @@ class _WhatsWaveAppState extends State<WhatsWaveApp> {
         integrations: _integrationController,
       ),
       permissionService: _permissionService,
+      createGroupThread: _chatsController.createGroup,
     );
     _updatesController = UpdatesController(
       repository: TrackedUpdatesRepository(

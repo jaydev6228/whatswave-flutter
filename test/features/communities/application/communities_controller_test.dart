@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:whatswave/core/permissions/app_permission_service.dart';
+import 'package:whatswave/core/sample/demo_data.dart';
+import 'package:whatswave/features/chats/application/chats_controller.dart';
+import 'package:whatswave/features/chats/data/fake_chat_repository.dart';
 import 'package:whatswave/features/communities/application/communities_controller.dart';
 import 'package:whatswave/features/communities/data/fake_communities_repository.dart';
 import 'package:whatswave/features/communities/domain/community_contact.dart';
@@ -72,6 +75,44 @@ void main() {
       controller.communityById(community.id)?.invitedContactIds,
       contains(contact.id),
     );
+  });
+
+  test(
+      'backs a community group with a real thread once an on-WhatsWave contact is invited',
+      () async {
+    final matchedContacts = DemoData.buildCommunityContacts().map((contact) {
+      if (contact.id != 'priya-rai') {
+        return contact;
+      }
+      return contact.copyWith(matchedUid: 'priya-rai-uid');
+    }).toList(growable: false);
+
+    final chatsController = ChatsController(
+      repository: FakeChatRepository(latency: Duration.zero),
+    );
+    final controller = CommunitiesController(
+      repository: FakeCommunitiesRepository(
+        latency: Duration.zero,
+        initialContacts: matchedContacts,
+      ),
+      permissionService: MemoryAppPermissionService(),
+      createGroupThread: chatsController.createGroup,
+    );
+
+    await controller.loadOverview();
+    final community = controller.communities.first;
+    expect(community.groups, isNotEmpty);
+    expect(community.groups.first.threadId, isNull);
+
+    final didInvite = await controller.inviteContactToCommunity(
+      communityId: community.id,
+      contactId: 'priya-rai',
+    );
+
+    expect(didInvite, isTrue);
+    final threadId = controller.communityById(community.id)?.groups.first.threadId;
+    expect(threadId, isNotNull);
+    expect(chatsController.threadById(threadId!)?.isGroup, isTrue);
   });
 
   test('shares an app invite for an off-app contact', () async {

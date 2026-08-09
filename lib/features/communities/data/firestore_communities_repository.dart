@@ -220,6 +220,39 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
   }
 
   @override
+  Future<CommunitiesOverview> attachGroupThread({
+    required String communityId,
+    required String groupId,
+    required String threadId,
+  }) async {
+    _requireCurrentUid;
+    try {
+      final doc = await _communitiesRef.doc(communityId).get();
+      final data = doc.data();
+      if (data == null) {
+        throw const CommunitiesRepositoryException(
+          'That community is no longer available.',
+        );
+      }
+      final groupsRaw = (data['groups'] as List<dynamic>?) ?? const [];
+      final updatedGroups = groupsRaw.whereType<Map<String, dynamic>>().map(
+        (map) {
+          if (map['id'] != groupId) {
+            return map;
+          }
+          return {...map, 'threadId': threadId};
+        },
+      ).toList(growable: false);
+      await _communitiesRef.doc(communityId).update({'groups': updatedGroups});
+    } on FirebaseException catch (e) {
+      throw CommunitiesRepositoryException(
+        e.message ?? 'Could not update that group.',
+      );
+    }
+    return fetchOverview();
+  }
+
+  @override
   Future<CommunitiesOverview> inviteContactToCommunity({
     required String communityId,
     required String contactId,
@@ -368,6 +401,7 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
           ? lastActivityAt.toDate()
           : DateTime.now(),
       unreadCount: (map['unreadCount'] as int?) ?? 0,
+      threadId: map['threadId'] as String?,
     );
   }
 
@@ -392,6 +426,7 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
                 'memberCount': group.memberCount,
                 'lastActivityAt': Timestamp.fromDate(group.lastActivityAt),
                 'unreadCount': group.unreadCount,
+                if (group.threadId != null) 'threadId': group.threadId,
               })
           .toList(growable: false),
       'invitedContactIds': community.invitedContactIds,

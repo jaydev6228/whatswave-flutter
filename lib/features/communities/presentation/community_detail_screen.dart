@@ -3,9 +3,13 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../calls/application/calls_controller.dart';
+import '../../chats/application/chats_controller.dart';
+import '../../chats/presentation/conversation_screen.dart';
 import '../../shared/widgets/avatar_badge.dart';
 import '../../shared/widgets/empty_state_card.dart';
 import '../../shared/widgets/error_dialog.dart';
+import '../../updates/application/updates_controller.dart';
 import '../application/communities_controller.dart';
 import '../domain/app_invite_link.dart';
 import '../domain/community_contact.dart';
@@ -16,11 +20,17 @@ import '../domain/contact_access_status.dart';
 class CommunityDetailScreen extends StatelessWidget {
   const CommunityDetailScreen({
     required this.controller,
+    required this.chatsController,
+    required this.callsController,
+    required this.updatesController,
     required this.communityId,
     super.key,
   });
 
   final CommunitiesController controller;
+  final ChatsController chatsController;
+  final CallsController callsController;
+  final UpdatesController updatesController;
   final String communityId;
 
   @override
@@ -142,7 +152,13 @@ class CommunityDetailScreen extends StatelessWidget {
                                   ),
                         ),
                         const SizedBox(height: 12),
-                        _CommunityGroupPreviewPanel(groups: community.groups),
+                        _CommunityGroupPreviewPanel(
+                          groups: community.groups,
+                          onOpenGroup: (group) => _openGroupThread(
+                            context,
+                            group: group,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -152,6 +168,27 @@ class CommunityDetailScreen extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+
+  Future<void> _openGroupThread(
+    BuildContext context, {
+    required CommunityGroupPreview group,
+  }) async {
+    final threadId = group.threadId;
+    if (threadId == null) {
+      return;
+    }
+
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => ConversationScreen(
+          callsController: callsController,
+          controller: chatsController,
+          updatesController: updatesController,
+          threadId: threadId,
+        ),
+      ),
     );
   }
 }
@@ -842,9 +879,13 @@ class _AnnouncementCard extends StatelessWidget {
 }
 
 class _CommunityGroupPreviewPanel extends StatelessWidget {
-  const _CommunityGroupPreviewPanel({required this.groups});
+  const _CommunityGroupPreviewPanel({
+    required this.groups,
+    required this.onOpenGroup,
+  });
 
   final List<CommunityGroupPreview> groups;
+  final ValueChanged<CommunityGroupPreview> onOpenGroup;
 
   @override
   Widget build(BuildContext context) {
@@ -855,52 +896,73 @@ class _CommunityGroupPreviewPanel extends StatelessWidget {
       child: Column(
         children: List<Widget>.generate(groups.length, (index) {
           final group = groups[index];
+          final hasThread = group.threadId != null;
           return Column(
             children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 14,
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            group.name,
-                            style: theme.textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            group.summary,
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: theme.colorScheme.onSurface
-                                  .withValues(alpha: 0.72),
-                            ),
-                          ),
-                        ],
-                      ),
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  key: Key('community_detail_group_${group.id}'),
+                  onTap: hasThread ? () => onOpenGroup(group) : null,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 14,
                     ),
-                    if (group.unreadCount > 0) ...[
-                      const SizedBox(width: 12),
-                      CircleAvatar(
-                        radius: 12,
-                        backgroundColor: theme.colorScheme.primary,
-                        child: Text(
-                          '${group.unreadCount}',
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: theme.colorScheme.onPrimary,
-                            fontWeight: FontWeight.w800,
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Opacity(
+                            opacity: hasThread ? 1 : 0.6,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  group.name,
+                                  style:
+                                      theme.textTheme.titleSmall?.copyWith(
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  hasThread
+                                      ? group.summary
+                                      : 'Setting up messaging…',
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: theme.colorScheme.onSurface
+                                        .withValues(alpha: 0.72),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
-                      ),
-                    ],
-                  ],
+                        if (group.unreadCount > 0) ...[
+                          const SizedBox(width: 12),
+                          CircleAvatar(
+                            radius: 12,
+                            backgroundColor: theme.colorScheme.primary,
+                            child: Text(
+                              '${group.unreadCount}',
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: theme.colorScheme.onPrimary,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                        ] else if (hasThread) ...[
+                          const SizedBox(width: 8),
+                          Icon(
+                            Icons.chevron_right_rounded,
+                            color: theme.colorScheme.onSurface
+                                .withValues(alpha: 0.4),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
                 ),
               ),
               if (index != groups.length - 1)

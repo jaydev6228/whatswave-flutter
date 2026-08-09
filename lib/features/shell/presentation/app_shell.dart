@@ -71,6 +71,9 @@ class _AppShellState extends State<AppShell> {
       ),
       CommunitiesScreen(
         controller: widget.communitiesController,
+        chatsController: widget.chatsController,
+        callsController: widget.callsController,
+        updatesController: widget.updatesController,
       ),
       CallsScreen(
         controller: widget.callsController,
