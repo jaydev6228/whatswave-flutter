@@ -733,7 +733,13 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
     try {
       await initialization;
       await controller.setLooping(true);
-      await controller.setVolume(0);
+      // The preview should sound the same as the posted story does: the
+      // video's own audio plays by default, muted only when a music track
+      // is layered on top of it (matching status_story_viewer_screen.dart's
+      // identical video-vs-music volume logic). Previously always muted
+      // unconditionally, so a picked video had no sound until after
+      // posting.
+      await controller.setVolume(_musicTrack == null ? 1 : 0);
       await controller.play();
       _adoptOriginalMediaFrameIfNeeded(controller.value.size);
 
@@ -1017,6 +1023,8 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
       if (item.type == StatusMediaOverlayType.music) {
         _musicTrack = null;
         _previewingMusicTrackId = null;
+        // Music removed -- give the video its own audio back.
+        unawaited(_videoController?.setVolume(1));
       }
       if (_selectedOverlayId == overlayId) {
         _selectedOverlayId = null;
@@ -1318,6 +1326,9 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
       variantId: selectedTrack.bannerStyleId,
     );
 
+    // Music now overrides the video's own audio (matches the posted
+    // story's own video-vs-music volume logic).
+    unawaited(_videoController?.setVolume(0));
     setState(() {
       _musicTrack = selectedTrack;
       _overlayItems.removeWhere(
