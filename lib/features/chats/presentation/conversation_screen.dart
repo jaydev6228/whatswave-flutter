@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:image_picker/image_picker.dart';
 
 import '../../../app/theme/app_palette.dart';
@@ -63,7 +64,24 @@ class _ConversationScreenState extends State<ConversationScreen> {
   final List<ChatMessage> _localMessages = <ChatMessage>[];
   Timer? _composerUnlockTimer;
   Timer? _animatedMessageCleanupTimer;
-  final List<Timer> _scrollCatchUpTimers = <Timer>[];
+
+  /// True whenever the message list should stay pinned to its true bottom
+  /// -- set on open, on sending, and whenever an incoming message arrives
+  /// while the reader was already at the bottom. Cleared the moment a real
+  /// user drag scrolls them away from the bottom. While true,
+  /// [_handleMessageListNotification] re-snaps to the bottom every time the
+  /// list's content height actually changes (an async image/map/etc.
+  /// finishing layout), which is the real signal for "the true bottom
+  /// moved" -- unlike a guessed fixed-delay timer, this can't undershoot on
+  /// a chat with many attachments or overshoot the wait on a slow one.
+  bool _stickToBottom = true;
+
+  /// The most recently observed [ScrollMetrics.maxScrollExtent], used to
+  /// tell "content actually grew" apart from "pixels just isn't at the
+  /// current max" (e.g. a deliberate scroll-up, or this state's own
+  /// programmatic jump landing short of the final value) -- see
+  /// [_handleMessageListNotification].
+  double? _lastObservedMaxScrollExtent;
 
   @override
   void initState() {
@@ -76,10 +94,6 @@ class _ConversationScreenState extends State<ConversationScreen> {
   void dispose() {
     _composerUnlockTimer?.cancel();
     _animatedMessageCleanupTimer?.cancel();
-    for (final timer in _scrollCatchUpTimers) {
-      timer.cancel();
-    }
-    _scrollCatchUpTimers.clear();
     _composerController.dispose();
     _messageListController.dispose();
     super.dispose();
@@ -304,7 +318,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
                               theme.brightness == Brightness.dark ? 0.94 : 0.98,
                         ),
                       ),
-                      child: ListView.builder(
+                      child: NotificationListener<Notification>(
+                        onNotification: _handleMessageListNotification,
+                        child: ListView.builder(
                         key: const Key('conversation_message_list'),
                         controller: _messageListController,
                         keyboardDismissBehavior:
@@ -371,6 +387,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
                           ],
                         );
                         },
+                        ),
                       ),
                     ),
                   ),
@@ -585,32 +602,57 @@ class _ConversationScreenState extends State<ConversationScreen> {
   }
 
   void _scheduleScrollToLatestMessage({bool animated = true}) {
+    _stickToBottom = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _scrollToLatestMessage(animated: animated);
     });
-    // A network-image attachment (an uploaded photo's Storage URL, unlike
-    // an optimistic local file, which decodes instantly) can still be
-    // mid-fetch on this first frame -- once it finishes, the list grows
-    // taller and the earlier scroll's target offset falls short of the
-    // new true bottom, leaving the latest message hidden behind the
-    // composer. Re-snap a couple of times shortly after to catch up once
-    // any in-flight image has actually finished loading and settled the
-    // list's real height, without a second visible scroll animation.
-    for (final timer in _scrollCatchUpTimers) {
-      timer.cancel();
+  }
+
+  /// Keeps the message list pinned to its true bottom while [_stickToBottom]
+  /// is set. Listens for two distinct real signals rather than guessing
+  /// with a timer:
+  /// - [UserScrollNotification]: a real user drag. Stop pinning unless
+  ///   they're still essentially at the bottom (e.g. an over-scroll
+  ///   bounce), so a deliberate scroll-up to read history is never fought.
+  /// - [ScrollMetricsNotification]: the list's content height actually
+  ///   changed (an async image/map/etc. attachment finished laying out)
+  ///   without any user scroll -- snap forward to the new true bottom. On
+  ///   a thread with several attachments (a map, photos, documents, a
+  ///   voice note) the layout can keep growing well past a single guessed
+  ///   delay/tolerance, which is exactly what made the previous
+  ///   timer-based catch-up undershoot on threads like that.
+  bool _handleMessageListNotification(Notification notification) {
+    if (notification is UserScrollNotification) {
+      if (notification.direction != ScrollDirection.idle) {
+        _stickToBottom = _isNearLatestMessage(tolerance: 40);
+      }
+      return false;
     }
-    _scrollCatchUpTimers.clear();
-    for (final delay in const [
-      Duration(milliseconds: 150),
-      Duration(milliseconds: 450),
-    ]) {
-      _scrollCatchUpTimers.add(Timer(delay, () {
-        if (!mounted || !_isNearLatestMessage(tolerance: 400)) {
-          return;
-        }
-        _scrollToLatestMessage(animated: false);
-      }));
+    if (notification is ScrollMetricsNotification) {
+      final metrics = notification.metrics;
+      final previousMax = _lastObservedMaxScrollExtent;
+      _lastObservedMaxScrollExtent = metrics.maxScrollExtent;
+
+      // Only re-snap when content actually grew (an async image/map/etc.
+      // finished laying out) while the reader was sitting right at the
+      // previous bottom -- never just because pixels doesn't currently
+      // equal the max, which is the normal state for a deliberate
+      // scroll-up and must never be fought.
+      final contentGrew =
+          previousMax != null && metrics.maxScrollExtent > previousMax + 0.5;
+      final wasAtPreviousBottom =
+          previousMax != null && (metrics.pixels - previousMax).abs() <= 40;
+      if (_stickToBottom && contentGrew && wasAtPreviousBottom) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _messageListController.hasClients) {
+            _messageListController.jumpTo(
+              _messageListController.position.maxScrollExtent,
+            );
+          }
+        });
+      }
     }
+    return false;
   }
 
   void _lockComposerHeight() {
