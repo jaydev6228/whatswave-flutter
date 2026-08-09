@@ -13,9 +13,13 @@ import 'auth_repository.dart';
 /// Real Firebase Phone Auth implementation of [AuthRepository].
 ///
 /// Firebase's User object only knows phoneNumber/displayName/uid — it has no
-/// concept of our app's "about" field, so that's stored locally in
-/// SharedPreferences keyed by uid until a Slice 3 Firestore adapter takes
-/// over full profile storage.
+/// concept of our app's "about" field, so that's stored in the
+/// `userProfiles/{uid}` Firestore document (see [_registerUserProfile]),
+/// with a local SharedPreferences copy kept only as an offline-read cache.
+/// "Has this account completed onboarding" is decided from [User.displayName]
+/// alone (a real cloud field) — never from the local cache, which is empty
+/// on any device/install other than the one that originally set it, and was
+/// previously (incorrectly) required for a returning user to be recognized.
 ///
 /// Also registers the user's phone number in a `phoneDirectory` collection
 /// on profile save, so [DeviceContactsService]-sourced contacts can be
@@ -110,9 +114,7 @@ class FirebaseAuthRepository implements AuthRepository {
       );
     }
 
-    final existingAbout = await _readAbout(user.uid);
-    final hasCompletedProfile =
-        existingAbout != null && (user.displayName ?? '').trim().isNotEmpty;
+    final hasCompletedProfile = (user.displayName ?? '').trim().isNotEmpty;
 
     if (!hasCompletedProfile) {
       return const AuthVerificationResult.profileRequired();
@@ -153,28 +155,33 @@ class FirebaseAuthRepository implements AuthRepository {
     }
 
     final trimmedName = name.trim();
+    final trimmedAbout = about.trim();
     await user.updateDisplayName(trimmedName);
-    await _writeAbout(user.uid, about.trim());
+    await _writeAbout(user.uid, trimmedAbout);
     await _registerInPhoneDirectory(user.uid, user.phoneNumber);
-    await _registerUserProfile(user.uid, trimmedName);
+    await _registerUserProfile(user.uid, trimmedName, trimmedAbout);
     await user.reload();
 
     return _appUserFromFirebaseUser(_firebaseAuth.currentUser ?? user);
   }
 
-  /// Publishes this user's display name/avatar/color to a `userProfiles`
-  /// document any other signed-in user can read -- e.g. so
+  /// Publishes this user's display name/about/avatar/color to a
+  /// `userProfiles` document any other signed-in user can read -- e.g. so
   /// FirestoreChatRepository can show each side of a 1:1 chat the *other*
   /// person's real name, instead of whichever name got baked into the
-  /// thread doc by whoever happened to create it. Best-effort, same
-  /// reasoning as [_registerInPhoneDirectory].
-  Future<void> _registerUserProfile(String uid, String name) async {
+  /// thread doc by whoever happened to create it. This is also the *only*
+  /// durable home for `about` -- Firebase's User object has no such field,
+  /// and the local SharedPreferences copy doesn't follow the account to a
+  /// new device or reinstall. Best-effort, same reasoning as
+  /// [_registerInPhoneDirectory].
+  Future<void> _registerUserProfile(String uid, String name, String about) async {
     if (name.isEmpty) {
       return;
     }
     try {
       await _firestore.collection('userProfiles').doc(uid).set({
         'name': name,
+        'about': about,
         'avatarLabel': _avatarLabelForName(name),
         'accentColorArgb': _accentColorForName(name).toARGB32(),
       });
@@ -213,7 +220,7 @@ class FirebaseAuthRepository implements AuthRepository {
     // all the way back to the generic "WhatsWave user"/"?" placeholder.
     // Fire-and-forget: best-effort like the rest of this class, and it
     // shouldn't add a network round trip to every app launch/sign-in.
-    unawaited(_registerUserProfile(user.uid, name));
+    unawaited(_registerUserProfile(user.uid, name, about));
     return AppUser(
       name: name,
       phoneNumber: user.phoneNumber ?? '',
@@ -227,7 +234,19 @@ class FirebaseAuthRepository implements AuthRepository {
     return _preferences ??= await SharedPreferences.getInstance();
   }
 
+  /// Firestore is the durable source of truth for `about` (see
+  /// [_registerUserProfile]) -- the local cache only covers the narrow
+  /// window before that document exists yet, or a fully offline read.
   Future<String?> _readAbout(String uid) async {
+    try {
+      final doc = await _firestore.collection('userProfiles').doc(uid).get();
+      final remoteAbout = doc.data()?['about'] as String?;
+      if (remoteAbout != null) {
+        return remoteAbout;
+      }
+    } on FirebaseException {
+      // Fall through to the local cache below.
+    }
     final preferences = await _preferencesInstance;
     return preferences.getString('$_aboutKeyPrefix$uid');
   }
