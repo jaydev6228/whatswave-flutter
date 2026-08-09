@@ -41,6 +41,7 @@ ios/Runner/GoogleService-Info.plist
 macos/Runner/GoogleService-Info.plist
 lib/firebase_options.dart
 firebase.json
+.firebaserc
 .firebase/
 firebase-debug.log
 firebase-debug.*.log
