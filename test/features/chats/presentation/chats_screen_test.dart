@@ -294,11 +294,12 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('reaction_custom_emoji_field')), findsOneWidget);
+    // Typing an emoji reacts and closes the sheet immediately -- no
+    // separate submit button.
     await tester.enterText(
       find.byKey(const Key('reaction_custom_emoji_field')),
       '🦄',
     );
-    await tester.tap(find.byKey(const Key('reaction_custom_emoji_submit')));
     await tester.pumpAndSettle();
 
     expect(find.text('🦄'), findsOneWidget);

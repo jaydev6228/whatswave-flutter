@@ -1696,21 +1696,15 @@ class _MessageBubble extends StatelessWidget {
   /// need to bundle its own picker for) rather than building a whole emoji
   /// database/picker widget just for this.
   Future<String?> _showCustomEmojiSheet(BuildContext context) async {
-    // Deliberately uncontrolled (no TextEditingController of this method's
-    // own to manage) -- showModalBottomSheet's Future resolves as soon as
-    // the route is popped, before its closing transition finishes and the
-    // TextField actually unmounts; disposing a controller at that point
-    // raced with the still-mounted, still-focused field and corrupted
-    // FocusManager state badly enough to break unrelated tests running
-    // afterward. Reading the value via onChanged sidesteps the whole
-    // lifecycle question -- the TextField manages its own internal
-    // controller and disposes it correctly on its own.
-    var currentValue = '';
+    // Just the field -- no title, no separate submit button. Picking an
+    // emoji on the keyboard immediately reacts with it and closes, the
+    // same one-tap flow as tapping a quick-react emoji, matching how other
+    // apps' "+" reaction button works instead of adding an extra
+    // confirmation step.
     final result = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
       builder: (sheetContext) {
-        final theme = Theme.of(sheetContext);
         return Padding(
           padding: EdgeInsets.fromLTRB(
             20,
@@ -1718,45 +1712,23 @@ class _MessageBubble extends StatelessWidget {
             20,
             MediaQuery.viewInsetsOf(sheetContext).bottom + 20,
           ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                'React with an emoji',
-                textAlign: TextAlign.center,
-                style: theme.textTheme.titleMedium,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Tap the emoji key on your keyboard to pick one',
-                textAlign: TextAlign.center,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.64),
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                key: const Key('reaction_custom_emoji_field'),
-                autofocus: true,
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 32),
-                decoration: const InputDecoration(
-                  hintText: '🙂',
-                  border: OutlineInputBorder(),
-                ),
-                onChanged: (value) => currentValue = value,
-                onSubmitted: (value) =>
-                    Navigator.of(sheetContext).pop(value.trim()),
-              ),
-              const SizedBox(height: 16),
-              FilledButton(
-                key: const Key('reaction_custom_emoji_submit'),
-                onPressed: () =>
-                    Navigator.of(sheetContext).pop(currentValue.trim()),
-                child: const Text('React'),
-              ),
-            ],
+          child: TextField(
+            key: const Key('reaction_custom_emoji_field'),
+            autofocus: true,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 32),
+            decoration: const InputDecoration(
+              hintText: '🙂',
+              border: OutlineInputBorder(),
+            ),
+            onChanged: (value) {
+              final trimmed = value.trim();
+              if (trimmed.isNotEmpty) {
+                Navigator.of(sheetContext).pop(trimmed);
+              }
+            },
+            onSubmitted: (value) =>
+                Navigator.of(sheetContext).pop(value.trim()),
           ),
         );
       },
@@ -1951,8 +1923,10 @@ class _ReactionBadge extends StatelessWidget {
     final theme = Theme.of(context);
     final distinctEmojis = reactions.values.toSet().toList(growable: false);
 
-    return LiquidGlassSurface(
-      blurred: false,
+    // No pill/surface background -- the emoji glyphs read fine directly
+    // against whatever sits behind them, and the badge looked visually
+    // disconnected from the bubble it's overlapping with one.
+    return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
       child: Row(
         mainAxisSize: MainAxisSize.min,
