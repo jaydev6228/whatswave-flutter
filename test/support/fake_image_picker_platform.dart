@@ -9,16 +9,31 @@ class FakeImagePickerPlatform extends ImagePickerPlatform {
   FakeImagePickerPlatform({
     this.multiImagePaths = const ['/fake/test-photo.jpg'],
     this.videoPath = '/fake/test-video.mp4',
+    this.singleImagePath = '/fake/test-photo.jpg',
   });
 
   final List<String> multiImagePaths;
   final String? videoPath;
+
+  /// Backs [ImagePicker.pickImage] (e.g. the profile-photo picker) --
+  /// distinct from [multiImagePaths], which backs the multi-select gallery
+  /// pick used elsewhere.
+  final String? singleImagePath;
 
   @override
   Future<List<XFile>> getMultiImageWithOptions({
     MultiImagePickerOptions options = const MultiImagePickerOptions(),
   }) async {
     return [for (final path in multiImagePaths) XFile(path)];
+  }
+
+  @override
+  Future<XFile?> getImageFromSource({
+    required ImageSource source,
+    ImagePickerOptions options = const ImagePickerOptions(),
+  }) async {
+    final path = singleImagePath;
+    return path == null ? null : XFile(path);
   }
 
   @override

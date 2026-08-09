@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 class AvatarBadge extends StatelessWidget {
@@ -48,9 +50,17 @@ class AvatarBadge extends StatelessWidget {
       return initialsBadge;
     }
 
+    // Almost always a Firebase Storage download URL (FirebaseAuthRepository
+    // .updateAvatar), but FakeAuthRepository's demo/test double stores the
+    // picked file's own local path instead -- resolve either correctly
+    // rather than assuming every avatarUrl is a real network URL.
+    final isRemote = url.startsWith('http://') || url.startsWith('https://');
+    final imageProvider =
+        isRemote ? NetworkImage(url) : FileImage(File(url)) as ImageProvider;
+
     return ClipOval(
-      child: Image.network(
-        url,
+      child: Image(
+        image: imageProvider,
         width: size,
         height: size,
         fit: BoxFit.cover,

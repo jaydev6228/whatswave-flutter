@@ -247,6 +247,69 @@ void main() {
       expect(profileController.errorMessage, 'Profile save failed.');
     });
 
+    test('updates the avatar and clears busy/error state on success',
+        () async {
+      const restoredUser = AppUser(
+        name: 'Jay Devra',
+        phoneNumber: '+819012345678',
+        about: 'Ready to ship.',
+        avatarLabel: 'JD',
+        accentColor: Colors.green,
+      );
+      final controller = AuthController(
+        repository: _TestAuthRepository(restoredUser: restoredUser),
+      );
+      await controller.restoreSession();
+      expect(controller.currentUser?.avatarUrl, isNull);
+
+      final didSucceed =
+          await controller.updateAvatar(File('/fake/picked-photo.jpg'));
+
+      expect(didSucceed, isTrue);
+      expect(controller.isBusy, isFalse);
+      expect(controller.errorMessage, isNull);
+      expect(controller.currentUser?.avatarUrl, '/fake/picked-photo.jpg');
+    });
+
+    test('surfaces a repository error and leaves the user unchanged on a '
+        'failed avatar upload', () async {
+      const restoredUser = AppUser(
+        name: 'Jay Devra',
+        phoneNumber: '+819012345678',
+        about: 'Ready to ship.',
+        avatarLabel: 'JD',
+        accentColor: Colors.green,
+      );
+      final controller = AuthController(
+        repository: _TestAuthRepository(
+          restoredUser: restoredUser,
+          updateAvatarError: const AuthException('Could not save that photo.'),
+        ),
+      );
+      await controller.restoreSession();
+
+      final didSucceed =
+          await controller.updateAvatar(File('/fake/picked-photo.jpg'));
+
+      expect(didSucceed, isFalse);
+      expect(controller.isBusy, isFalse);
+      expect(controller.errorMessage, 'Could not save that photo.');
+      expect(controller.currentUser?.avatarUrl, isNull);
+    });
+
+    test('rejects an avatar update with nobody signed in', () async {
+      final controller = AuthController(repository: _TestAuthRepository());
+
+      final didSucceed =
+          await controller.updateAvatar(File('/fake/picked-photo.jpg'));
+
+      expect(didSucceed, isFalse);
+      expect(
+        controller.errorMessage,
+        'Sign in again before editing your profile.',
+      );
+    });
+
     test('signs out and returns to phone entry', () async {
       const restoredUser = AppUser(
         name: 'Jay Devra',
@@ -364,6 +427,7 @@ class _TestAuthRepository implements AuthRepository {
     this.verifyError,
     this.completeProfileError,
     this.signOutError,
+    this.updateAvatarError,
     this.verifyResult = const AuthVerificationResult.profileRequired(),
   });
 
@@ -373,6 +437,7 @@ class _TestAuthRepository implements AuthRepository {
   final AuthException? verifyError;
   final AuthException? completeProfileError;
   final Object? signOutError;
+  final AuthException? updateAvatarError;
   final AuthVerificationResult verifyResult;
 
   String? lastRequestedPhone;
@@ -450,6 +515,9 @@ class _TestAuthRepository implements AuthRepository {
 
   @override
   Future<AppUser> updateAvatar(File photo) async {
+    if (updateAvatarError != null) {
+      throw updateAvatarError!;
+    }
     return AppUser(
       name: restoredUser?.name ?? 'JD',
       phoneNumber: restoredUser?.phoneNumber ?? '+819012345678',
