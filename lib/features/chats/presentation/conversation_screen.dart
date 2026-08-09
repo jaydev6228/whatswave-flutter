@@ -1644,9 +1644,10 @@ class _MessageBubble extends StatelessWidget {
     final screenSize = mediaQuery.size;
 
     const trayHeight = 56.0;
-    // 6 emoji options at 44pt each (see _ReactionTray's tap targets) plus
-    // LiquidGlassSurface's own 8pt horizontal padding on each side.
-    const trayWidth = 280.0;
+    // 6 quick-reaction emoji plus the trailing "+" (custom emoji), 44pt
+    // each (see _ReactionTray's tap targets), plus LiquidGlassSurface's
+    // own 8pt horizontal padding on each side.
+    const trayWidth = 324.0;
     const trayMargin = 10.0;
     final showAbove =
         bubbleTopLeft.dy - trayHeight - trayMargin > mediaQuery.padding.top + 8;
@@ -1659,6 +1660,7 @@ class _MessageBubble extends StatelessWidget {
     final trayLeft =
         rawTrayLeft.clamp(12.0, screenSize.width - trayWidth - 12.0);
 
+    var pickCustomEmoji = false;
     final selectedEmoji = await showFloatingGlassPopup<String>(
       bubbleContext,
       barrierLabel: 'Reactions',
@@ -1668,13 +1670,105 @@ class _MessageBubble extends StatelessWidget {
         top: trayTop,
         child: _ReactionTray(
           onSelected: close,
+          onCustomEmoji: () {
+            pickCustomEmoji = true;
+            close();
+          },
         ),
       ),
     );
 
     if (selectedEmoji != null) {
       onReactionTap(selectedEmoji);
+      return;
     }
+    if (pickCustomEmoji && bubbleContext.mounted) {
+      final customEmoji = await _showCustomEmojiSheet(bubbleContext);
+      if (customEmoji != null) {
+        onReactionTap(customEmoji);
+      }
+    }
+  }
+
+  /// The 6 quick-react emoji cover WhatsApp's own defaults, but not every
+  /// reaction someone wants -- this hands off to the OS's own keyboard
+  /// (its emoji key/panel already has every emoji this app would otherwise
+  /// need to bundle its own picker for) rather than building a whole emoji
+  /// database/picker widget just for this.
+  Future<String?> _showCustomEmojiSheet(BuildContext context) async {
+    // Deliberately uncontrolled (no TextEditingController of this method's
+    // own to manage) -- showModalBottomSheet's Future resolves as soon as
+    // the route is popped, before its closing transition finishes and the
+    // TextField actually unmounts; disposing a controller at that point
+    // raced with the still-mounted, still-focused field and corrupted
+    // FocusManager state badly enough to break unrelated tests running
+    // afterward. Reading the value via onChanged sidesteps the whole
+    // lifecycle question -- the TextField manages its own internal
+    // controller and disposes it correctly on its own.
+    var currentValue = '';
+    final result = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        final theme = Theme.of(sheetContext);
+        return Padding(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            20,
+            20,
+            MediaQuery.viewInsetsOf(sheetContext).bottom + 20,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'React with an emoji',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.titleMedium,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Tap the emoji key on your keyboard to pick one',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.64),
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                key: const Key('reaction_custom_emoji_field'),
+                autofocus: true,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 32),
+                decoration: const InputDecoration(
+                  hintText: '🙂',
+                  border: OutlineInputBorder(),
+                ),
+                onChanged: (value) => currentValue = value,
+                onSubmitted: (value) =>
+                    Navigator.of(sheetContext).pop(value.trim()),
+              ),
+              const SizedBox(height: 16),
+              FilledButton(
+                key: const Key('reaction_custom_emoji_submit'),
+                onPressed: () =>
+                    Navigator.of(sheetContext).pop(currentValue.trim()),
+                child: const Text('React'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    final trimmed = result?.trim();
+    if (trimmed == null || trimmed.isEmpty) {
+      return null;
+    }
+    // Defensive cap -- this field is meant to hold one short emoji (or a
+    // short multi-codepoint sequence like a flag/ZWJ combo), not arbitrary
+    // pasted text.
+    return trimmed.length > 8 ? trimmed.substring(0, 8) : trimmed;
   }
 
   /// Photo/video attachments render full-bleed (a grid when more than one
@@ -1780,12 +1874,17 @@ class _MessageBubble extends StatelessWidget {
 /// iMessage's Tapback tray -- a horizontal row of quick-react emojis
 /// pinned near the bubble rather than WhatsApp's flatter below-bubble row.
 class _ReactionTray extends StatelessWidget {
-  const _ReactionTray({required this.onSelected});
+  const _ReactionTray({required this.onSelected, required this.onCustomEmoji});
 
   final ValueChanged<String> onSelected;
 
+  /// Opens a way to react with any emoji, not just the 6 quick ones below
+  /// (see _MessageBubble._showCustomEmojiSheet).
+  final VoidCallback onCustomEmoji;
+
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return LiquidGlassSurface(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       child: Row(
@@ -1813,6 +1912,26 @@ class _ReactionTray extends StatelessWidget {
                 ),
               ),
             ),
+          Material(
+            color: Colors.transparent,
+            shape: const CircleBorder(),
+            child: InkWell(
+              key: const Key('reaction_option_custom'),
+              customBorder: const CircleBorder(),
+              onTap: onCustomEmoji,
+              child: SizedBox(
+                width: 44,
+                height: 44,
+                child: Center(
+                  child: Icon(
+                    Icons.add_rounded,
+                    size: 22,
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.68),
+                  ),
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );

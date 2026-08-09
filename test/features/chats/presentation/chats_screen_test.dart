@@ -271,6 +271,40 @@ void main() {
   });
 
   testWidgets(
+      'the reaction tray\'s + button reacts with a custom emoji from the '
+      'keyboard sheet', (tester) async {
+    await _pumpChatsScreen(
+      tester,
+      device: iphoneProProfile,
+      controller: ChatsController(
+        repository: FakeChatRepository(latency: Duration.zero),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('chat_tile_ava-patel')));
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.text(
+      'The onboarding shots look good. The motion pacing feels much cleaner.',
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('reaction_option_custom')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('reaction_option_custom')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('reaction_custom_emoji_field')), findsOneWidget);
+    await tester.enterText(
+      find.byKey(const Key('reaction_custom_emoji_field')),
+      '🦄',
+    );
+    await tester.tap(find.byKey(const Key('reaction_custom_emoji_submit')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('🦄'), findsOneWidget);
+  });
+
+  testWidgets(
       'contact info: clears chat, then blocks and hides the composer',
       (tester) async {
     await _pumpChatsScreen(

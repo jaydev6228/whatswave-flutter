@@ -26,7 +26,25 @@ service cloud.firestore {
                        && request.auth.uid in
                           get(/databases/$(database)/documents/chatThreads/$(threadId)).data.participantUids
                        && request.resource.data.senderUid == request.auth.uid;
-        allow update, delete: if false;
+        // Messages don't support editing -- the only update this app ever
+        // makes is FirestoreChatRepository.toggleMessageReaction's
+        // transaction.update({'reactions.$uid': ...}). This was blanket
+        // "if false" before, which silently rejected every reaction toggle
+        // (the app caught the resulting FirebaseException and surfaced it
+        // only via ChatsController.errorMessage, which conversation_screen
+        // no longer renders as a banner -- so it looked like tapping a
+        // reaction just did nothing). Scoped down instead of reopened
+        // wide: a participant may only touch the reactions map, and only
+        // their own uid's entry within it -- never text/attachments/
+        // senderUid, and never someone else's reaction.
+        allow update: if request.auth != null
+                       && request.auth.uid in
+                          get(/databases/$(database)/documents/chatThreads/$(threadId)).data.participantUids
+                       && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions'])
+                       && request.resource.data.reactions.diff(
+                            resource.data.get('reactions', {})
+                          ).affectedKeys().hasOnly([request.auth.uid]);
+        allow delete: if false;
       }
     }
 
