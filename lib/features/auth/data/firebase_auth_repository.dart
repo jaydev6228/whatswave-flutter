@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
@@ -6,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../app/theme/app_palette.dart';
+import '../../../core/media/media_uploader.dart';
 import '../../../core/models/app_user.dart';
 import '../../../core/utils/phone_number_matching.dart';
 import 'auth_repository.dart';
@@ -29,11 +31,14 @@ class FirebaseAuthRepository implements AuthRepository {
   FirebaseAuthRepository({
     fb_auth.FirebaseAuth? firebaseAuth,
     FirebaseFirestore? firestore,
+    MediaUploader? mediaUploader,
   })  : _firebaseAuth = firebaseAuth ?? fb_auth.FirebaseAuth.instance,
-        _firestore = firestore ?? FirebaseFirestore.instance;
+        _firestore = firestore ?? FirebaseFirestore.instance,
+        _mediaUploader = mediaUploader ?? FirebaseMediaUploader();
 
   final fb_auth.FirebaseAuth _firebaseAuth;
   final FirebaseFirestore _firestore;
+  final MediaUploader _mediaUploader;
 
   static const _aboutKeyPrefix = 'firebase_auth_about_v1_';
 
@@ -143,6 +148,41 @@ class FirebaseAuthRepository implements AuthRepository {
   }
 
   @override
+  Future<AppUser> updateAvatar(File photo) async {
+    final user = _firebaseAuth.currentUser;
+    if (user == null) {
+      throw const AuthException('Sign in again before editing your profile.');
+    }
+    if (!await photo.exists()) {
+      throw const AuthException('That photo is no longer available.');
+    }
+
+    final extension = photo.path.contains('.')
+        ? photo.path.substring(photo.path.lastIndexOf('.'))
+        : '.jpg';
+    final String downloadUrl;
+    try {
+      // A fixed filename (not a timestamp) so re-uploading replaces the
+      // previous photo in Storage instead of accumulating orphans there
+      // every time someone changes their avatar.
+      downloadUrl = await _mediaUploader.uploadFile(
+        photo,
+        storagePath: 'profilePhotos/${user.uid}/avatar$extension',
+      );
+      await _firestore.collection('userProfiles').doc(user.uid).set(
+        {'avatarUrl': downloadUrl},
+        SetOptions(merge: true),
+      );
+    } on MediaUploadException catch (e) {
+      throw AuthException(e.message);
+    } on FirebaseException catch (e) {
+      throw AuthException(e.message ?? 'Could not save that photo.');
+    }
+
+    return _appUserFromFirebaseUser(user);
+  }
+
+  @override
   Future<void> signOut() => _firebaseAuth.signOut();
 
   Future<AppUser> _saveProfile({
@@ -174,6 +214,12 @@ class FirebaseAuthRepository implements AuthRepository {
   /// and the local SharedPreferences copy doesn't follow the account to a
   /// new device or reinstall. Best-effort, same reasoning as
   /// [_registerInPhoneDirectory].
+  ///
+  /// Merged, not overwritten -- this runs on every sign-in/session restore
+  /// (see [_appUserFromFirebaseUser]) as a self-heal, and a full overwrite
+  /// would silently wipe out `avatarUrl` (written separately by
+  /// [updateAvatar]) every single time, since this method has no avatarUrl
+  /// of its own to preserve.
   Future<void> _registerUserProfile(String uid, String name, String about) async {
     if (name.isEmpty) {
       return;
@@ -184,7 +230,7 @@ class FirebaseAuthRepository implements AuthRepository {
         'about': about,
         'avatarLabel': _avatarLabelForName(name),
         'accentColorArgb': _accentColorForName(name).toARGB32(),
-      });
+      }, SetOptions(merge: true));
     } on FirebaseException {
       // Best-effort -- see doc comment above.
     }
@@ -212,7 +258,10 @@ class FirebaseAuthRepository implements AuthRepository {
 
   Future<AppUser> _appUserFromFirebaseUser(fb_auth.User user) async {
     final name = (user.displayName ?? '').trim();
-    final about = await _readAbout(user.uid) ?? '';
+    final profileDoc = await _readProfileDoc(user.uid);
+    final about = profileDoc?['about'] as String? ??
+        await _readAboutFromLocalCache(user.uid) ??
+        '';
     // Keeps userProfiles/{uid} fresh on every session, not just on profile
     // save -- otherwise an account that completed onboarding before this
     // collection existed (or hasn't touched Settings since) never gets a
@@ -227,6 +276,7 @@ class FirebaseAuthRepository implements AuthRepository {
       about: about,
       avatarLabel: _avatarLabelForName(name),
       accentColor: _accentColorForName(name),
+      avatarUrl: profileDoc?['avatarUrl'] as String?,
     );
   }
 
@@ -234,19 +284,20 @@ class FirebaseAuthRepository implements AuthRepository {
     return _preferences ??= await SharedPreferences.getInstance();
   }
 
-  /// Firestore is the durable source of truth for `about` (see
-  /// [_registerUserProfile]) -- the local cache only covers the narrow
-  /// window before that document exists yet, or a fully offline read.
-  Future<String?> _readAbout(String uid) async {
+  /// Firestore is the durable source of truth for `about`/`avatarUrl` (see
+  /// [_registerUserProfile]/[updateAvatar]) -- null on a read failure
+  /// (offline, no doc yet), in which case callers fall back to whatever
+  /// they can find locally instead (see [_readAboutFromLocalCache]).
+  Future<Map<String, dynamic>?> _readProfileDoc(String uid) async {
     try {
       final doc = await _firestore.collection('userProfiles').doc(uid).get();
-      final remoteAbout = doc.data()?['about'] as String?;
-      if (remoteAbout != null) {
-        return remoteAbout;
-      }
+      return doc.data();
     } on FirebaseException {
-      // Fall through to the local cache below.
+      return null;
     }
+  }
+
+  Future<String?> _readAboutFromLocalCache(String uid) async {
     final preferences = await _preferencesInstance;
     return preferences.getString('$_aboutKeyPrefix$uid');
   }

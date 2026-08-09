@@ -1,8 +1,11 @@
+import 'dart:io';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:flutter/material.dart';
 
 import '../../../app/theme/app_palette.dart';
+import '../../../core/media/media_uploader.dart';
 import '../../../core/utils/user_profile_lookup.dart';
 import '../domain/chat_attachment.dart';
 import '../domain/chat_message.dart';
@@ -39,11 +42,14 @@ class FirestoreChatRepository implements ChatRepository {
   FirestoreChatRepository({
     FirebaseFirestore? firestore,
     fb_auth.FirebaseAuth? firebaseAuth,
+    MediaUploader? mediaUploader,
   })  : _firestore = firestore ?? FirebaseFirestore.instance,
-        _firebaseAuth = firebaseAuth ?? fb_auth.FirebaseAuth.instance;
+        _firebaseAuth = firebaseAuth ?? fb_auth.FirebaseAuth.instance,
+        _mediaUploader = mediaUploader ?? FirebaseMediaUploader();
 
   final FirebaseFirestore _firestore;
   final fb_auth.FirebaseAuth _firebaseAuth;
+  final MediaUploader _mediaUploader;
 
   CollectionReference<Map<String, dynamic>> get _threadsRef =>
       _firestore.collection('chatThreads');
@@ -386,15 +392,24 @@ class FirestoreChatRepository implements ChatRepository {
                   ?.cast<String>() ??
               const <String>[];
 
-      final batch = _firestore.batch();
       final messageRef = _threadsRef.doc(threadId).collection('messages').doc();
+      final uploadedAttachments = await Future.wait(
+        attachments.map(
+          (attachment) => _uploadAttachmentMedia(
+            attachment,
+            threadId: threadId,
+            messageId: messageRef.id,
+          ),
+        ),
+      );
 
+      final batch = _firestore.batch();
       batch.set(messageRef, {
         'senderUid': uid,
         'senderName': senderName,
         'sentAt': FieldValue.serverTimestamp(),
         'text': text,
-        'attachments': attachments.map(_attachmentToMap).toList(),
+        'attachments': uploadedAttachments.map(_attachmentToMap).toList(),
         'deliveryState': MessageDeliveryState.delivered.name,
       });
 
@@ -531,6 +546,50 @@ class FirestoreChatRepository implements ChatRepository {
     );
   }
 
+  /// Uploads a photo/video attachment's local file to Firebase Storage and
+  /// returns a copy pointing at the resulting download URL instead -- the
+  /// only way the OTHER participant's device can ever see this media, since
+  /// [ChatAttachment.localMediaPath] otherwise holds a path that only
+  /// exists on the sender's own device. Best-effort: on failure (offline,
+  /// quota, etc), the message still sends with the original local path so
+  /// the sender at least keeps seeing their own bubble, matching this
+  /// class's other best-effort writes (e.g. _registerUserProfile).
+  Future<ChatAttachment> _uploadAttachmentMedia(
+    ChatAttachment attachment, {
+    required String threadId,
+    required String messageId,
+  }) async {
+    final localPath = attachment.localMediaPath;
+    final isUploadable = localPath != null &&
+        localPath.isNotEmpty &&
+        !localPath.startsWith('asset://') &&
+        !localPath.startsWith('http://') &&
+        !localPath.startsWith('https://') &&
+        (attachment.type == ChatAttachmentType.photo ||
+            attachment.type == ChatAttachmentType.video);
+    if (!isUploadable) {
+      return attachment;
+    }
+
+    final file = File(localPath);
+    if (!await file.exists()) {
+      return attachment;
+    }
+
+    try {
+      final extension = localPath.contains('.')
+          ? localPath.substring(localPath.lastIndexOf('.'))
+          : (attachment.type == ChatAttachmentType.photo ? '.jpg' : '.mp4');
+      final downloadUrl = await _mediaUploader.uploadFile(
+        file,
+        storagePath: 'chatMedia/$threadId/$messageId-${attachment.id}$extension',
+      );
+      return attachment.copyWith(localMediaPath: downloadUrl);
+    } on MediaUploadException {
+      return attachment;
+    }
+  }
+
   Map<String, Object?> _attachmentToMap(ChatAttachment attachment) {
     return {
       'id': attachment.id,
@@ -541,9 +600,10 @@ class FirestoreChatRepository implements ChatRepository {
       'aspectRatio': attachment.aspectRatio,
       if (attachment.latitude != null) 'latitude': attachment.latitude,
       if (attachment.longitude != null) 'longitude': attachment.longitude,
-      // Local-only -- meaningful on the sending device only (no Storage
-      // backend to sync it), but still written so this device can re-read
-      // its own sent media back correctly after a refetch.
+      // A Firebase Storage download URL once _uploadAttachmentMedia has run
+      // (readable by any device), or -- if that upload failed -- the
+      // original device-local path as a same-device-only fallback so at
+      // least the sender can still re-read their own sent media back.
       if (attachment.localMediaPath != null)
         'localMediaPath': attachment.localMediaPath,
     };

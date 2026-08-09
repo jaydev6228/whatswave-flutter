@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../../core/models/app_user.dart';
 import '../../../features/auth/application/auth_controller.dart';
@@ -48,6 +51,19 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
     Navigator.of(context).pop(true);
   }
 
+  Future<void> _changeAvatar() async {
+    final picked = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 1024,
+      maxHeight: 1024,
+      imageQuality: 85,
+    );
+    if (picked == null || !mounted) {
+      return;
+    }
+    await widget.authController.updateAvatar(File(picked.path));
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
@@ -93,10 +109,42 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                         Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            AvatarBadge(
-                              label: currentUser.avatarLabel,
-                              color: currentUser.accentColor,
-                              size: 70,
+                            GestureDetector(
+                              key: const Key('profile_avatar_change_button'),
+                              onTap: widget.authController.isBusy
+                                  ? null
+                                  : _changeAvatar,
+                              child: Stack(
+                                clipBehavior: Clip.none,
+                                children: [
+                                  AvatarBadge(
+                                    label: currentUser.avatarLabel,
+                                    color: currentUser.accentColor,
+                                    avatarUrl: currentUser.avatarUrl,
+                                    size: 70,
+                                  ),
+                                  Positioned(
+                                    right: -2,
+                                    bottom: -2,
+                                    child: Container(
+                                      padding: const EdgeInsets.all(5),
+                                      decoration: BoxDecoration(
+                                        color: theme.colorScheme.primary,
+                                        shape: BoxShape.circle,
+                                        border: Border.all(
+                                          color: theme.colorScheme.surface,
+                                          width: 2,
+                                        ),
+                                      ),
+                                      child: Icon(
+                                        Icons.camera_alt_rounded,
+                                        size: 14,
+                                        color: theme.colorScheme.onPrimary,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                             const SizedBox(width: 18),
                             Expanded(

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../../../core/models/app_user.dart';
@@ -380,6 +382,34 @@ class AuthController extends ChangeNotifier {
     } catch (_) {
       _errorMessage =
           'We could not save your profile changes. Please try again.';
+    }
+
+    _setBusy(false);
+    notifyListeners();
+    return didSucceed;
+  }
+
+  Future<bool> updateAvatar(File photo) async {
+    if (_currentUser == null) {
+      _errorMessage = 'Sign in again before editing your profile.';
+      notifyListeners();
+      return false;
+    }
+
+    _setBusy(true);
+    _clearFeedback(notify: false);
+    notifyListeners();
+
+    var didSucceed = false;
+    try {
+      final user = await _repository.updateAvatar(photo);
+      _currentUser = user;
+      _statusMessage = 'Profile photo updated.';
+      didSucceed = true;
+    } on AuthException catch (error) {
+      _errorMessage = error.message;
+    } catch (_) {
+      _errorMessage = 'We could not update your profile photo. Please try again.';
     }
 
     _setBusy(false);

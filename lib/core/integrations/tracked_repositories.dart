@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart' show Color;
 
@@ -203,6 +204,38 @@ class TrackedAuthRepository implements AuthRepository {
         _integrations.recordSyncFailure(
           source: 'Auth',
           title: 'Profile update failed',
+        ),
+      );
+      rethrow;
+    }
+  }
+
+  @override
+  Future<AppUser> updateAvatar(File photo) async {
+    try {
+      final user = await _delegate.updateAvatar(photo);
+      unawaited(
+        _integrations.recordSyncSuccess(
+          source: 'Auth',
+          title: 'Profile photo updated',
+          details: user.name,
+        ),
+      );
+      return user;
+    } on AuthException catch (error) {
+      unawaited(
+        _integrations.recordSyncFailure(
+          source: 'Auth',
+          title: 'Profile photo update failed',
+          details: error.message,
+        ),
+      );
+      rethrow;
+    } catch (_) {
+      unawaited(
+        _integrations.recordSyncFailure(
+          source: 'Auth',
+          title: 'Profile photo update failed',
         ),
       );
       rethrow;

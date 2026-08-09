@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -149,6 +150,27 @@ class FakeAuthRepository implements AuthRepository {
   }
 
   @override
+  Future<AppUser> updateAvatar(File photo) async {
+    await _hydratePersistedState();
+    await _wait();
+
+    final currentUser = _currentUser;
+    if (currentUser == null) {
+      throw const AuthException(
+        'Sign in again before editing your profile.',
+      );
+    }
+
+    // No real upload in demo mode -- just stand in the picked file's own
+    // path so AvatarBadge/tests still see AppUser.avatarUrl get set.
+    final updatedUser = currentUser.copyWith(avatarUrl: photo.path);
+    _currentUser = updatedUser;
+    _knownUsers[updatedUser.phoneNumber] = updatedUser;
+    await _persistCurrentState();
+    return updatedUser;
+  }
+
+  @override
   Future<void> signOut() async {
     await _hydratePersistedState();
     await _wait();
@@ -206,12 +228,13 @@ class FakeAuthRepository implements AuthRepository {
   }
 
   String _encodeUser(AppUser user) {
-    return jsonEncode(<String, Object>{
+    return jsonEncode(<String, Object?>{
       'name': user.name,
       'phoneNumber': user.phoneNumber,
       'about': user.about,
       'avatarLabel': user.avatarLabel,
       'accentColor': user.accentColor.toARGB32(),
+      'avatarUrl': user.avatarUrl,
     });
   }
 
@@ -248,12 +271,15 @@ class FakeAuthRepository implements AuthRepository {
         return null;
       }
 
+      final avatarUrl = decoded['avatarUrl'];
+
       return AppUser(
         name: name,
         phoneNumber: phoneNumber,
         about: about,
         avatarLabel: avatarLabel,
         accentColor: Color(colorValue),
+        avatarUrl: avatarUrl is String ? avatarUrl : null,
       );
     } catch (_) {
       return null;

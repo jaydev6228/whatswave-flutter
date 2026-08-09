@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:whatswave/core/models/app_user.dart';
@@ -443,6 +445,18 @@ class _TestAuthRepository implements AuthRepository {
       about: about,
       avatarLabel: 'JD',
       accentColor: Colors.green,
+    );
+  }
+
+  @override
+  Future<AppUser> updateAvatar(File photo) async {
+    return AppUser(
+      name: restoredUser?.name ?? 'JD',
+      phoneNumber: restoredUser?.phoneNumber ?? '+819012345678',
+      about: restoredUser?.about ?? '',
+      avatarLabel: 'JD',
+      accentColor: Colors.green,
+      avatarUrl: photo.path,
     );
   }
 

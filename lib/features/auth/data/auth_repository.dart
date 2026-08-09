@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import '../../../core/models/app_user.dart';
 
 abstract class AuthRepository {
@@ -20,6 +22,10 @@ abstract class AuthRepository {
     required String name,
     required String about,
   });
+
+  /// Uploads [photo] as the caller's profile photo and returns the updated
+  /// [AppUser] with [AppUser.avatarUrl] pointing at it.
+  Future<AppUser> updateAvatar(File photo);
 
   Future<void> signOut();
 }

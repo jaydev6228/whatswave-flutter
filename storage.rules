@@ -1,0 +1,46 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Chat photo/video attachments, uploaded by FirestoreChatRepository at
+    // chatMedia/{threadId}/{messageId}-{attachmentId}.{ext} -- readable by
+    // anyone signed in (Storage rules can't cheaply express "any CURRENT
+    // participant of this specific thread" the way firestore.rules does for
+    // the thread doc itself, and a downloadURL's random token already keeps
+    // it unguessable/unlistable to anyone who wasn't sent it -- the same
+    // trust model most apps use for shared-media links). Only the uploader
+    // (the request's own signed-in user) can write; nothing can overwrite
+    // or delete another user's upload -- messages don't support editing.
+    match /chatMedia/{threadId}/{fileName} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+      allow delete: if false;
+    }
+
+    // Status/story media, uploaded by FirebaseStatusMediaStore at
+    // statusMedia/{uid}/{fileName} -- same "signed-in + unguessable URL"
+    // model as chatMedia above; the story DOCUMENT's own visibility (owner
+    // or a past chat partner only) is enforced in firestore.rules, which is
+    // the actual privacy boundary users interact with. Only the owner uid
+    // can write or delete their own status media (matches
+    // FirebaseStatusMediaStore.deleteMedia's cleanup on expiry/deletion).
+    match /statusMedia/{uid}/{fileName} {
+      allow read: if request.auth != null;
+      allow write, delete: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // Profile photos at profilePhotos/{uid}/{fileName} -- public-read to
+    // any signed-in user, mirroring userProfiles/{uid} in firestore.rules
+    // (any signed-in user can already look up another user's name/avatar).
+    // Only the owner uid can write or delete their own photo.
+    match /profilePhotos/{uid}/{fileName} {
+      allow read: if request.auth != null;
+      allow write, delete: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // Deny everything else by default.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

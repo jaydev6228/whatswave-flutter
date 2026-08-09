@@ -18,10 +18,10 @@ import 'updates_repository.dart';
 /// single shared 'my-status' story exactly, just with a real per-user id
 /// instead of a literal string every demo user shared.
 ///
-/// Media stays device-local (LocalStatusMediaStore), not Firebase Storage --
-/// a deliberate scope decision to avoid requiring the Blaze billing plan.
-/// This means a story's photo/video only displays correctly on the device
-/// that created it; captions and text-only statuses sync fully.
+/// Media uploads to Firebase Storage (FirebaseStatusMediaStore) so a
+/// story's photo/video displays for every viewer, not just the device that
+/// created it -- pass mediaStore: LocalStatusMediaStore() instead to keep
+/// media device-local only (e.g. for a Storage-less dev environment).
 ///
 /// Visibility is scoped to people you've chatted with at least once: a
 /// story is only readable by its owner or someone who shares a
@@ -47,7 +47,7 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
     StatusMediaStore? mediaStore,
   })  : _firestore = firestore ?? FirebaseFirestore.instance,
         _firebaseAuth = firebaseAuth ?? fb_auth.FirebaseAuth.instance,
-        _mediaStore = mediaStore ?? const LocalStatusMediaStore();
+        _mediaStore = mediaStore ?? FirebaseStatusMediaStore();
 
   final FirebaseFirestore _firestore;
   final fb_auth.FirebaseAuth _firebaseAuth;

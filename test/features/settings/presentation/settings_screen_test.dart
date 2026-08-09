@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -368,6 +370,14 @@ class _ImmediateAuthRepository implements AuthRepository {
       name: name,
       about: about,
     );
+    restoredUser = updatedUser;
+    return updatedUser;
+  }
+
+  @override
+  Future<AppUser> updateAvatar(File photo) async {
+    final currentUser = restoredUser ?? DemoData.currentUser;
+    final updatedUser = currentUser.copyWith(avatarUrl: photo.path);
     restoredUser = updatedUser;
     return updatedUser;
   }
