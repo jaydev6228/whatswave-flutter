@@ -9,6 +9,7 @@ import '../../calls/domain/call_permissions.dart';
 import '../data/chat_repository.dart';
 import '../domain/chat_attachment.dart';
 import '../domain/chat_thread.dart';
+import '../domain/story_reply_context.dart';
 
 enum ChatListFilter { all, unread, groups }
 
@@ -401,6 +402,7 @@ class ChatsController extends ChangeNotifier {
   Future<bool> sendTextMessage({
     required String threadId,
     required String text,
+    StoryReplyContext? storyReplyContext,
   }) async {
     final normalizedText = text.trim();
     if (normalizedText.isEmpty) {
@@ -414,8 +416,50 @@ class ChatsController extends ChangeNotifier {
       () => _repository.sendTextMessage(
         threadId: threadId,
         text: normalizedText,
+        storyReplyContext: storyReplyContext,
       ),
       fallbackError: 'We could not send that message right now.',
+      clearSearch: false,
+    );
+  }
+
+  Future<bool> editMessage({
+    required String threadId,
+    required String messageId,
+    required String text,
+  }) async {
+    final normalizedText = text.trim();
+    if (normalizedText.isEmpty) {
+      _errorMessage = 'A message can\'t be empty.';
+      notifyListeners();
+      return false;
+    }
+
+    return _runThreadMutation(
+      threadId,
+      () => _repository.editMessage(
+        threadId: threadId,
+        messageId: messageId,
+        text: normalizedText,
+      ),
+      fallbackError: 'We could not edit that message right now.',
+      clearSearch: false,
+    );
+  }
+
+  Future<bool> deleteMessage({
+    required String threadId,
+    required String messageId,
+    required bool forEveryone,
+  }) {
+    return _runThreadMutation(
+      threadId,
+      () => _repository.deleteMessage(
+        threadId: threadId,
+        messageId: messageId,
+        forEveryone: forEveryone,
+      ),
+      fallbackError: 'We could not delete that message right now.',
       clearSearch: false,
     );
   }

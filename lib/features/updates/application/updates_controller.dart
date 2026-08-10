@@ -76,6 +76,22 @@ class UpdatesController extends ChangeNotifier {
     return null;
   }
 
+  /// The live story currently posted by [ownerUid] (their own, or someone
+  /// else's, matched by [StatusStory.id] -- see FirestoreUpdatesRepository's
+  /// class doc for why the doc id IS the owner's uid). Null once that
+  /// person has no active story -- either they never posted one this
+  /// session, or it expired/was deleted. Used to decide whether a story
+  /// reply's thumbnail card in chat can still be reopened (see
+  /// StoryReplyContext).
+  StatusStory? storyForOwnerUid(String ownerUid) {
+    for (final story in _stories) {
+      if (story.id == ownerUid && story.hasSegments) {
+        return story;
+      }
+    }
+    return null;
+  }
+
   List<StatusStory> get recentStories => _stories
       .where((story) => !story.isMine && story.hasUnseenSegments)
       .toList(growable: false);

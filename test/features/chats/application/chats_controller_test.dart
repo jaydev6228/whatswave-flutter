@@ -8,6 +8,7 @@ import 'package:whatswave/features/chats/data/chat_repository.dart';
 import 'package:whatswave/features/chats/data/fake_chat_repository.dart';
 import 'package:whatswave/features/chats/domain/chat_attachment.dart';
 import 'package:whatswave/features/chats/domain/chat_thread.dart';
+import 'package:whatswave/features/chats/domain/story_reply_context.dart';
 
 void main() {
   group('ChatsController', () {
@@ -464,6 +465,25 @@ class _FailingChatRepository implements ChatRepository {
   Future<List<ChatThread>> sendTextMessage({
     required String threadId,
     required String text,
+    StoryReplyContext? storyReplyContext,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<List<ChatThread>> editMessage({
+    required String threadId,
+    required String messageId,
+    required String text,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<List<ChatThread>> deleteMessage({
+    required String threadId,
+    required String messageId,
+    required bool forEveryone,
   }) {
     throw UnimplementedError();
   }
@@ -567,9 +587,30 @@ class _SendFailingChatRepository implements ChatRepository {
   Future<List<ChatThread>> sendTextMessage({
     required String threadId,
     required String text,
+    StoryReplyContext? storyReplyContext,
   }) {
     throw const ChatRepositoryException('Message service offline');
   }
+
+  @override
+  Future<List<ChatThread>> editMessage({
+    required String threadId,
+    required String messageId,
+    required String text,
+  }) =>
+      _delegate.editMessage(threadId: threadId, messageId: messageId, text: text);
+
+  @override
+  Future<List<ChatThread>> deleteMessage({
+    required String threadId,
+    required String messageId,
+    required bool forEveryone,
+  }) =>
+      _delegate.deleteMessage(
+        threadId: threadId,
+        messageId: messageId,
+        forEveryone: forEveryone,
+      );
 
   @override
   Future<List<ChatThread>> setThreadArchived({

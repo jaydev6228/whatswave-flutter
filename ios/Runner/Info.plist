@@ -47,6 +47,8 @@
 	<string>Whatswave uses the microphone for audio and video calls, and to record voice notes.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Whatswave uses your photo library so you can share status photos and videos.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Whatswave saves photos and videos to your library when you choose to save them from a chat.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

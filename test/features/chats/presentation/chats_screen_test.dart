@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show Clipboard, SystemChannels;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker_platform_interface/image_picker_platform_interface.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -20,6 +21,7 @@ import 'package:whatswave/features/chats/data/fake_chat_repository.dart';
 import 'package:whatswave/features/chats/domain/chat_attachment.dart';
 import 'package:whatswave/features/chats/domain/chat_message.dart';
 import 'package:whatswave/features/chats/domain/chat_thread.dart';
+import 'package:whatswave/features/chats/domain/story_reply_context.dart';
 import 'package:whatswave/features/chats/presentation/chats_screen.dart';
 import 'package:whatswave/features/chats/presentation/widgets/location_map_preview.dart';
 import 'package:whatswave/features/updates/presentation/widgets/status_ring_avatar.dart';
@@ -35,6 +37,25 @@ void main() {
     // that read throws in the test environment and the picker never leaves
     // its loading state.
     SharedPreferences.setMockInitialValues(<String, Object>{});
+
+    // TestWidgetsFlutterBinding doesn't answer the clipboard platform
+    // channel by default -- without a handler, Clipboard.setData/getData
+    // (used by the message long-press menu's Copy action) hang forever
+    // waiting for a response nothing ever sends.
+    String? clipboardText;
+    TestWidgetsFlutterBinding.ensureInitialized()
+        .defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      switch (call.method) {
+        case 'Clipboard.setData':
+          clipboardText = (call.arguments as Map)['text'] as String?;
+          return null;
+        case 'Clipboard.getData':
+          return <String, Object?>{'text': clipboardText};
+        default:
+          return null;
+      }
+    });
   });
 
   for (final device in compactDeviceMatrix) {
@@ -275,6 +296,162 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('❤️'), findsNothing);
+  });
+
+  testWidgets('message long-press menu: copy puts the text on the clipboard',
+      (tester) async {
+    await _pumpChatsScreen(
+      tester,
+      device: iphoneProProfile,
+      controller: ChatsController(
+        repository: FakeChatRepository(latency: Duration.zero),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('chat_tile_ava-patel')));
+    await tester.pumpAndSettle();
+
+    const messageText =
+        'The onboarding shots look good. The motion pacing feels much cleaner.';
+    await tester.longPress(find.text(messageText));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('message_action_copy')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('message_action_copy')));
+    await tester.pumpAndSettle();
+
+    final clipboardData =
+        await Clipboard.getData(Clipboard.kTextPlain);
+    expect(clipboardData?.text, messageText);
+  });
+
+  testWidgets(
+      'message long-press menu: delete for me removes it from this view '
+      'only', (tester) async {
+    await _pumpChatsScreen(
+      tester,
+      device: iphoneProProfile,
+      controller: ChatsController(
+        repository: FakeChatRepository(latency: Duration.zero),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('chat_tile_ava-patel')));
+    await tester.pumpAndSettle();
+
+    const messageText = 'Want the final export tonight?';
+    await tester.longPress(find.text(messageText));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('message_action_deleteForMe')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const Key('confirm_delete_message_me_button')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text(messageText), findsNothing);
+  });
+
+  testWidgets(
+      'message long-press menu: delete for everyone leaves a placeholder',
+      (tester) async {
+    await _pumpChatsScreen(
+      tester,
+      device: iphoneProProfile,
+      controller: ChatsController(
+        repository: FakeChatRepository(latency: Duration.zero),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('chat_tile_ava-patel')));
+    await tester.pumpAndSettle();
+
+    const messageText = 'Sending the edited export now.';
+    await tester.longPress(find.text(messageText));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('message_action_deleteForEveryone')),
+      findsOneWidget,
+    );
+    await tester.tap(
+      find.byKey(const Key('message_action_deleteForEveryone')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const Key('confirm_delete_message_everyone_button')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text(messageText), findsNothing);
+    expect(find.text('This message was deleted'), findsOneWidget);
+  });
+
+  testWidgets('message long-press menu: editing shows the new text and '
+      '"Edited"', (tester) async {
+    await _pumpChatsScreen(
+      tester,
+      device: iphoneProProfile,
+      controller: ChatsController(
+        repository: FakeChatRepository(latency: Duration.zero),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('chat_tile_ava-patel')));
+    await tester.pumpAndSettle();
+
+    const originalText = 'Sending the edited export now.';
+    await tester.longPress(find.text(originalText));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('message_action_edit')));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('edit_message_field')),
+      'Sending the final export now.',
+    );
+    await tester.tap(find.byKey(const Key('confirm_edit_message_button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Sending the final export now.'), findsOneWidget);
+    expect(find.text('Edited'), findsOneWidget);
+  });
+
+  testWidgets(
+      'message long-press menu: forwarding sends the same text to another '
+      'chat', (tester) async {
+    await _pumpChatsScreen(
+      tester,
+      device: iphoneProProfile,
+      controller: ChatsController(
+        repository: FakeChatRepository(latency: Duration.zero),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('chat_tile_ava-patel')));
+    await tester.pumpAndSettle();
+
+    const messageText = 'Want the final export tonight?';
+    await tester.longPress(find.text(messageText));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('message_action_forward')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('forward_message_screen')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('forward_target_design-sprint')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Message forwarded'), findsOneWidget);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('chat_tile_design-sprint')));
+    await tester.pumpAndSettle();
+
+    expect(find.text(messageText), findsWidgets);
   });
 
   testWidgets(
@@ -589,6 +766,88 @@ void main() {
     // The story's own name field is just the first name ("Ava"), distinct
     // from the chat thread's full display name ("Ava Patel").
     expect(find.text('Reply sent to Ava'), findsOneWidget);
+  });
+
+  testWidgets(
+      'a typed story reply lands in chat as a message with a tappable '
+      'story card', (tester) async {
+    final avatarFinder =
+        find.byKey(const ValueKey<String>('chat_story_avatar_ava-patel'));
+
+    await _pumpChatsScreen(
+      tester,
+      device: iphoneProProfile,
+      controller: ChatsController(
+        repository: FakeChatRepository(latency: Duration.zero),
+      ),
+      updatesController: UpdatesController(
+        repository: FakeUpdatesRepository(latency: Duration.zero),
+      ),
+    );
+
+    await tester.drag(
+      find.byType(CustomScrollView),
+      const Offset(0, -260),
+    );
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(avatarFinder);
+    await tester.pump();
+    await tester.tap(avatarFinder);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+
+    expect(find.byKey(const Key('updates_story_viewer')), findsOneWidget);
+    // Heart starts hollow -- only fills in after a successful send.
+    expect(find.byIcon(Icons.favorite_border_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.favorite_rounded), findsNothing);
+    // The send button doesn't show until the field actually has focus.
+    expect(
+      find.byKey(const Key('updates_story_reply_send_button')),
+      findsNothing,
+    );
+
+    await tester.tap(find.byKey(const Key('updates_story_reply_field')));
+    await tester.pump();
+    expect(
+      find.byKey(const Key('updates_story_reply_send_button')),
+      findsOneWidget,
+    );
+    await tester.enterText(
+      find.byKey(const Key('updates_story_reply_field')),
+      'Nice shot!',
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('updates_story_reply_send_button')));
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.text('Reply sent to Ava'), findsOneWidget);
+    // A typed reply isn't a heart -- the button stays hollow.
+    expect(find.byIcon(Icons.favorite_border_rounded), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Close'));
+    await tester.pumpAndSettle();
+
+    // startThreadWith(participantUid: story.id) creates a thread keyed by
+    // the story's own id ('ava-story'), distinct from the pre-existing
+    // 'ava-patel' contact thread -- see DemoData.
+    await tester.tap(find.byKey(const Key('chat_tile_ava-story')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Nice shot!'), findsOneWidget);
+    final cardFinder = find.byKey(const Key('story_reply_card'));
+    expect(cardFinder, findsOneWidget);
+    expect(find.text('Replied to Ava\'s status'), findsOneWidget);
+
+    // Not pumpAndSettle -- the reopened viewer's own progress bar keeps
+    // animating (and, for a single-segment story, would run to completion
+    // and auto-close the viewer if given unbounded time to settle).
+    await tester.tap(cardFinder);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+
+    expect(find.byKey(const Key('updates_story_viewer')), findsOneWidget);
   });
 
   testWidgets('your own story shows a view count instead of a reply bar',
@@ -978,6 +1237,25 @@ class _FailingChatRepository implements ChatRepository {
   Future<List<Never>> sendTextMessage({
     required String threadId,
     required String text,
+    StoryReplyContext? storyReplyContext,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<List<Never>> editMessage({
+    required String threadId,
+    required String messageId,
+    required String text,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<List<Never>> deleteMessage({
+    required String threadId,
+    required String messageId,
+    required bool forEveryone,
   }) {
     throw UnimplementedError();
   }
@@ -1082,6 +1360,7 @@ class _FlakySendChatRepository implements ChatRepository {
   Future<List<ChatThread>> sendTextMessage({
     required String threadId,
     required String text,
+    StoryReplyContext? storyReplyContext,
   }) {
     if (_shouldFailNextTextSend) {
       _shouldFailNextTextSend = false;
@@ -1090,8 +1369,29 @@ class _FlakySendChatRepository implements ChatRepository {
     return _delegate.sendTextMessage(
       threadId: threadId,
       text: text,
+      storyReplyContext: storyReplyContext,
     );
   }
+
+  @override
+  Future<List<ChatThread>> editMessage({
+    required String threadId,
+    required String messageId,
+    required String text,
+  }) =>
+      _delegate.editMessage(threadId: threadId, messageId: messageId, text: text);
+
+  @override
+  Future<List<ChatThread>> deleteMessage({
+    required String threadId,
+    required String messageId,
+    required bool forEveryone,
+  }) =>
+      _delegate.deleteMessage(
+        threadId: threadId,
+        messageId: messageId,
+        forEveryone: forEveryone,
+      );
 
   @override
   Future<List<ChatThread>> setThreadArchived({

@@ -11,6 +11,7 @@ import '../../features/chats/data/chat_repository.dart';
 import '../../features/chats/domain/chat_attachment.dart';
 import '../../features/chats/domain/chat_attachment.dart' as chat_attachment;
 import '../../features/chats/domain/chat_thread.dart';
+import '../../features/chats/domain/story_reply_context.dart';
 import '../../features/communities/data/communities_overview.dart';
 import '../../features/communities/data/communities_repository.dart';
 import '../../features/updates/data/updates_repository.dart';
@@ -332,11 +333,13 @@ class TrackedChatRepository implements ChatRepository {
   Future<List<ChatThread>> sendTextMessage({
     required String threadId,
     required String text,
+    StoryReplyContext? storyReplyContext,
   }) async {
     try {
       final threads = await _delegate.sendTextMessage(
         threadId: threadId,
         text: text,
+        storyReplyContext: storyReplyContext,
       );
       unawaited(
         _integrations.recordSyncSuccess(
@@ -379,6 +382,32 @@ class TrackedChatRepository implements ChatRepository {
       threadId: threadId,
       messageId: messageId,
       emoji: emoji,
+    );
+  }
+
+  @override
+  Future<List<ChatThread>> editMessage({
+    required String threadId,
+    required String messageId,
+    required String text,
+  }) {
+    return _delegate.editMessage(
+      threadId: threadId,
+      messageId: messageId,
+      text: text,
+    );
+  }
+
+  @override
+  Future<List<ChatThread>> deleteMessage({
+    required String threadId,
+    required String messageId,
+    required bool forEveryone,
+  }) {
+    return _delegate.deleteMessage(
+      threadId: threadId,
+      messageId: messageId,
+      forEveryone: forEveryone,
     );
   }
 

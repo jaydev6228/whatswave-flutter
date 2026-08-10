@@ -10,6 +10,7 @@ import '../../../core/utils/user_profile_lookup.dart';
 import '../domain/chat_attachment.dart';
 import '../domain/chat_message.dart';
 import '../domain/chat_thread.dart';
+import '../domain/story_reply_context.dart';
 import 'chat_repository.dart';
 
 /// Firestore-backed [ChatRepository].
@@ -329,8 +330,67 @@ class FirestoreChatRepository implements ChatRepository {
   Future<List<ChatThread>> sendTextMessage({
     required String threadId,
     required String text,
+    StoryReplyContext? storyReplyContext,
   }) async {
-    await _sendMessage(threadId: threadId, text: text, attachments: const []);
+    await _sendMessage(
+      threadId: threadId,
+      text: text,
+      attachments: const [],
+      storyReplyContext: storyReplyContext,
+    );
+    return fetchThreads();
+  }
+
+  @override
+  Future<List<ChatThread>> editMessage({
+    required String threadId,
+    required String messageId,
+    required String text,
+  }) async {
+    final normalizedText = text.trim();
+    if (normalizedText.isEmpty) {
+      throw const ChatRepositoryException('A message can\'t be empty.');
+    }
+    try {
+      await _threadsRef
+          .doc(threadId)
+          .collection('messages')
+          .doc(messageId)
+          .update({'text': normalizedText, 'isEdited': true});
+    } on FirebaseException catch (e) {
+      throw ChatRepositoryException(
+        e.message ?? 'We could not edit that message right now.',
+      );
+    }
+    return fetchThreads();
+  }
+
+  @override
+  Future<List<ChatThread>> deleteMessage({
+    required String threadId,
+    required String messageId,
+    required bool forEveryone,
+  }) async {
+    final uid = _requireCurrentUid;
+    final messageRef =
+        _threadsRef.doc(threadId).collection('messages').doc(messageId);
+    try {
+      if (forEveryone) {
+        await messageRef.update({
+          'text': '',
+          'attachments': const <Object?>[],
+          'isDeleted': true,
+        });
+      } else {
+        await messageRef.update({
+          'hiddenFor': FieldValue.arrayUnion([uid]),
+        });
+      }
+    } on FirebaseException catch (e) {
+      throw ChatRepositoryException(
+        e.message ?? 'We could not delete that message right now.',
+      );
+    }
     return fetchThreads();
   }
 
@@ -381,6 +441,7 @@ class FirestoreChatRepository implements ChatRepository {
     required String threadId,
     required String text,
     required List<ChatAttachment> attachments,
+    StoryReplyContext? storyReplyContext,
   }) async {
     final uid = _requireCurrentUid;
     final senderName = _firebaseAuth.currentUser?.displayName ?? 'You';
@@ -411,6 +472,8 @@ class FirestoreChatRepository implements ChatRepository {
         'text': text,
         'attachments': uploadedAttachments.map(_attachmentToMap).toList(),
         'deliveryState': MessageDeliveryState.delivered.name,
+        if (storyReplyContext != null)
+          'storyReplyContext': storyReplyContext.toJson(),
       });
 
       final threadUpdate = <String, Object?>{
@@ -495,6 +558,14 @@ class FirestoreChatRepository implements ChatRepository {
         await doc.reference.collection('messages').orderBy('sentAt').get();
 
     final messages = messagesSnapshot.docs
+        // "Deleted for me" -- hidden from this reader's own view only;
+        // every other participant's read of the same doc is unaffected.
+        .where((messageDoc) {
+          final hiddenFor =
+              (messageDoc.data()['hiddenFor'] as List<dynamic>?) ??
+                  const <dynamic>[];
+          return !hiddenFor.contains(currentUid);
+        })
         .map(
             (messageDoc) => _messageFromDoc(messageDoc, currentUid: currentUid))
         .toList(growable: false);
@@ -546,6 +617,10 @@ class FirestoreChatRepository implements ChatRepository {
       reactions: reactionsRaw.map(
         (uid, emoji) => MapEntry(uid, emoji as String),
       ),
+      storyReplyContext:
+          StoryReplyContext.fromJson(data['storyReplyContext']),
+      isDeleted: (data['isDeleted'] as bool?) ?? false,
+      isEdited: (data['isEdited'] as bool?) ?? false,
     );
   }
 

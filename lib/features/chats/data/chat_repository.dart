@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../domain/chat_attachment.dart';
 import '../domain/chat_thread.dart';
+import '../domain/story_reply_context.dart';
 
 abstract class ChatRepository {
   Future<List<ChatThread>> fetchThreads();
@@ -71,6 +72,27 @@ abstract class ChatRepository {
   Future<List<ChatThread>> sendTextMessage({
     required String threadId,
     required String text,
+    StoryReplyContext? storyReplyContext,
+  });
+
+  /// Replaces [messageId]'s text with [text] -- only ever valid for a
+  /// message the caller sent themselves; marks it [ChatMessage.isEdited].
+  Future<List<ChatThread>> editMessage({
+    required String threadId,
+    required String messageId,
+    required String text,
+  });
+
+  /// [forEveryone] (only valid for a message the caller sent) clears the
+  /// message's content for every participant and marks it
+  /// [ChatMessage.isDeleted], rendering a "This message was deleted"
+  /// placeholder in its place -- matching WhatsApp's "Delete for everyone".
+  /// Otherwise, this only hides the message from the caller's own view
+  /// (their "Delete for me") without affecting anyone else.
+  Future<List<ChatThread>> deleteMessage({
+    required String threadId,
+    required String messageId,
+    required bool forEveryone,
   });
 
   /// Sends one or more attachments as a single message (e.g. several

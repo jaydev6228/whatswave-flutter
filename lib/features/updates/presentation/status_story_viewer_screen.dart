@@ -7,6 +7,7 @@ import 'package:video_player/video_player.dart';
 import '../../../app/theme/app_palette.dart';
 import '../../../core/models/status_story.dart';
 import '../../chats/application/chats_controller.dart';
+import '../../chats/domain/story_reply_context.dart';
 import '../../shared/widgets/avatar_badge.dart';
 import '../../shared/widgets/error_dialog.dart';
 import 'widgets/status_media_decoration_overlay.dart';
@@ -85,6 +86,12 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
   final TextEditingController _replyController = TextEditingController();
   final FocusNode _replyFocusNode = FocusNode();
   bool _isSendingReply = false;
+
+  /// Session-local only -- true once a heart reply has been sent
+  /// successfully while viewing this story. Not persisted/read back from
+  /// anywhere, so it resets to outline again next time the story is
+  /// opened, same as most of this viewer's other transient UI state.
+  bool _hasHearted = false;
 
   StatusStory get _story => _storyData;
   int get _segmentCount => math.max(_story.totalSegments, 1);
@@ -460,6 +467,14 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
       return;
     }
 
+    // While replying, a tap on the story itself should only dismiss the
+    // keyboard -- not also navigate to the previous/next segment out from
+    // under whatever the person was typing.
+    if (_replyFocusNode.hasFocus) {
+      _replyFocusNode.unfocus();
+      return;
+    }
+
     _activePointer = event.pointer;
     _activePointerDownAt = DateTime.now();
     _pendingTapDirection = direction;
@@ -540,9 +555,11 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
 
   /// Sends [text] as a real direct message to the story's owner -- the
   /// same as WhatsApp's own status reply, including the heart quick-react
-  /// (which just sends '❤️' the same way). Starts or reuses the 1:1 thread
-  /// with them first.
-  Future<void> _sendReply(String text) async {
+  /// (which just sends '❤️' the same way, [isHeart] true). Starts or
+  /// reuses the 1:1 thread with them first, and attaches a
+  /// [StoryReplyContext] snapshot of the segment being viewed so the chat
+  /// message renders a small tappable story-thumbnail card.
+  Future<void> _sendReply(String text, {bool isHeart = false}) async {
     final chatsController = widget.chatsController;
     final trimmed = text.trim();
     if (chatsController == null ||
@@ -563,12 +580,25 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
         await chatsController.sendTextMessage(
           threadId: threadId,
           text: trimmed,
+          storyReplyContext: StoryReplyContext(
+            storyOwnerUid: _story.id,
+            storyOwnerName: _story.name,
+            segmentType: _currentSegmentType,
+            previewText: _currentSegment?.previewText,
+            mediaUrl: _currentSegment?.localMediaPath,
+            accentColorArgb: _story.accentColor.toARGB32(),
+          ),
         );
 
     if (!mounted) {
       return;
     }
-    setState(() => _isSendingReply = false);
+    setState(() {
+      _isSendingReply = false;
+      if (didSend && isHeart) {
+        _hasHearted = true;
+      }
+    });
     if (didSend) {
       _replyController.clear();
       _replyFocusNode.unfocus();
@@ -965,7 +995,10 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
                         controller: _replyController,
                         focusNode: _replyFocusNode,
                         isSending: _isSendingReply,
-                        onSend: _sendReply,
+                        hasHearted: _hasHearted,
+                        onSendText: _sendReply,
+                        onHeartTap: () =>
+                            _sendReply('❤️', isHeart: true),
                       ),
                   ],
                 ),
@@ -1226,14 +1259,22 @@ class _StoryReplyBar extends StatelessWidget {
     required this.controller,
     required this.focusNode,
     required this.isSending,
-    required this.onSend,
+    required this.hasHearted,
+    required this.onSendText,
+    required this.onHeartTap,
   });
 
   final String recipientName;
   final TextEditingController controller;
   final FocusNode focusNode;
   final bool isSending;
-  final ValueChanged<String> onSend;
+
+  /// Whether a heart reply has already been sent successfully this
+  /// viewing session -- swaps the heart button from outline to filled,
+  /// matching WhatsApp (only fills in once the send actually succeeds).
+  final bool hasHearted;
+  final ValueChanged<String> onSendText;
+  final VoidCallback onHeartTap;
 
   @override
   Widget build(BuildContext context) {
@@ -1254,7 +1295,7 @@ class _StoryReplyBar extends StatelessWidget {
                 textInputAction: TextInputAction.send,
                 style: const TextStyle(color: Colors.white),
                 cursorColor: Colors.white,
-                onSubmitted: isSending ? null : onSend,
+                onSubmitted: isSending ? null : onSendText,
                 decoration: InputDecoration(
                   isDense: true,
                   hintText: 'Reply to $recipientName…',
@@ -1288,25 +1329,37 @@ class _StoryReplyBar extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          _StoryReplyActionButton(
-            actionKey: const Key('updates_story_heart_react_button'),
-            tooltip: 'Send a heart',
-            onPressed: isSending ? null : () => onSend('❤️'),
-            child: const Icon(
-              Icons.favorite_rounded,
-              color: Colors.white,
-              size: 22,
-            ),
-          ),
-          const SizedBox(width: 4),
-          ValueListenableBuilder<TextEditingValue>(
-            valueListenable: controller,
-            builder: (context, value, _) {
-              final canSend = value.text.trim().isNotEmpty && !isSending;
+          // A single trailing action slot -- the heart quick-react by
+          // default, swapping to a send button once the field actually has
+          // focus or unsent text (matching the main chat composer's own
+          // send button, which only ever appears there, not floating
+          // beside an idle field). Listens to both the field's own text and
+          // its focus so either alone is enough to swap.
+          ListenableBuilder(
+            listenable: Listenable.merge([controller, focusNode]),
+            builder: (context, _) {
+              final hasText = controller.text.trim().isNotEmpty;
+              final showSend = focusNode.hasFocus || hasText;
+              if (!showSend) {
+                return _StoryReplyActionButton(
+                  actionKey: const Key('updates_story_heart_react_button'),
+                  tooltip: hasHearted ? 'Hearted' : 'Send a heart',
+                  onPressed: isSending ? null : onHeartTap,
+                  child: Icon(
+                    hasHearted
+                        ? Icons.favorite_rounded
+                        : Icons.favorite_border_rounded,
+                    color: Colors.white,
+                    size: 22,
+                  ),
+                );
+              }
+              final canSend = hasText && !isSending;
               return _StoryReplyActionButton(
                 actionKey: const Key('updates_story_reply_send_button'),
                 tooltip: 'Send',
-                onPressed: canSend ? () => onSend(value.text) : null,
+                onPressed:
+                    canSend ? () => onSendText(controller.text) : null,
                 child: isSending
                     ? const SizedBox(
                         width: 18,

@@ -26,17 +26,9 @@ service cloud.firestore {
                        && request.auth.uid in
                           get(/databases/$(database)/documents/chatThreads/$(threadId)).data.participantUids
                        && request.resource.data.senderUid == request.auth.uid;
-        // Messages don't support editing -- the only update this app ever
-        // makes is FirestoreChatRepository.toggleMessageReaction's
-        // transaction.update({'reactions.$uid': ...}). This was blanket
-        // "if false" before, which silently rejected every reaction toggle
-        // (the app caught the resulting FirebaseException and surfaced it
-        // only via ChatsController.errorMessage, which conversation_screen
-        // no longer renders as a banner -- so it looked like tapping a
-        // reaction just did nothing). Scoped down instead of reopened
-        // wide: a participant may only touch the reactions map, and only
-        // their own uid's entry within it -- never text/attachments/
-        // senderUid, and never someone else's reaction.
+        // Reactions -- a participant may only touch the reactions map, and
+        // only their own uid's entry within it (see
+        // FirestoreChatRepository.toggleMessageReaction).
         allow update: if request.auth != null
                        && request.auth.uid in
                           get(/databases/$(database)/documents/chatThreads/$(threadId)).data.participantUids
@@ -44,6 +36,40 @@ service cloud.firestore {
                        && request.resource.data.reactions.diff(
                             resource.data.get('reactions', {})
                           ).affectedKeys().hasOnly([request.auth.uid]);
+
+        // Edit -- only the original sender, only the text itself (plus the
+        // isEdited flag it must set alongside it). See
+        // FirestoreChatRepository.editMessage.
+        allow update: if request.auth != null
+                       && request.auth.uid == resource.data.senderUid
+                       && request.resource.data.diff(resource.data)
+                            .affectedKeys().hasOnly(['text', 'isEdited'])
+                       && request.resource.data.isEdited == true;
+
+        // Delete for everyone -- only the original sender, clearing the
+        // content and marking isDeleted so every participant renders the
+        // same "This message was deleted" placeholder. See
+        // FirestoreChatRepository.deleteMessage.
+        allow update: if request.auth != null
+                       && request.auth.uid == resource.data.senderUid
+                       && request.resource.data.diff(resource.data)
+                            .affectedKeys().hasOnly(['text', 'attachments', 'isDeleted'])
+                       && request.resource.data.isDeleted == true
+                       && request.resource.data.text == ''
+                       && request.resource.data.attachments == [];
+
+        // Delete for me -- any participant may add (never remove) their
+        // own uid to hiddenFor; everyone else still sees the message
+        // untouched. See FirestoreChatRepository.deleteMessage /
+        // _messageFromDoc's hiddenFor filter.
+        allow update: if request.auth != null
+                       && request.auth.uid in
+                          get(/databases/$(database)/documents/chatThreads/$(threadId)).data.participantUids
+                       && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['hiddenFor'])
+                       && request.resource.data.hiddenFor.hasAll(resource.data.get('hiddenFor', []))
+                       && request.resource.data.hiddenFor.hasOnly(
+                            resource.data.get('hiddenFor', []).concat([request.auth.uid])
+                          );
         allow delete: if false;
       }
     }

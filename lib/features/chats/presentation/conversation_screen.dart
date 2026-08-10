@@ -1,10 +1,15 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollDirection;
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
+import 'package:gal/gal.dart';
+import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../../../app/theme/app_palette.dart';
 import '../../../core/models/status_story.dart';
@@ -25,8 +30,10 @@ import '../domain/chat_attachment.dart';
 import '../domain/chat_message.dart';
 import '../domain/chat_thread.dart';
 import '../domain/message_reaction.dart';
+import '../domain/story_reply_context.dart';
 import 'attachment_viewer_screen.dart';
 import 'contact_info_screen.dart';
+import 'forward_message_screen.dart';
 import 'widgets/emoji_reaction_picker_screen.dart';
 import 'widgets/location_map_preview.dart';
 import 'widgets/video_thumbnail_source.dart';
@@ -390,16 +397,26 @@ class _ConversationScreenState extends State<ConversationScreen> {
                                     emoji: emoji,
                                   );
                                 },
+                                onAction: (action) => _handleMessageAction(
+                                  action,
+                                  thread: thread,
+                                  message: message,
+                                ),
+                                isStoryReplyAvailable:
+                                    _isStoryReplyAvailable(message),
+                                onStoryReplyCardTap: message.hasStoryReplyContext
+                                    ? () => _openStoryReplyCard(
+                                          message.storyReplyContext!,
+                                        )
+                                    : null,
                               ),
                             ),
                             if (index != visibleMessages.length - 1)
-                              // A reacted message's badge overlaps 12px
-                              // below its own bubble (see _ReactionBadge's
-                              // Positioned(bottom: -12) above) -- with the
-                              // badge now opaque instead of transparent, it
-                              // needs real clearance from the next bubble
-                              // instead of touching it.
-                              SizedBox(height: message.hasReactions ? 22 : 12),
+                              // A reacted message's badge hangs 20px below
+                              // its own bubble (see the Positioned(bottom:
+                              // -20) above) -- needs real clearance from the
+                              // next bubble instead of touching it.
+                              SizedBox(height: message.hasReactions ? 30 : 12),
                           ],
                         );
                         },
@@ -435,6 +452,30 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
   Future<void> _openThreadStory(StatusStory story) {
     return openStatusStoryViewer(
+      context,
+      controller: widget.updatesController,
+      story: story,
+      chatsController: widget.controller,
+    );
+  }
+
+  bool _isStoryReplyAvailable(ChatMessage message) {
+    final replyContext = message.storyReplyContext;
+    if (replyContext == null) {
+      return false;
+    }
+    return widget.updatesController
+            .storyForOwnerUid(replyContext.storyOwnerUid) !=
+        null;
+  }
+
+  Future<void> _openStoryReplyCard(StoryReplyContext replyContext) async {
+    final story =
+        widget.updatesController.storyForOwnerUid(replyContext.storyOwnerUid);
+    if (story == null) {
+      return;
+    }
+    await openStatusStoryViewer(
       context,
       controller: widget.updatesController,
       story: story,
@@ -855,6 +896,238 @@ class _ConversationScreenState extends State<ConversationScreen> {
       );
     }
     setState(() {});
+  }
+
+  Future<void> _handleMessageAction(
+    MessageAction action, {
+    required ChatThread thread,
+    required ChatMessage message,
+  }) async {
+    switch (action) {
+      case MessageAction.copy:
+        await Clipboard.setData(ClipboardData(text: message.text));
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Copied to clipboard')),
+          );
+        }
+      case MessageAction.forward:
+        await _forwardMessage(thread, message);
+      case MessageAction.edit:
+        await _editMessage(thread, message);
+      case MessageAction.deleteForMe:
+        await _confirmDeleteMessage(thread, message, forEveryone: false);
+      case MessageAction.deleteForEveryone:
+        await _confirmDeleteMessage(thread, message, forEveryone: true);
+      case MessageAction.save:
+        await _saveMessageMedia(message);
+    }
+  }
+
+  Future<void> _forwardMessage(ChatThread thread, ChatMessage message) async {
+    final targetThreadId = await pickForwardTarget(
+      context,
+      controller: widget.controller,
+      excludeThreadId: thread.id,
+    );
+    if (targetThreadId == null || !mounted) {
+      return;
+    }
+
+    final didSend = message.hasAttachments
+        ? await widget.controller.sendAttachmentMessage(
+            threadId: targetThreadId,
+            attachments: message.attachments,
+            caption: message.hasText ? message.text : null,
+          )
+        : await widget.controller.sendTextMessage(
+            threadId: targetThreadId,
+            text: message.text,
+          );
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          didSend
+              ? 'Message forwarded'
+              : widget.controller.errorMessage ??
+                  'We could not forward that message right now.',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _editMessage(ChatThread thread, ChatMessage message) async {
+    // A TextEditingController created here and disposed the moment
+    // showDialog's Future resolves races the dialog's own closing
+    // animation -- the Future completes as soon as Navigator.pop() is
+    // called, not once the TextField has actually unmounted, and disposing
+    // out from under a still-mounted, still-focused field corrupts focus
+    // state badly enough to break later widget builds (see the identical
+    // fix for the custom-emoji sheet elsewhere in this file). TextFormField
+    // sidesteps this entirely -- initialValue seeds it without a caller-
+    // owned controller, and onChanged reads the value into a local instead.
+    var currentText = message.text;
+    final newText = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Edit message'),
+          content: TextFormField(
+            key: const Key('edit_message_field'),
+            initialValue: message.text,
+            autofocus: true,
+            minLines: 1,
+            maxLines: 5,
+            textCapitalization: TextCapitalization.sentences,
+            onChanged: (value) => currentText = value,
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              key: const Key('confirm_edit_message_button'),
+              onPressed: () => Navigator.of(dialogContext).pop(currentText),
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
+
+    final trimmed = newText?.trim();
+    if (trimmed == null || trimmed.isEmpty || trimmed == message.text.trim()) {
+      return;
+    }
+    if (!mounted) {
+      return;
+    }
+    await widget.controller.editMessage(
+      threadId: thread.id,
+      messageId: message.id,
+      text: trimmed,
+    );
+  }
+
+  Future<void> _confirmDeleteMessage(
+    ChatThread thread,
+    ChatMessage message, {
+    required bool forEveryone,
+  }) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: Text(forEveryone ? 'Delete for everyone?' : 'Delete message?'),
+          content: Text(
+            forEveryone
+                ? 'This message will be deleted for everyone in this chat. '
+                    "This can't be undone."
+                : 'This message will be removed from your view only -- '
+                    "${thread.name} will still see it. This can't be undone.",
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              key: Key(
+                'confirm_delete_message_${forEveryone ? 'everyone' : 'me'}_button',
+              ),
+              style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(dialogContext).colorScheme.error,
+              ),
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed == true && mounted) {
+      await widget.controller.deleteMessage(
+        threadId: thread.id,
+        messageId: message.id,
+        forEveryone: forEveryone,
+      );
+    }
+  }
+
+  /// [Gal.putImage]/[Gal.putVideo] need a real local file path -- a chat
+  /// attachment's own [ChatAttachment.localMediaPath] is that already for
+  /// the sender (pre-upload), but for anyone else it's since become a
+  /// Storage download URL, so the file is downloaded to a temp path first.
+  Future<void> _saveMessageMedia(ChatMessage message) async {
+    final attachment = message.attachments.cast<ChatAttachment?>().firstWhere(
+          (candidate) =>
+              (candidate?.type == ChatAttachmentType.photo ||
+                  candidate?.type == ChatAttachmentType.video) &&
+              statusMediaSourceExists(candidate?.localMediaPath ?? ''),
+          orElse: () => null,
+        );
+    final source = attachment?.localMediaPath;
+    if (attachment == null || source == null) {
+      return;
+    }
+
+    File? tempFile;
+    try {
+      final hasAccess =
+          await Gal.hasAccess() || await Gal.requestAccess();
+      if (!hasAccess) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'Allow photo library access in Settings to save media.',
+              ),
+            ),
+          );
+        }
+        return;
+      }
+
+      var localPath = source;
+      if (isRemoteStatusMediaPath(source)) {
+        final response = await http.get(Uri.parse(source));
+        final tempDir = await getTemporaryDirectory();
+        final extension = source.contains('.')
+            ? source.substring(source.lastIndexOf('.'))
+            : (attachment.type == ChatAttachmentType.video ? '.mp4' : '.jpg');
+        tempFile = File(
+          '${tempDir.path}/whatswave-save-${DateTime.now().microsecondsSinceEpoch}$extension',
+        );
+        await tempFile.writeAsBytes(response.bodyBytes);
+        localPath = tempFile.path;
+      }
+
+      if (attachment.type == ChatAttachmentType.video) {
+        await Gal.putVideo(localPath);
+      } else {
+        await Gal.putImage(localPath);
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Saved to your gallery')),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('We could not save that right now.')),
+        );
+      }
+    } finally {
+      if (tempFile != null && await tempFile.exists()) {
+        unawaited(tempFile.delete());
+      }
+    }
   }
 
   void _scrollToLatestMessage({required bool animated}) {
@@ -1462,20 +1735,37 @@ class _AnimatedMessageEntryState extends State<_AnimatedMessageEntry>
   }
 }
 
+/// Actions available from a message's long-press menu (see
+/// _MessageBubble._showReactionTray, which shows this alongside the
+/// reaction tray) -- WhatsApp's own delete/forward/copy/edit/save set.
+enum MessageAction { copy, forward, edit, deleteForMe, deleteForEveryone, save }
+
 class _MessageBubble extends StatelessWidget {
   const _MessageBubble({
     required this.thread,
     required this.message,
     required this.onAttachmentTap,
     required this.onReactionTap,
+    required this.onAction,
     this.onRetryTap,
+    this.isStoryReplyAvailable = false,
+    this.onStoryReplyCardTap,
   });
 
   final ChatThread thread;
   final ChatMessage message;
   final ValueChanged<ChatAttachment> onAttachmentTap;
   final ValueChanged<String> onReactionTap;
+  final ValueChanged<MessageAction> onAction;
   final VoidCallback? onRetryTap;
+
+  /// Whether [ChatMessage.storyReplyContext]'s story is still live -- the
+  /// parent computes this (it needs UpdatesController, which this widget
+  /// deliberately doesn't depend on) so the card can render its "no longer
+  /// available" placeholder instead of a broken link to expired content.
+  /// Meaningless when the message has no story reply context at all.
+  final bool isStoryReplyAvailable;
+  final VoidCallback? onStoryReplyCardTap;
 
   @override
   Widget build(BuildContext context) {
@@ -1549,23 +1839,52 @@ class _MessageBubble extends StatelessWidget {
                               ),
                             ),
                           ),
-                        if (message.hasAttachments) ...[
-                          _buildAttachmentsContent(context),
-                          const SizedBox(height: 10),
-                        ],
-                        if (message.hasText)
+                        if (message.isDeleted)
                           Text(
-                            message.text,
+                            'This message was deleted',
                             style: theme.textTheme.bodyLarge?.copyWith(
-                              color: contentColor,
+                              color: contentColor.withValues(alpha: 0.6),
+                              fontStyle: FontStyle.italic,
                               height: 1.36,
                             ),
-                          ),
+                          )
+                        else ...[
+                          if (message.hasStoryReplyContext) ...[
+                            _StoryReplyCard(
+                              replyContext: message.storyReplyContext!,
+                              isAvailable: isStoryReplyAvailable,
+                              onTap: onStoryReplyCardTap,
+                            ),
+                            const SizedBox(height: 8),
+                          ],
+                          if (message.hasAttachments) ...[
+                            _buildAttachmentsContent(context),
+                            const SizedBox(height: 10),
+                          ],
+                          if (message.hasText)
+                            Text(
+                              message.text,
+                              style: theme.textTheme.bodyLarge?.copyWith(
+                                color: contentColor,
+                                height: 1.36,
+                              ),
+                            ),
+                        ],
                         const SizedBox(height: 8),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.end,
                           mainAxisSize: MainAxisSize.min,
                           children: [
+                            if (message.isEdited && !message.isDeleted) ...[
+                              Text(
+                                'Edited',
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  color: contentColor.withValues(alpha: 0.6),
+                                  fontStyle: FontStyle.italic,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                            ],
                             Text(
                               _timeLabelFor(message.sentAt),
                               style: theme.textTheme.labelSmall?.copyWith(
@@ -1632,14 +1951,24 @@ class _MessageBubble extends StatelessWidget {
                 ),
                 if (message.hasReactions)
                   Positioned(
-                    bottom: -12,
-                    // Negative (hanging outside the bubble's corner) rather
-                    // than a positive inset -- now that the badge is opaque
-                    // instead of transparent, an inward offset sat directly
-                    // on top of the timestamp text in that corner. Hanging
-                    // off the corner instead keeps the badge clear of it.
-                    right: isMine ? -6 : null,
-                    left: isMine ? null : -6,
+                    // -20 rather than -12 -- most of the badge now hangs in
+                    // the gutter below the bubble instead of overlapping its
+                    // bottom-most content row, so a short/narrow bubble
+                    // (where the right-aligned timestamp ends up close to
+                    // the bubble's own left edge too) doesn't get its
+                    // timestamp text partly covered by the badge above it.
+                    bottom: -20,
+                    // Always the bubble's own left corner, regardless of
+                    // isMine -- the timestamp/ticks row above always sits at
+                    // the bubble's right edge (Row's mainAxisAlignment.end
+                    // is a fixed LTR "end", not sender-relative), so the
+                    // left corner is the one side that never overlaps it.
+                    // For isMine (right-aligned) bubbles this also hangs the
+                    // badge toward screen center rather than out past the
+                    // bubble into the narrow gutter by the screen edge,
+                    // which is what made it look like it spilled out of the
+                    // message frame entirely.
+                    left: -6,
                     child: _ReactionBadge(reactions: message.reactions),
                   ),
               ],
@@ -1669,11 +1998,29 @@ class _MessageBubble extends StatelessWidget {
     // own 8pt horizontal padding on each side.
     const trayWidth = 324.0;
     const trayMargin = 10.0;
+    const actionRowHeight = 44.0;
+    const actionMenuGap = 8.0;
+    final actions = _availableActions();
+    final actionMenuHeight =
+        actions.isEmpty ? 0.0 : actions.length * actionRowHeight;
+    final blockHeight = trayHeight +
+        (actions.isEmpty ? 0.0 : actionMenuGap + actionMenuHeight);
+
     final showAbove =
-        bubbleTopLeft.dy - trayHeight - trayMargin > mediaQuery.padding.top + 8;
-    final trayTop = showAbove
-        ? bubbleTopLeft.dy - trayHeight - trayMargin
+        bubbleTopLeft.dy - blockHeight - trayMargin > mediaQuery.padding.top + 8;
+    final rawBlockTop = showAbove
+        ? bubbleTopLeft.dy - blockHeight - trayMargin
         : bubbleTopLeft.dy + bubbleSize.height + trayMargin;
+    // With the action menu attached, the combined block can be taller than
+    // the reaction tray alone was -- for a message near the bottom of the
+    // screen (few actions still fit above it, but "show below" then runs
+    // the block past the bottom edge), clamp it back on-screen instead of
+    // letting it render partly unreachable.
+    final minBlockTop = mediaQuery.padding.top + 8;
+    final maxBlockTop = screenSize.height - blockHeight - trayMargin;
+    final blockTop = maxBlockTop < minBlockTop
+        ? minBlockTop
+        : rawBlockTop.clamp(minBlockTop, maxBlockTop);
     final rawTrayLeft = isMine
         ? bubbleTopLeft.dx + bubbleSize.width - trayWidth
         : bubbleTopLeft.dx;
@@ -1681,19 +2028,37 @@ class _MessageBubble extends StatelessWidget {
         rawTrayLeft.clamp(12.0, screenSize.width - trayWidth - 12.0);
 
     var pickCustomEmoji = false;
+    MessageAction? selectedAction;
     final selectedEmoji = await showFloatingGlassPopup<String>(
       bubbleContext,
-      barrierLabel: 'Reactions',
+      barrierLabel: 'Message actions',
       scaleAlignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
       positionedChildBuilder: (overlayContext, close) => Positioned(
         left: trayLeft,
-        top: trayTop,
-        child: _ReactionTray(
-          onSelected: close,
-          onCustomEmoji: () {
-            pickCustomEmoji = true;
-            close();
-          },
+        top: blockTop,
+        child: Column(
+          crossAxisAlignment:
+              isMine ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          children: [
+            _ReactionTray(
+              onSelected: close,
+              onCustomEmoji: () {
+                pickCustomEmoji = true;
+                close();
+              },
+            ),
+            if (actions.isNotEmpty) ...[
+              const SizedBox(height: actionMenuGap),
+              _MessageActionMenu(
+                width: trayWidth,
+                actions: actions,
+                onSelected: (action) {
+                  selectedAction = action;
+                  close();
+                },
+              ),
+            ],
+          ],
         ),
       ),
     );
@@ -1707,7 +2072,30 @@ class _MessageBubble extends StatelessWidget {
       if (customEmoji != null) {
         onReactionTap(customEmoji);
       }
+      return;
     }
+    if (selectedAction != null) {
+      onAction(selectedAction!);
+    }
+  }
+
+  bool get _hasSavableMedia => message.attachments.any(
+        (attachment) =>
+            (attachment.type == ChatAttachmentType.photo ||
+                attachment.type == ChatAttachmentType.video) &&
+            statusMediaSourceExists(attachment.localMediaPath ?? ''),
+      );
+
+  List<MessageAction> _availableActions() {
+    final isMine = message.isFromCurrentUser;
+    return [
+      if (message.hasText && !message.isDeleted) MessageAction.copy,
+      if (!message.isDeleted) MessageAction.forward,
+      if (isMine && message.hasText && !message.isDeleted) MessageAction.edit,
+      if (_hasSavableMedia) MessageAction.save,
+      MessageAction.deleteForMe,
+      if (isMine && !message.isDeleted) MessageAction.deleteForEveryone,
+    ];
   }
 
   /// The 6 quick-react emoji cover WhatsApp's own defaults, but not every
@@ -1817,6 +2205,140 @@ class _MessageBubble extends StatelessWidget {
   }
 }
 
+/// A small tappable card above a story reply's own text -- WhatsApp's
+/// "replied to your status" quote. Shows a thumbnail (photo/video segment)
+/// or a colored snippet (text segment) plus a caption line when the story
+/// is still live ([isAvailable]); otherwise an empty, non-tappable
+/// placeholder, since the referenced story has expired or been deleted.
+class _StoryReplyCard extends StatelessWidget {
+  const _StoryReplyCard({
+    required this.replyContext,
+    required this.isAvailable,
+    required this.onTap,
+  });
+
+  final StoryReplyContext replyContext;
+  final bool isAvailable;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final onSurfaceMuted = theme.colorScheme.onSurface.withValues(alpha: 0.6);
+
+    return Opacity(
+      opacity: isAvailable ? 1 : 0.6,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          key: const Key('story_reply_card'),
+          onTap: isAvailable ? onTap : null,
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surface.withValues(alpha: 0.5),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
+              ),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: SizedBox(
+                    width: 36,
+                    height: 48,
+                    child: _buildThumbnail(theme),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Flexible(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        isAvailable
+                            ? 'Replied to ${replyContext.storyOwnerName}\'s status'
+                            : 'Original status no longer available',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          color: isAvailable ? null : onSurfaceMuted,
+                        ),
+                      ),
+                      if (isAvailable &&
+                          (replyContext.previewText?.trim().isNotEmpty ??
+                              false))
+                        Text(
+                          replyContext.previewText!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall
+                              ?.copyWith(color: onSurfaceMuted),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildThumbnail(ThemeData theme) {
+    if (!isAvailable) {
+      return ColoredBox(
+        color: theme.colorScheme.surfaceContainerHighest,
+        child: Icon(
+          Icons.image_not_supported_outlined,
+          size: 16,
+          color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
+        ),
+      );
+    }
+
+    final mediaUrl = replyContext.mediaUrl;
+    if (mediaUrl != null && mediaUrl.isNotEmpty) {
+      return Image.network(
+        mediaUrl,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) => ColoredBox(
+          color: theme.colorScheme.surfaceContainerHighest,
+          child: Icon(
+            Icons.broken_image_outlined,
+            size: 16,
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
+          ),
+        ),
+      );
+    }
+
+    return ColoredBox(
+      color: Color(replyContext.accentColorArgb ?? 0xFF3A3A3A),
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(2),
+          child: Text(
+            replyContext.previewText ?? '',
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.white, fontSize: 7),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// The floating glass reaction picker shown on long-press, in the style of
 /// iMessage's Tapback tray -- a horizontal row of quick-react emojis
 /// pinned near the bubble rather than WhatsApp's flatter below-bubble row.
@@ -1883,6 +2405,94 @@ class _ReactionTray extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The vertical list of text actions (copy/forward/edit/delete/save) shown
+/// below the reaction tray on a message long-press -- WhatsApp's own
+/// context menu, in the same floating-glass language as the tray above it.
+class _MessageActionMenu extends StatelessWidget {
+  const _MessageActionMenu({
+    required this.width,
+    required this.actions,
+    required this.onSelected,
+  });
+
+  final double width;
+  final List<MessageAction> actions;
+  final ValueChanged<MessageAction> onSelected;
+
+  static const Map<MessageAction, (IconData, String)> _presentation = {
+    MessageAction.copy: (Icons.content_copy_rounded, 'Copy'),
+    MessageAction.forward: (Icons.forward_rounded, 'Forward'),
+    MessageAction.edit: (Icons.edit_outlined, 'Edit'),
+    MessageAction.save: (Icons.download_rounded, 'Save'),
+    MessageAction.deleteForMe: (Icons.delete_outline_rounded, 'Delete for me'),
+    MessageAction.deleteForEveryone: (
+      Icons.delete_forever_rounded,
+      'Delete for everyone',
+    ),
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return SizedBox(
+      width: width,
+      child: LiquidGlassSurface(
+        borderRadius: const BorderRadius.all(Radius.circular(16)),
+        padding: EdgeInsets.zero,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final action in actions)
+              Material(
+                key: Key('message_action_${action.name}'),
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: () => onSelected(action),
+                  child: SizedBox(
+                    height: 44,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Row(
+                        children: [
+                          Icon(
+                            _presentation[action]!.$1,
+                            size: 20,
+                            color: _isDestructive(action)
+                                ? theme.colorScheme.error
+                                : theme.colorScheme.onSurface
+                                    .withValues(alpha: 0.78),
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Text(
+                              _presentation[action]!.$2,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: _isDestructive(action)
+                                    ? theme.colorScheme.error
+                                    : null,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  bool _isDestructive(MessageAction action) =>
+      action == MessageAction.deleteForMe ||
+      action == MessageAction.deleteForEveryone;
 }
 
 /// The small badge overlapping a bubble's bottom corner once it has at

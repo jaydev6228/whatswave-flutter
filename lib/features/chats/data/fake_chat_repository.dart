@@ -5,6 +5,7 @@ import '../../../core/sample/demo_data.dart';
 import '../domain/chat_attachment.dart';
 import '../domain/chat_message.dart';
 import '../domain/chat_thread.dart';
+import '../domain/story_reply_context.dart';
 import 'chat_repository.dart';
 
 class FakeChatRepository implements ChatRepository {
@@ -176,6 +177,7 @@ class FakeChatRepository implements ChatRepository {
   Future<List<ChatThread>> sendTextMessage({
     required String threadId,
     required String text,
+    StoryReplyContext? storyReplyContext,
   }) async {
     await _wait();
     final normalizedText = text.trim();
@@ -193,6 +195,7 @@ class FakeChatRepository implements ChatRepository {
       isFromCurrentUser: true,
       text: normalizedText,
       deliveryState: MessageDeliveryState.delivered,
+      storyReplyContext: storyReplyContext,
     );
 
     _threads = _threads
@@ -207,6 +210,78 @@ class FakeChatRepository implements ChatRepository {
                   clearTypingPreview: true,
                 )
               : entry,
+        )
+        .toList(growable: false);
+    return _deepCopyThreads(_threads);
+  }
+
+  @override
+  Future<List<ChatThread>> editMessage({
+    required String threadId,
+    required String messageId,
+    required String text,
+  }) async {
+    await _wait();
+    final normalizedText = text.trim();
+    if (normalizedText.isEmpty) {
+      throw const ChatRepositoryException('A message can\'t be empty.');
+    }
+    final thread = _threadForId(threadId);
+
+    _threads = _threads
+        .map(
+          (entry) => entry.id == thread.id
+              ? entry.copyWith(
+                  messages: entry.messages
+                      .map(
+                        (message) => message.id == messageId
+                            ? message.copyWith(
+                                text: normalizedText,
+                                isEdited: true,
+                              )
+                            : message,
+                      )
+                      .toList(growable: false),
+                )
+              : entry,
+        )
+        .toList(growable: false);
+    return _deepCopyThreads(_threads);
+  }
+
+  @override
+  Future<List<ChatThread>> deleteMessage({
+    required String threadId,
+    required String messageId,
+    required bool forEveryone,
+  }) async {
+    await _wait();
+    final thread = _threadForId(threadId);
+
+    _threads = _threads
+        .map(
+          (entry) => entry.id != thread.id
+              ? entry
+              : entry.copyWith(
+                  messages: forEveryone
+                      ? entry.messages
+                          .map(
+                            (message) => message.id == messageId
+                                ? message.copyWith(
+                                    text: '',
+                                    attachments: const <ChatAttachment>[],
+                                    isDeleted: true,
+                                  )
+                                : message,
+                          )
+                          .toList(growable: false)
+                      // No per-uid perspective in fake/demo data (see
+                      // _currentUserId below) -- "for me" just removes it
+                      // from the single view this repository has.
+                      : entry.messages
+                          .where((message) => message.id != messageId)
+                          .toList(growable: false),
+                ),
         )
         .toList(growable: false);
     return _deepCopyThreads(_threads);
