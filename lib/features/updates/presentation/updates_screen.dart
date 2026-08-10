@@ -216,8 +216,14 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
       caption: draft.caption,
       textStyle: draft.textStyle,
     );
-    if (!mounted || !didCreate) {
+    if (!mounted) {
       return;
+    }
+    if (!didCreate) {
+      await _showStatusError(
+        widget.controller.errorMessage ??
+            'We could not post that status right now.',
+      );
     }
   }
 
@@ -276,8 +282,19 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
         musicTrack: draft.musicTrack,
         durationMillis: draft.durationMillis,
       );
-      if (!mounted || !didCreate) {
+      if (!mounted) {
         return;
+      }
+      if (!didCreate) {
+        // Previously silent beyond the passive errorMessage banner
+        // elsewhere on this screen -- an explicit dialog here gives
+        // immediate feedback right where the user just tapped, the same
+        // as status_compose_actions.dart's equivalent entry point (the
+        // ChatsScreen status strip, which has no such banner at all).
+        await _showStatusError(
+          widget.controller.errorMessage ??
+              'We could not post that status right now.',
+        );
       }
     } catch (_) {
       if (!mounted) {

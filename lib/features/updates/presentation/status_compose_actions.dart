@@ -79,8 +79,14 @@ Future<void> openTextStatusComposer(
     caption: draft.caption,
     textStyle: draft.textStyle,
   );
-  if (!context.mounted || !didCreate) {
+  if (!context.mounted) {
     return;
+  }
+  if (!didCreate) {
+    await _showStatusError(
+      context,
+      controller.errorMessage ?? 'We could not post that status right now.',
+    );
   }
 }
 
@@ -94,8 +100,7 @@ Future<void> pickStatusMedia(
   }
 
   try {
-    final pickedMedia =
-        await imagePicker.pickMedia(requestFullMetadata: false);
+    final pickedMedia = await imagePicker.pickMedia(requestFullMetadata: false);
     if (!context.mounted || pickedMedia == null) {
       return;
     }
@@ -143,8 +148,20 @@ Future<void> pickStatusMedia(
       musicTrack: draft.musicTrack,
       durationMillis: draft.durationMillis,
     );
-    if (!context.mounted || !didCreate) {
+    if (!context.mounted) {
       return;
+    }
+    if (!didCreate) {
+      // Previously silent -- a failed post (e.g. a slow/flaky video
+      // upload) left the user with no feedback at all: no error, and
+      // nothing in the status list either, even though the media itself
+      // could still land in Firebase Storage first. Matches the error
+      // dialog UpdatesScreen's own composer entry point already shows for
+      // the same failure (see updates_screen.dart).
+      await _showStatusError(
+        context,
+        controller.errorMessage ?? 'We could not post that status right now.',
+      );
     }
   } catch (_) {
     if (!context.mounted) {
