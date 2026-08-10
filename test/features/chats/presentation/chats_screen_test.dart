@@ -250,6 +250,15 @@ void main() {
     await tester.tap(find.byKey(const Key('conversation_photo_button')));
     await tester.pumpAndSettle();
 
+    // Picking a photo opens the WhatsApp-style review screen instead of
+    // sending immediately -- confirm from there.
+    expect(
+      find.byKey(const Key('media_send_preview_screen')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const Key('media_send_preview_send_button')));
+    await tester.pumpAndSettle();
+
     // The picked photo has no real file on disk in this test environment,
     // so the bubble falls back to its placeholder swatch+icon rather than
     // a title/subtitle row (photo bubbles no longer show text at all).

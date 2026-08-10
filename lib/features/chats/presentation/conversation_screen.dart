@@ -36,6 +36,7 @@ import '../domain/story_reply_context.dart';
 import 'attachment_viewer_screen.dart';
 import 'contact_info_screen.dart';
 import 'forward_message_screen.dart';
+import 'media_send_preview_screen.dart';
 import 'widgets/emoji_reaction_picker_screen.dart';
 import 'widgets/location_map_preview.dart';
 import 'widgets/video_thumbnail_source.dart';
@@ -250,65 +251,67 @@ class _ConversationScreenState extends State<ConversationScreen> {
             title: _isSelecting
                 ? Text('${_selectedMessageIds.length} selected')
                 : MediaQuery.withClampedTextScaling(
-              maxScaleFactor: 1.3,
-              child: Row(
-                children: [
-                  GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: thread.hasStory && story != null
-                        ? () => _openThreadStory(story)
-                        : null,
-                    child: thread.hasStory
-                        ? StatusRingAvatar(
-                            label: thread.avatarLabel,
-                            color: thread.accentColor,
-                            avatarUrl: thread.avatarUrl,
-                            totalSegments: story?.totalSegments ?? 1,
-                            seenSegments: story?.clampedSeenSegments ?? 0,
-                            size: 44,
-                          )
-                        : AvatarBadge(
-                            label: thread.avatarLabel,
-                            color: thread.accentColor,
-                            avatarUrl: thread.avatarUrl,
-                            size: 44,
-                          ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: () => _openContactInfo(thread.id),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            thread.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          Text(
-                            thread.isGroup
-                                ? 'Group chat • ${visibleMessages.length} messages'
-                                : 'Secure chat preview',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.labelMedium?.copyWith(
-                              color: theme.colorScheme.onSurface
-                                  .withValues(alpha: 0.72),
+                    maxScaleFactor: 1.3,
+                    child: Row(
+                      children: [
+                        GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: thread.hasStory && story != null
+                              ? () => _openThreadStory(story)
+                              : null,
+                          child: thread.hasStory
+                              ? StatusRingAvatar(
+                                  label: thread.avatarLabel,
+                                  color: thread.accentColor,
+                                  avatarUrl: thread.avatarUrl,
+                                  totalSegments: story?.totalSegments ?? 1,
+                                  seenSegments: story?.clampedSeenSegments ?? 0,
+                                  size: 44,
+                                )
+                              : AvatarBadge(
+                                  label: thread.avatarLabel,
+                                  color: thread.accentColor,
+                                  avatarUrl: thread.avatarUrl,
+                                  size: 44,
+                                ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: () => _openContactInfo(thread.id),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  thread.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                Text(
+                                  thread.isGroup
+                                      ? 'Group chat • ${visibleMessages.length} messages'
+                                      : 'Secure chat preview',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.labelMedium?.copyWith(
+                                    color: theme.colorScheme.onSurface
+                                        .withValues(alpha: 0.72),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ),
-                ],
-              ),
-            ),
             actions: _isSelecting
                 ? [
                     if (_selectedMessagesInOrder(visibleMessages).length == 1 &&
-                        _selectedMessagesInOrder(visibleMessages).single.hasText)
+                        _selectedMessagesInOrder(visibleMessages)
+                            .single
+                            .hasText)
                       IconButton(
                         key: const Key('conversation_selection_copy_button'),
                         icon: const Icon(Icons.content_copy_rounded),
@@ -404,102 +407,108 @@ class _ConversationScreenState extends State<ConversationScreen> {
                       child: NotificationListener<Notification>(
                         onNotification: _handleMessageListNotification,
                         child: ListView.builder(
-                        key: const Key('conversation_message_list'),
-                        controller: _messageListController,
-                        keyboardDismissBehavior:
-                            ScrollViewKeyboardDismissBehavior.onDrag,
-                        padding: EdgeInsets.fromLTRB(
-                          16,
-                          16,
-                          16,
-                          _messageListBottomPadding,
-                        ),
-                        itemCount: visibleMessages.length,
-                        itemBuilder: (context, index) {
-                        final message = visibleMessages[index];
-                        final previous =
-                            index == 0 ? null : visibleMessages[index - 1];
-                        final shouldShowDayChip = previous == null ||
-                            !_isSameDay(previous.sentAt, message.sentAt);
+                          key: const Key('conversation_message_list'),
+                          controller: _messageListController,
+                          keyboardDismissBehavior:
+                              ScrollViewKeyboardDismissBehavior.onDrag,
+                          padding: EdgeInsets.fromLTRB(
+                            16,
+                            16,
+                            16,
+                            _messageListBottomPadding,
+                          ),
+                          itemCount: visibleMessages.length,
+                          itemBuilder: (context, index) {
+                            final message = visibleMessages[index];
+                            final previous =
+                                index == 0 ? null : visibleMessages[index - 1];
+                            final shouldShowDayChip = previous == null ||
+                                !_isSameDay(previous.sentAt, message.sentAt);
 
-                        return KeyedSubtree(
-                          key: _messageKeys.putIfAbsent(
-                            message.id,
-                            GlobalKey.new,
-                          ),
-                          child: Column(
-                          children: [
-                            if (shouldShowDayChip)
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 14),
-                                child: _DayDivider(
-                                    label: _dayLabelFor(message.sentAt)),
+                            return KeyedSubtree(
+                              key: _messageKeys.putIfAbsent(
+                                message.id,
+                                GlobalKey.new,
                               ),
-                            _AnimatedMessageEntry(
-                              key: ValueKey(
-                                  'conversation_message_${message.id}'),
-                              animateOnMount: message.id == _animatedMessageId,
-                              isMine: message.isFromCurrentUser,
-                              child: _MessageBubble(
-                                thread: thread,
-                                message: message,
-                                isHighlighted:
-                                    message.id == _highlightedMessageId,
-                                onRetryTap: message.isFromCurrentUser &&
-                                        message.deliveryState ==
-                                            MessageDeliveryState.failed &&
-                                        _localMessages.any(
-                                          (localMessage) =>
-                                              localMessage.id == message.id,
-                                        )
-                                    ? () => _retryFailedMessage(
-                                          thread.id,
-                                          message,
-                                        )
-                                    : null,
-                                onAttachmentTap: (attachment) {
-                                  _handleAttachmentPreviewTap(
-                                    attachment,
-                                    threadName: thread.name,
-                                  );
-                                },
-                                onReactionTap: (emoji) {
-                                  widget.controller.toggleMessageReaction(
-                                    threadId: thread.id,
-                                    messageId: message.id,
-                                    emoji: emoji,
-                                  );
-                                },
-                                onAction: (action) => _handleMessageAction(
-                                  action,
-                                  thread: thread,
-                                  message: message,
-                                ),
-                                isStoryReplyAvailable:
-                                    _isStoryReplyAvailable(message),
-                                onStoryReplyCardTap: message.hasStoryReplyContext
-                                    ? () => _openStoryReplyCard(
-                                          message.storyReplyContext!,
-                                        )
-                                    : null,
-                                onReplyPreviewTap: _jumpToMessage,
-                                isSelectionMode: _isSelecting,
-                                isSelected:
-                                    _selectedMessageIds.contains(message.id),
-                                onToggleSelection: () =>
-                                    _toggleMessageSelection(message.id),
+                              child: Column(
+                                children: [
+                                  if (shouldShowDayChip)
+                                    Padding(
+                                      padding:
+                                          const EdgeInsets.only(bottom: 14),
+                                      child: _DayDivider(
+                                          label: _dayLabelFor(message.sentAt)),
+                                    ),
+                                  _AnimatedMessageEntry(
+                                    key: ValueKey(
+                                        'conversation_message_${message.id}'),
+                                    animateOnMount:
+                                        message.id == _animatedMessageId,
+                                    isMine: message.isFromCurrentUser,
+                                    child: _MessageBubble(
+                                      thread: thread,
+                                      message: message,
+                                      isHighlighted:
+                                          message.id == _highlightedMessageId,
+                                      onRetryTap: message.isFromCurrentUser &&
+                                              message.deliveryState ==
+                                                  MessageDeliveryState.failed &&
+                                              _localMessages.any(
+                                                (localMessage) =>
+                                                    localMessage.id ==
+                                                    message.id,
+                                              )
+                                          ? () => _retryFailedMessage(
+                                                thread.id,
+                                                message,
+                                              )
+                                          : null,
+                                      onAttachmentTap: (attachment) {
+                                        _handleAttachmentPreviewTap(
+                                          attachment,
+                                          threadName: thread.name,
+                                        );
+                                      },
+                                      onReactionTap: (emoji) {
+                                        widget.controller.toggleMessageReaction(
+                                          threadId: thread.id,
+                                          messageId: message.id,
+                                          emoji: emoji,
+                                        );
+                                      },
+                                      onAction: (action) =>
+                                          _handleMessageAction(
+                                        action,
+                                        thread: thread,
+                                        message: message,
+                                      ),
+                                      isStoryReplyAvailable:
+                                          _isStoryReplyAvailable(message),
+                                      onStoryReplyCardTap:
+                                          message.hasStoryReplyContext
+                                              ? () => _openStoryReplyCard(
+                                                    message.storyReplyContext!,
+                                                  )
+                                              : null,
+                                      onReplyPreviewTap: _jumpToMessage,
+                                      isSelectionMode: _isSelecting,
+                                      isSelected: _selectedMessageIds
+                                          .contains(message.id),
+                                      onToggleSelection: () =>
+                                          _toggleMessageSelection(message.id),
+                                    ),
+                                  ),
+                                  if (index != visibleMessages.length - 1)
+                                    // A reacted message's badge hangs 20px below
+                                    // its own bubble (see the Positioned(bottom:
+                                    // -20) above) -- needs real clearance from the
+                                    // next bubble instead of touching it.
+                                    SizedBox(
+                                        height: message.hasReactions ? 30 : 12),
+                                ],
                               ),
-                            ),
-                            if (index != visibleMessages.length - 1)
-                              // A reacted message's badge hangs 20px below
-                              // its own bubble (see the Positioned(bottom:
-                              // -20) above) -- needs real clearance from the
-                              // next bubble instead of touching it.
-                              SizedBox(height: message.hasReactions ? 30 : 12),
-                          ],
-                          ),
-                        );
-                        },
+                            );
+                          },
                         ),
                       ),
                     ),
@@ -613,15 +622,40 @@ class _ConversationScreenState extends State<ConversationScreen> {
       return;
     }
 
-    final attachments = await _resolveAttachmentsForTap(
+    var pickedAttachments = await _resolveAttachmentsForTap(
       threadId: threadId,
       type: type,
     );
-    if (!mounted || attachments == null || attachments.isEmpty) {
+    if (!mounted || pickedAttachments == null || pickedAttachments.isEmpty) {
       return;
     }
 
-    final trimmedCaption = _composerController.text.trim();
+    var caption = _composerController.text.trim();
+
+    // Photo/video get a WhatsApp-style review step first -- caption, rotate,
+    // and color-pencil markup -- instead of sending the instant they're
+    // picked. Other attachment types (file/location/voice note) still send
+    // immediately; none of them have a meaningful visual preview/edit step.
+    if (type == ChatAttachmentType.photo || type == ChatAttachmentType.video) {
+      final draft = await Navigator.of(context).push<MediaSendDraft>(
+        MaterialPageRoute<MediaSendDraft>(
+          builder: (_) => MediaSendPreviewScreen(
+            attachments: pickedAttachments!,
+            initialCaption: caption.isEmpty ? null : caption,
+          ),
+          fullscreenDialog: true,
+        ),
+      );
+      if (!mounted || draft == null) {
+        // Cancelled from the preview screen -- nothing was sent.
+        return;
+      }
+      pickedAttachments = draft.attachments;
+      caption = draft.caption?.trim() ?? '';
+    }
+
+    final attachments = pickedAttachments;
+    final trimmedCaption = caption;
     final wasNearLatest = _isNearLatestMessage();
     final replyPreview = _pendingReply;
     final localMessage = _buildLocalMessage(
@@ -1086,7 +1120,8 @@ class _ConversationScreenState extends State<ConversationScreen> {
     setState(_selectedMessageIds.clear);
   }
 
-  List<ChatMessage> _selectedMessagesInOrder(List<ChatMessage> visibleMessages) {
+  List<ChatMessage> _selectedMessagesInOrder(
+      List<ChatMessage> visibleMessages) {
     return visibleMessages
         .where((message) => _selectedMessageIds.contains(message.id))
         .toList(growable: false);
@@ -1185,7 +1220,8 @@ class _ConversationScreenState extends State<ConversationScreen> {
     );
   }
 
-  Future<void> _deleteSelectedMessages(List<ChatMessage> visibleMessages) async {
+  Future<void> _deleteSelectedMessages(
+      List<ChatMessage> visibleMessages) async {
     final thread = widget.controller.threadById(widget.threadId);
     if (thread == null) {
       return;
@@ -1409,8 +1445,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
     File? tempFile;
     try {
-      final hasAccess =
-          await Gal.hasAccess() || await Gal.requestAccess();
+      final hasAccess = await Gal.hasAccess() || await Gal.requestAccess();
       if (!hasAccess) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -1565,7 +1600,8 @@ class _ConversationScreenState extends State<ConversationScreen> {
       ];
     }
 
-    final recorded = await showVoiceNoteRecorderSheet(context, threadId: threadId);
+    final recorded =
+        await showVoiceNoteRecorderSheet(context, threadId: threadId);
     if (!mounted || recorded == null) {
       return null;
     }
@@ -1863,7 +1899,8 @@ class _ComposerBar extends StatelessWidget {
             iconColor: canSendText
                 ? theme.colorScheme.primary
                 : theme.colorScheme.onSurface.withValues(alpha: 0.34),
-            borderColor: theme.colorScheme.outlineVariant.withValues(alpha: 0.34),
+            borderColor:
+                theme.colorScheme.outlineVariant.withValues(alpha: 0.34),
             onTap: !isBusy && canSendText ? onSendTap : null,
             child: isBusy
                 ? const SizedBox(
@@ -1984,8 +2021,8 @@ class _AttachmentPickerPopup extends StatelessWidget {
                 Divider(
                   height: 1,
                   indent: 52,
-                  color: theme.colorScheme.outlineVariant
-                      .withValues(alpha: 0.24),
+                  color:
+                      theme.colorScheme.outlineVariant.withValues(alpha: 0.24),
                 ),
               _AttachmentPopupRow(
                 actionKey: options[i].actionKey,
@@ -2261,7 +2298,8 @@ class _MessageBubble extends StatelessWidget {
                         color: isHighlighted
                             ? theme.colorScheme.primary
                             : isFailed
-                                ? theme.colorScheme.error.withValues(alpha: 0.22)
+                                ? theme.colorScheme.error
+                                    .withValues(alpha: 0.22)
                                 : isMine
                                     ? theme.colorScheme.primary
                                         .withValues(alpha: 0.14)
@@ -2505,11 +2543,11 @@ class _MessageBubble extends StatelessWidget {
     final actions = _availableActions();
     final actionMenuHeight =
         actions.isEmpty ? 0.0 : actions.length * actionRowHeight;
-    final blockHeight = trayHeight +
-        (actions.isEmpty ? 0.0 : actionMenuGap + actionMenuHeight);
+    final blockHeight =
+        trayHeight + (actions.isEmpty ? 0.0 : actionMenuGap + actionMenuHeight);
 
-    final showAbove =
-        bubbleTopLeft.dy - blockHeight - trayMargin > mediaQuery.padding.top + 8;
+    final showAbove = bubbleTopLeft.dy - blockHeight - trayMargin >
+        mediaQuery.padding.top + 8;
     final rawBlockTop = showAbove
         ? bubbleTopLeft.dy - blockHeight - trayMargin
         : bubbleTopLeft.dy + bubbleSize.height + trayMargin;
@@ -3205,8 +3243,8 @@ class _MediaAttachmentTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final localPath = attachment.localMediaPath;
-    final isPhoto =
-        attachment.type == ChatAttachmentType.photo || attachment.isImageDocument;
+    final isPhoto = attachment.type == ChatAttachmentType.photo ||
+        attachment.isImageDocument;
     final hasRealPhoto =
         isPhoto && localPath != null && statusMediaSourceExists(localPath);
     final hasRealVideo = attachment.type == ChatAttachmentType.video &&
