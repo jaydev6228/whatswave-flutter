@@ -96,19 +96,35 @@ class _ConversationScreenState extends State<ConversationScreen> {
   /// [_handleMessageListNotification].
   double? _lastObservedMaxScrollExtent;
 
+  /// A GlobalKey per message, keyed by id and never removed once created --
+  /// lets in-conversation search (see [_jumpToMatch]) scroll to an
+  /// arbitrary earlier message via [Scrollable.ensureVisible] instead of
+  /// only ever being able to jump to the list's bottom.
+  final Map<String, GlobalKey> _messageKeys = <String, GlobalKey>{};
+
+  bool _isSearching = false;
+  late final TextEditingController _searchController;
+  String _searchQuery = '';
+  int _searchMatchCursor = 0;
+  String? _highlightedMessageId;
+  Timer? _highlightClearTimer;
+
   @override
   void initState() {
     super.initState();
     _composerController = TextEditingController();
     _messageListController = ScrollController();
+    _searchController = TextEditingController();
   }
 
   @override
   void dispose() {
     _composerUnlockTimer?.cancel();
     _animatedMessageCleanupTimer?.cancel();
+    _highlightClearTimer?.cancel();
     _composerController.dispose();
     _messageListController.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -207,14 +223,47 @@ class _ConversationScreenState extends State<ConversationScreen> {
         _lastKnownBottomInset = bottomInset;
 
         final visibleMessages = _visibleMessagesForThread(thread);
+        final trimmedQuery = _searchQuery.trim().toLowerCase();
+        final searchMatches = _isSearching && trimmedQuery.isNotEmpty
+            ? visibleMessages
+                .where((candidate) =>
+                    candidate.hasText &&
+                    candidate.text.toLowerCase().contains(trimmedQuery))
+                .toList(growable: false)
+            : const <ChatMessage>[];
+        final matchCursor = searchMatches.isEmpty
+            ? 0
+            : _searchMatchCursor.clamp(0, searchMatches.length - 1);
 
         return Scaffold(
           appBar: AppBar(
             titleSpacing: 0,
+            leading: _isSearching
+                ? IconButton(
+                    key: const Key('conversation_search_close_button'),
+                    icon: const Icon(Icons.arrow_back_rounded),
+                    onPressed: _closeSearch,
+                  )
+                : null,
             // Fixed-height chrome (the toolbar) with a two-line title stack
             // -- clamp text scale so it can't outgrow that height at large
             // accessibility scale. See docs/ui_layout_guidelines.md rule 4.
-            title: MediaQuery.withClampedTextScaling(
+            title: _isSearching
+                ? MediaQuery.withClampedTextScaling(
+                    maxScaleFactor: 1.3,
+                    child: TextField(
+                      key: const Key('conversation_search_field'),
+                      controller: _searchController,
+                      autofocus: true,
+                      textInputAction: TextInputAction.search,
+                      decoration: const InputDecoration(
+                        hintText: 'Search messages',
+                        border: InputBorder.none,
+                      ),
+                      onChanged: _onSearchQueryChanged,
+                    ),
+                  )
+                : MediaQuery.withClampedTextScaling(
               maxScaleFactor: 1.3,
               child: Row(
                 children: [
@@ -270,48 +319,93 @@ class _ConversationScreenState extends State<ConversationScreen> {
                 ],
               ),
             ),
-            actions: [
-              LiquidGlassIconButton(
-                icon: Icons.call_outlined,
-                tooltip: 'Audio call',
-                // The tap target still clamps up to the 48dp minimum (see
-                // LiquidGlassIconButton), but the drawn glass circle is now
-                // visibly smaller than the 44pt header avatar instead of
-                // matching/exceeding it, so the avatar reads as the
-                // header's primary element.
-                size: 44,
-                visualSize: 34,
-                // The app bar is a fixed, non-overlapping toolbar here (not
-                // a floating sliver over scrolling content), so there is no
-                // real content behind it for a blur to reveal.
-                blurred: false,
-                onTap: () {
-                  startCallFlow(
-                    context,
-                    controller: widget.callsController,
-                    contact: _callContactForThread(thread),
-                    type: CallType.audio,
-                  );
-                },
-              ),
-              const SizedBox(width: 4),
-              LiquidGlassIconButton(
-                icon: Icons.videocam_outlined,
-                tooltip: 'Video call',
-                size: 44,
-                visualSize: 34,
-                blurred: false,
-                onTap: () {
-                  startCallFlow(
-                    context,
-                    controller: widget.callsController,
-                    contact: _callContactForThread(thread),
-                    type: CallType.video,
-                  );
-                },
-              ),
-              const SizedBox(width: 8),
-            ],
+            actions: _isSearching
+                ? [
+                    if (trimmedQuery.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        child: Center(
+                          child: Text(
+                            searchMatches.isEmpty
+                                ? '0/0'
+                                : '${matchCursor + 1}/${searchMatches.length}',
+                            style: theme.textTheme.labelMedium?.copyWith(
+                              color: theme.colorScheme.onSurface
+                                  .withValues(alpha: 0.72),
+                            ),
+                          ),
+                        ),
+                      ),
+                    IconButton(
+                      key: const Key('conversation_search_previous_button'),
+                      icon: const Icon(Icons.keyboard_arrow_up_rounded),
+                      onPressed: searchMatches.isEmpty
+                          ? null
+                          : () => _goToSearchMatch(
+                                searchMatches,
+                                matchCursor - 1,
+                              ),
+                    ),
+                    IconButton(
+                      key: const Key('conversation_search_next_button'),
+                      icon: const Icon(Icons.keyboard_arrow_down_rounded),
+                      onPressed: searchMatches.isEmpty
+                          ? null
+                          : () => _goToSearchMatch(
+                                searchMatches,
+                                matchCursor + 1,
+                              ),
+                    ),
+                    const SizedBox(width: 4),
+                  ]
+                : [
+                    IconButton(
+                      key: const Key('conversation_search_open_button'),
+                      icon: const Icon(Icons.search_rounded),
+                      onPressed: () => setState(() => _isSearching = true),
+                    ),
+                    LiquidGlassIconButton(
+                      icon: Icons.call_outlined,
+                      tooltip: 'Audio call',
+                      // The tap target still clamps up to the 48dp minimum
+                      // (see LiquidGlassIconButton), but the drawn glass
+                      // circle is now visibly smaller than the 44pt header
+                      // avatar instead of matching/exceeding it, so the
+                      // avatar reads as the header's primary element.
+                      size: 44,
+                      visualSize: 34,
+                      // The app bar is a fixed, non-overlapping toolbar here
+                      // (not a floating sliver over scrolling content), so
+                      // there is no real content behind it for a blur to
+                      // reveal.
+                      blurred: false,
+                      onTap: () {
+                        startCallFlow(
+                          context,
+                          controller: widget.callsController,
+                          contact: _callContactForThread(thread),
+                          type: CallType.audio,
+                        );
+                      },
+                    ),
+                    const SizedBox(width: 4),
+                    LiquidGlassIconButton(
+                      icon: Icons.videocam_outlined,
+                      tooltip: 'Video call',
+                      size: 44,
+                      visualSize: 34,
+                      blurred: false,
+                      onTap: () {
+                        startCallFlow(
+                          context,
+                          controller: widget.callsController,
+                          contact: _callContactForThread(thread),
+                          type: CallType.video,
+                        );
+                      },
+                    ),
+                    const SizedBox(width: 8),
+                  ],
           ),
           body: SafeArea(
             // The composer's own surface color, not SafeArea's reserved gap,
@@ -359,7 +453,12 @@ class _ConversationScreenState extends State<ConversationScreen> {
                         final shouldShowDayChip = previous == null ||
                             !_isSameDay(previous.sentAt, message.sentAt);
 
-                        return Column(
+                        return KeyedSubtree(
+                          key: _messageKeys.putIfAbsent(
+                            message.id,
+                            GlobalKey.new,
+                          ),
+                          child: Column(
                           children: [
                             if (shouldShowDayChip)
                               Padding(
@@ -375,6 +474,8 @@ class _ConversationScreenState extends State<ConversationScreen> {
                               child: _MessageBubble(
                                 thread: thread,
                                 message: message,
+                                isHighlighted:
+                                    message.id == _highlightedMessageId,
                                 onRetryTap: message.isFromCurrentUser &&
                                         message.deliveryState ==
                                             MessageDeliveryState.failed &&
@@ -421,6 +522,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
                               // next bubble instead of touching it.
                               SizedBox(height: message.hasReactions ? 30 : 12),
                           ],
+                          ),
                         );
                         },
                         ),
@@ -484,6 +586,77 @@ class _ConversationScreenState extends State<ConversationScreen> {
       story: story,
       chatsController: widget.controller,
     );
+  }
+
+  void _onSearchQueryChanged(String value) {
+    setState(() => _searchQuery = value);
+    // Defaults to the most recent match (last index, chronological order)
+    // and jumps straight to it, matching WhatsApp's own in-chat search --
+    // reads the freshly-set query via _currentSearchMatches rather than a
+    // stale build()-time list.
+    final matches = _currentSearchMatches();
+    setState(() => _searchMatchCursor = matches.isEmpty ? 0 : matches.length - 1);
+    if (matches.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _jumpToMessage(matches.last.id);
+        }
+      });
+    }
+  }
+
+  void _closeSearch() {
+    setState(() {
+      _isSearching = false;
+      _searchQuery = '';
+      _searchMatchCursor = 0;
+      _searchController.clear();
+    });
+    FocusScope.of(context).unfocus();
+  }
+
+  void _goToSearchMatch(List<ChatMessage> matches, int rawIndex) {
+    if (matches.isEmpty) {
+      return;
+    }
+    final index = rawIndex.clamp(0, matches.length - 1);
+    setState(() => _searchMatchCursor = index);
+    _jumpToMessage(matches[index].id);
+  }
+
+  List<ChatMessage> _currentSearchMatches() {
+    final thread = widget.controller.threadById(widget.threadId);
+    final trimmedQuery = _searchQuery.trim().toLowerCase();
+    if (thread == null || trimmedQuery.isEmpty) {
+      return const <ChatMessage>[];
+    }
+    return _visibleMessagesForThread(thread)
+        .where((candidate) =>
+            candidate.hasText &&
+            candidate.text.toLowerCase().contains(trimmedQuery))
+        .toList(growable: false);
+  }
+
+  void _jumpToMessage(String messageId) {
+    final key = _messageKeys[messageId];
+    final targetContext = key?.currentContext;
+    if (targetContext == null) {
+      return;
+    }
+    Scrollable.ensureVisible(
+      targetContext,
+      alignment: 0.5,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOut,
+    );
+
+    _highlightClearTimer?.cancel();
+    setState(() => _highlightedMessageId = messageId);
+    _highlightClearTimer = Timer(const Duration(milliseconds: 1200), () {
+      if (mounted) {
+        setState(() => _highlightedMessageId = null);
+      }
+    });
   }
 
   Future<void> _openContactInfo(String threadId) {
@@ -1771,10 +1944,16 @@ class _MessageBubble extends StatelessWidget {
     this.onRetryTap,
     this.isStoryReplyAvailable = false,
     this.onStoryReplyCardTap,
+    this.isHighlighted = false,
   });
 
   final ChatThread thread;
   final ChatMessage message;
+
+  /// Briefly true right after in-conversation search jumps to this message
+  /// -- see ConversationScreen._jumpToMessage -- so the reader can spot
+  /// which bubble the search landed on.
+  final bool isHighlighted;
   final ValueChanged<ChatAttachment> onAttachmentTap;
   final ValueChanged<String> onReactionTap;
   final ValueChanged<MessageAction> onAction;
@@ -1826,17 +2005,26 @@ class _MessageBubble extends StatelessWidget {
               children: [
                 ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 320),
-                  child: Container(
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 300),
                     decoration: BoxDecoration(
-                      color: bubbleColor,
+                      color: isHighlighted
+                          ? Color.alphaBlend(
+                              theme.colorScheme.primary.withValues(alpha: 0.22),
+                              bubbleColor,
+                            )
+                          : bubbleColor,
                       border: Border.all(
-                        color: isFailed
-                            ? theme.colorScheme.error.withValues(alpha: 0.22)
-                            : isMine
-                                ? theme.colorScheme.primary
-                                    .withValues(alpha: 0.14)
-                                : theme.colorScheme.outlineVariant
-                                    .withValues(alpha: 0.18),
+                        width: isHighlighted ? 2 : 1,
+                        color: isHighlighted
+                            ? theme.colorScheme.primary
+                            : isFailed
+                                ? theme.colorScheme.error.withValues(alpha: 0.22)
+                                : isMine
+                                    ? theme.colorScheme.primary
+                                        .withValues(alpha: 0.14)
+                                    : theme.colorScheme.outlineVariant
+                                        .withValues(alpha: 0.18),
                       ),
                       borderRadius: BorderRadius.only(
                         topLeft: const Radius.circular(20),

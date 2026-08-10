@@ -580,6 +580,53 @@ void main() {
   });
 
   testWidgets(
+      'in-conversation search finds matches, steps between them, and closes '
+      'back to the normal header', (tester) async {
+    await _pumpChatsScreen(
+      tester,
+      device: iphoneProProfile,
+      controller: ChatsController(
+        repository: FakeChatRepository(latency: Duration.zero),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('chat_tile_design-sprint')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Design Sprint'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('conversation_search_open_button')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('conversation_search_field')), findsOneWidget);
+    expect(find.text('Design Sprint'), findsNothing);
+
+    await tester.enterText(
+      find.byKey(const Key('conversation_search_field')),
+      'the',
+    );
+    await tester.pumpAndSettle();
+
+    // "Pinned the revised motion notes in Figma." and "Added the rollout
+    // checklist too." both contain "the" -- defaults to the most recent
+    // (2nd) match.
+    expect(find.text('2/2'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const Key('conversation_search_previous_button')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('1/2'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('conversation_search_close_button')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('conversation_search_field')), findsNothing);
+    expect(find.text('Design Sprint'), findsOneWidget);
+  });
+
+  testWidgets(
       'contact info: clears chat, then blocks and hides the composer',
       (tester) async {
     await _pumpChatsScreen(
