@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker_platform_interface/image_picker_platform_interface.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:whatswave/app/theme/app_theme.dart';
 import 'package:whatswave/core/permissions/app_permission_service.dart';
 import 'package:whatswave/core/permissions/device_location_service.dart';
@@ -28,6 +29,11 @@ import '../../../support/fake_image_picker_platform.dart';
 void main() {
   setUp(() {
     ImagePickerPlatform.instance = FakeImagePickerPlatform();
+    // The full-screen emoji picker (EmojiReactionPickerScreen) persists
+    // recent emoji via shared_preferences -- without mock initial values,
+    // that read throws in the test environment and the picker never leaves
+    // its loading state.
+    SharedPreferences.setMockInitialValues(<String, Object>{});
   });
 
   for (final device in compactDeviceMatrix) {
@@ -271,8 +277,8 @@ void main() {
   });
 
   testWidgets(
-      'the reaction tray\'s + button reacts with a custom emoji from the '
-      'keyboard sheet', (tester) async {
+      'the reaction tray\'s + button opens a full-screen emoji picker and '
+      'reacts with the tapped emoji', (tester) async {
     await _pumpChatsScreen(
       tester,
       device: iphoneProProfile,
@@ -293,15 +299,23 @@ void main() {
     await tester.tap(find.byKey(const Key('reaction_option_custom')));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('reaction_custom_emoji_field')), findsOneWidget);
-    // Typing an emoji reacts and closes the sheet immediately -- no
-    // separate submit button.
-    await tester.enterText(
-      find.byKey(const Key('reaction_custom_emoji_field')),
-      '🦄',
+    // Full-screen picker (search, recent, categories, grid), not a bottom
+    // sheet -- search down to a single unambiguous result and tap it.
+    expect(
+      find.byKey(const Key('emoji_reaction_picker_screen')),
+      findsOneWidget,
     );
+    await tester.tap(find.byIcon(Icons.search));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'unicorn');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('🦄'));
     await tester.pumpAndSettle();
 
+    expect(
+      find.byKey(const Key('emoji_reaction_picker_screen')),
+      findsNothing,
+    );
     expect(find.text('🦄'), findsOneWidget);
   });
 

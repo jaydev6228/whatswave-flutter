@@ -27,6 +27,7 @@ import '../domain/chat_thread.dart';
 import '../domain/message_reaction.dart';
 import 'attachment_viewer_screen.dart';
 import 'contact_info_screen.dart';
+import 'widgets/emoji_reaction_picker_screen.dart';
 import 'widgets/location_map_preview.dart';
 import 'widgets/video_thumbnail_source.dart';
 import 'widgets/voice_note_bubble.dart';
@@ -1691,56 +1692,11 @@ class _MessageBubble extends StatelessWidget {
   }
 
   /// The 6 quick-react emoji cover WhatsApp's own defaults, but not every
-  /// reaction someone wants -- this hands off to the OS's own keyboard
-  /// (its emoji key/panel already has every emoji this app would otherwise
-  /// need to bundle its own picker for) rather than building a whole emoji
-  /// database/picker widget just for this.
-  Future<String?> _showCustomEmojiSheet(BuildContext context) async {
-    // Just the field -- no title, no separate submit button. Picking an
-    // emoji on the keyboard immediately reacts with it and closes, the
-    // same one-tap flow as tapping a quick-react emoji, matching how other
-    // apps' "+" reaction button works instead of adding an extra
-    // confirmation step.
-    final result = await showModalBottomSheet<String>(
-      context: context,
-      isScrollControlled: true,
-      builder: (sheetContext) {
-        return Padding(
-          padding: EdgeInsets.fromLTRB(
-            20,
-            20,
-            20,
-            MediaQuery.viewInsetsOf(sheetContext).bottom + 20,
-          ),
-          child: TextField(
-            key: const Key('reaction_custom_emoji_field'),
-            autofocus: true,
-            textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 32),
-            decoration: const InputDecoration(
-              hintText: '🙂',
-              border: OutlineInputBorder(),
-            ),
-            onChanged: (value) {
-              final trimmed = value.trim();
-              if (trimmed.isNotEmpty) {
-                Navigator.of(sheetContext).pop(trimmed);
-              }
-            },
-            onSubmitted: (value) =>
-                Navigator.of(sheetContext).pop(value.trim()),
-          ),
-        );
-      },
-    );
-    final trimmed = result?.trim();
-    if (trimmed == null || trimmed.isEmpty) {
-      return null;
-    }
-    // Defensive cap -- this field is meant to hold one short emoji (or a
-    // short multi-codepoint sequence like a flag/ZWJ combo), not arbitrary
-    // pasted text.
-    return trimmed.length > 8 ? trimmed.substring(0, 8) : trimmed;
+  /// reaction someone wants -- this opens a full emoji keyboard (search,
+  /// recent, categories, grid) instead of relying on the OS keyboard's own
+  /// emoji panel.
+  Future<String?> _showCustomEmojiSheet(BuildContext context) {
+    return EmojiReactionPickerScreen.show(context);
   }
 
   /// Photo/video attachments render full-bleed (a grid when more than one

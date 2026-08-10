@@ -72,6 +72,11 @@ dependencies:
   # Real microphone recording for voice notes (AVAudioRecorder on iOS,
   # MediaRecorder on Android) -- handles its own mic-permission request.
   record: ^6.1.1
+  # Full emoji-keyboard-style picker (search, recent, categories, grid) for
+  # the reaction tray's "+" button -- pure Dart/Flutter widget, no native
+  # platform code, so it carries none of this project's past native-build
+  # risk (see file_picker/get_video_thumbnail comments above).
+  emoji_picker_flutter: ^4.3.0
 
 dev_dependencies:
   flutter_test:
