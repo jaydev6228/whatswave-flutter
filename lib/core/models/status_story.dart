@@ -552,6 +552,7 @@ class StatusStory {
     this.segments = const <StatusStorySegment>[],
     this.postedAt,
     this.avatarUrl,
+    this.viewerCount = 0,
   });
 
   final String id;
@@ -570,6 +571,14 @@ class StatusStory {
   final int totalSegments;
   final int seenSegments;
   final List<StatusStorySegment> segments;
+
+  /// How many distinct people have viewed this story -- only ever
+  /// meaningful (and populated) for [isMine] stories; always 0 for
+  /// someone else's, since a viewer never gets to see who else viewed.
+  /// Purely a live read-time value (see FirestoreUpdatesRepository's
+  /// _storyFromDoc) -- deliberately excluded from [toJson] so it's never
+  /// persisted back onto the story document itself.
+  final int viewerCount;
 
   /// When the latest segment was posted -- kept in sync with
   /// latestSegment.postedAt wherever a story is built/updated. Mirrored
@@ -631,6 +640,7 @@ class StatusStory {
     DateTime? postedAt,
     String? avatarUrl,
     bool clearAvatarUrl = false,
+    int? viewerCount,
   }) {
     return StatusStory(
       id: id ?? this.id,
@@ -648,6 +658,7 @@ class StatusStory {
       ),
       postedAt: postedAt ?? this.postedAt,
       avatarUrl: clearAvatarUrl ? null : avatarUrl ?? this.avatarUrl,
+      viewerCount: viewerCount ?? this.viewerCount,
     );
   }
 

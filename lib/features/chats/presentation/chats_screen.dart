@@ -12,6 +12,7 @@ import '../../shared/widgets/avatar_badge.dart';
 import '../../shared/widgets/empty_state_card.dart';
 import '../../shared/widgets/error_dialog.dart';
 import '../../shared/widgets/liquid_glass.dart';
+import '../../shared/widgets/search_field.dart';
 import '../../shared/widgets/swipe_action_background.dart';
 import '../../updates/application/updates_controller.dart';
 import '../../updates/presentation/status_compose_actions.dart';
@@ -143,6 +144,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
                     padding: const EdgeInsets.only(bottom: 4),
                     child: _StatusStrip(
                       controller: widget.updatesController,
+                      chatsController: widget.controller,
                       imagePicker: _imagePicker,
                       currentUser: widget.authController.currentUser,
                     ),
@@ -159,62 +161,14 @@ class _ChatsScreenState extends State<ChatsScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        TextField(
-                          key: const Key('chat_search_field'),
+                        SearchField(
+                          fieldKey: const Key('chat_search_field'),
                           controller: _searchController,
                           focusNode: _searchFocusNode,
-                          textInputAction: TextInputAction.search,
+                          hintText: 'Search',
                           onTapOutside: (_) => _dismissSearchFocus(),
                           onChanged: widget.controller.updateSearchQuery,
-                          decoration: InputDecoration(
-                            hintText: 'Search',
-                            isDense: true,
-                            filled: true,
-                            fillColor: theme.colorScheme.surfaceContainerHighest
-                                .withValues(
-                                    alpha: theme.brightness == Brightness.dark
-                                        ? 0.24
-                                        : 0.56),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 9,
-                            ),
-                            prefixIcon: const Icon(Icons.search_rounded),
-                            prefixIconConstraints: const BoxConstraints(
-                              minWidth: 40,
-                              minHeight: 40,
-                            ),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(14),
-                              borderSide: BorderSide.none,
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(14),
-                              borderSide: BorderSide(
-                                color: theme.colorScheme.outlineVariant
-                                    .withValues(alpha: 0.3),
-                              ),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(14),
-                              borderSide: BorderSide(
-                                color: theme.colorScheme.primary
-                                    .withValues(alpha: 0.68),
-                              ),
-                            ),
-                            suffixIcon: _searchController.text.trim().isEmpty
-                                ? null
-                                : IconButton(
-                                    tooltip: 'Clear search',
-                                    onPressed: () {
-                                      _dismissSearchFocus();
-                                      _searchController.clear();
-                                      widget.controller.updateSearchQuery('');
-                                      setState(() {});
-                                    },
-                                    icon: const Icon(Icons.close_rounded),
-                                  ),
-                          ),
+                          onClear: _dismissSearchFocus,
                         ),
                         const SizedBox(height: 10),
                         // No fixed height here (was SizedBox(height: 34)) --
@@ -395,6 +349,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
       context,
       controller: widget.updatesController,
       story: story,
+      chatsController: widget.controller,
     );
   }
 
@@ -560,7 +515,6 @@ class _ArchivedChatsScreenState extends State<ArchivedChatsScreen> {
         widget.updatesController,
       ]),
       builder: (context, _) {
-        final theme = Theme.of(context);
         final archivedThreads = widget.controller.archivedThreads(
           query: _searchController.text,
         );
@@ -591,58 +545,11 @@ class _ArchivedChatsScreenState extends State<ArchivedChatsScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        TextField(
-                          key: const Key('archived_chats_search_field'),
+                        SearchField(
+                          fieldKey: const Key('archived_chats_search_field'),
                           controller: _searchController,
+                          hintText: 'Search archived chats',
                           onChanged: (_) => setState(() {}),
-                          textInputAction: TextInputAction.search,
-                          decoration: InputDecoration(
-                            hintText: 'Search archived chats',
-                            isDense: true,
-                            filled: true,
-                            fillColor: theme.colorScheme.surfaceContainerHighest
-                                .withValues(
-                              alpha: theme.brightness == Brightness.dark
-                                  ? 0.24
-                                  : 0.56,
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 9,
-                            ),
-                            prefixIcon: const Icon(Icons.search_rounded),
-                            prefixIconConstraints: const BoxConstraints(
-                              minWidth: 40,
-                              minHeight: 40,
-                            ),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(14),
-                              borderSide: BorderSide.none,
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(14),
-                              borderSide: BorderSide(
-                                color: theme.colorScheme.outlineVariant
-                                    .withValues(alpha: 0.3),
-                              ),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(14),
-                              borderSide: BorderSide(
-                                color: theme.colorScheme.primary
-                                    .withValues(alpha: 0.68),
-                              ),
-                            ),
-                            suffixIcon: _searchController.text.trim().isEmpty
-                                ? null
-                                : IconButton(
-                                    onPressed: () {
-                                      _searchController.clear();
-                                      setState(() {});
-                                    },
-                                    icon: const Icon(Icons.close_rounded),
-                                  ),
-                          ),
                         ),
                       ],
                     ),
@@ -743,6 +650,7 @@ class _ArchivedChatsScreenState extends State<ArchivedChatsScreen> {
       context,
       controller: widget.updatesController,
       story: story,
+      chatsController: widget.controller,
     );
   }
 }
@@ -1348,11 +1256,13 @@ String _threadTimeLabel(DateTime? date) {
 class _StatusStrip extends StatelessWidget {
   const _StatusStrip({
     required this.controller,
+    required this.chatsController,
     required this.imagePicker,
     required this.currentUser,
   });
 
   final UpdatesController controller;
+  final ChatsController chatsController;
   final ImagePicker imagePicker;
 
   /// Backs the "My status" circle's initials/photo fallback for a user who
@@ -1385,6 +1295,7 @@ class _StatusStrip extends StatelessWidget {
                       context,
                       controller: controller,
                       story: myStatus,
+                      chatsController: chatsController,
                     )
                 : null,
             onAdd: () => showStatusComposeChoice(context, controller, imagePicker),
@@ -1397,6 +1308,7 @@ class _StatusStrip extends StatelessWidget {
                 context,
                 controller: controller,
                 story: story,
+                chatsController: chatsController,
               ),
             ),
           ],

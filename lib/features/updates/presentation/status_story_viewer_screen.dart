@@ -6,6 +6,7 @@ import 'package:video_player/video_player.dart';
 
 import '../../../app/theme/app_palette.dart';
 import '../../../core/models/status_story.dart';
+import '../../chats/application/chats_controller.dart';
 import '../../shared/widgets/avatar_badge.dart';
 import '../../shared/widgets/error_dialog.dart';
 import 'widgets/status_media_decoration_overlay.dart';
@@ -33,6 +34,7 @@ class StatusStoryViewerScreen extends StatefulWidget {
     this.segmentDurationOverride,
     this.initialSegmentIndex,
     this.onDeleteSegment,
+    this.chatsController,
     super.key,
   });
 
@@ -44,6 +46,13 @@ class StatusStoryViewerScreen extends StatefulWidget {
     StatusStory story,
     StatusStorySegment segment,
   )? onDeleteSegment;
+
+  /// Lets the viewer reply to (or heart-react to) someone else's story --
+  /// sent as a real direct message to them, the same as WhatsApp's own
+  /// status reply. Null (the default) hides the reply bar entirely --
+  /// only call sites with a ChatsController in scope pass one; viewing
+  /// your own story never shows a reply bar regardless.
+  final ChatsController? chatsController;
 
   @override
   State<StatusStoryViewerScreen> createState() =>
@@ -73,6 +82,9 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
   bool _isDeletingSegment = false;
   bool _isMuted = false;
   late StatusStory _storyData;
+  final TextEditingController _replyController = TextEditingController();
+  final FocusNode _replyFocusNode = FocusNode();
+  bool _isSendingReply = false;
 
   StatusStory get _story => _storyData;
   int get _segmentCount => math.max(_story.totalSegments, 1);
@@ -127,6 +139,16 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
       ..addListener(_handleProgressTick)
       ..addStatusListener(_handleProgressStatusChange);
     _startCurrentSegmentPlayback();
+    // Typing a reply should pause the story the same way a long-press hold
+    // does -- otherwise the segment advances (or the story closes) out from
+    // under someone mid-reply.
+    _replyFocusNode.addListener(() {
+      if (_replyFocusNode.hasFocus) {
+        _pausePlaybackForHold();
+      } else {
+        _resumePlaybackFromHold();
+      }
+    });
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) {
@@ -143,6 +165,8 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
       ..removeListener(_handleProgressTick)
       ..removeStatusListener(_handleProgressStatusChange)
       ..dispose();
+    _replyController.dispose();
+    _replyFocusNode.dispose();
     unawaited(_disposeVideoController());
     unawaited(_disposeMusicController());
     super.dispose();
@@ -514,6 +538,54 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
     widget.onStoryViewed(_story.copyWith(seenSegments: seenSegments));
   }
 
+  /// Sends [text] as a real direct message to the story's owner -- the
+  /// same as WhatsApp's own status reply, including the heart quick-react
+  /// (which just sends '❤️' the same way). Starts or reuses the 1:1 thread
+  /// with them first.
+  Future<void> _sendReply(String text) async {
+    final chatsController = widget.chatsController;
+    final trimmed = text.trim();
+    if (chatsController == null ||
+        trimmed.isEmpty ||
+        _isSendingReply ||
+        _story.isMine) {
+      return;
+    }
+
+    setState(() => _isSendingReply = true);
+    final threadId = await chatsController.startThreadWith(
+      participantUid: _story.id,
+      participantName: _story.name,
+      avatarLabel: _story.avatarLabel,
+      accentColor: _story.accentColor,
+    );
+    final didSend = threadId != null &&
+        await chatsController.sendTextMessage(
+          threadId: threadId,
+          text: trimmed,
+        );
+
+    if (!mounted) {
+      return;
+    }
+    setState(() => _isSendingReply = false);
+    if (didSend) {
+      _replyController.clear();
+      _replyFocusNode.unfocus();
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          didSend
+              ? 'Reply sent to ${_story.name}'
+              : chatsController.errorMessage ??
+                  'We could not send that reply right now.',
+        ),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
   Future<void> _deleteCurrentSegmentWithConfirmation() async {
     final onDeleteSegment = widget.onDeleteSegment;
     final segment = _currentSegment;
@@ -821,7 +893,15 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                story.relativeTimeLabel,
+                                story.isMine
+                                    ? '${story.relativeTimeLabel} • ${story.viewerCount} '
+                                        '${story.viewerCount == 1 ? 'view' : 'views'}'
+                                    : story.relativeTimeLabel,
+                                key: story.isMine
+                                    ? const Key('updates_story_viewer_count')
+                                    : null,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                                 style: theme.textTheme.bodySmall?.copyWith(
                                   color: Colors.white.withValues(alpha: 0.72),
                                 ),
@@ -879,6 +959,14 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
                       ],
                     ),
                     const Spacer(),
+                    if (!story.isMine && widget.chatsController != null)
+                      _StoryReplyBar(
+                        recipientName: story.name,
+                        controller: _replyController,
+                        focusNode: _replyFocusNode,
+                        isSending: _isSendingReply,
+                        onSend: _sendReply,
+                      ),
                   ],
                 ),
               ),
@@ -1126,6 +1214,161 @@ class _FallbackStoryCard extends StatelessWidget {
       StatusStoryType.photo => 'Photo update',
       StatusStoryType.video => 'Video clip',
     };
+  }
+}
+
+/// A WhatsApp-style bottom reply bar for someone else's story -- a text
+/// field that sends a real direct message to them, plus a heart quick-react
+/// (sends '❤️' the same way with a single tap, no typing required).
+class _StoryReplyBar extends StatelessWidget {
+  const _StoryReplyBar({
+    required this.recipientName,
+    required this.controller,
+    required this.focusNode,
+    required this.isSending,
+    required this.onSend,
+  });
+
+  final String recipientName;
+  final TextEditingController controller;
+  final FocusNode focusNode;
+  final bool isSending;
+  final ValueChanged<String> onSend;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Expanded(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 44),
+              child: TextField(
+                key: const Key('updates_story_reply_field'),
+                controller: controller,
+                focusNode: focusNode,
+                minLines: 1,
+                maxLines: 4,
+                textInputAction: TextInputAction.send,
+                style: const TextStyle(color: Colors.white),
+                cursorColor: Colors.white,
+                onSubmitted: isSending ? null : onSend,
+                decoration: InputDecoration(
+                  isDense: true,
+                  hintText: 'Reply to $recipientName…',
+                  hintStyle: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.6),
+                  ),
+                  filled: true,
+                  fillColor: Colors.black.withValues(alpha: 0.22),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 11,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(24),
+                    borderSide: BorderSide(
+                      color: Colors.white.withValues(alpha: 0.28),
+                    ),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(24),
+                    borderSide: BorderSide(
+                      color: Colors.white.withValues(alpha: 0.28),
+                    ),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(24),
+                    borderSide: const BorderSide(color: Colors.white),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          _StoryReplyActionButton(
+            actionKey: const Key('updates_story_heart_react_button'),
+            tooltip: 'Send a heart',
+            onPressed: isSending ? null : () => onSend('❤️'),
+            child: const Icon(
+              Icons.favorite_rounded,
+              color: Colors.white,
+              size: 22,
+            ),
+          ),
+          const SizedBox(width: 4),
+          ValueListenableBuilder<TextEditingValue>(
+            valueListenable: controller,
+            builder: (context, value, _) {
+              final canSend = value.text.trim().isNotEmpty && !isSending;
+              return _StoryReplyActionButton(
+                actionKey: const Key('updates_story_reply_send_button'),
+                tooltip: 'Send',
+                onPressed: canSend ? () => onSend(value.text) : null,
+                child: isSending
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : Icon(
+                        Icons.send_rounded,
+                        color: Colors.white.withValues(alpha: canSend ? 1 : 0.4),
+                        size: 20,
+                      ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A 44x44 tap target for the reply bar's own action buttons (heart, send)
+/// -- distinct from [_StoryIconButton]'s 32x32 (that one's an established
+/// pattern already used by the top row's mute/delete/close; this one is new
+/// chrome, so it follows docs/ui_layout_guidelines.md rule 7 properly).
+class _StoryReplyActionButton extends StatelessWidget {
+  const _StoryReplyActionButton({
+    required this.child,
+    required this.onPressed,
+    this.tooltip,
+    this.actionKey,
+  });
+
+  final Widget child;
+  final VoidCallback? onPressed;
+  final String? tooltip;
+  final Key? actionKey;
+
+  @override
+  Widget build(BuildContext context) {
+    final button = Material(
+      color: Colors.black.withValues(alpha: 0.22),
+      shape: const CircleBorder(),
+      child: InkWell(
+        key: actionKey,
+        onTap: onPressed,
+        customBorder: const CircleBorder(),
+        canRequestFocus: false,
+        child: SizedBox(
+          width: 44,
+          height: 44,
+          child: Center(child: child),
+        ),
+      ),
+    );
+
+    if (tooltip == null || tooltip!.isEmpty) {
+      return button;
+    }
+    return Tooltip(message: tooltip, child: button);
   }
 }
 

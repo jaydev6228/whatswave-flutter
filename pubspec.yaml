@@ -89,6 +89,26 @@ flutter:
   assets:
     - assets/audio/status_music/
     - assets/media/status_demo/
+  # The single UI typeface for the whole app (see AppTheme._uiFontFamily).
+  # Bundled locally instead of via the google_fonts package's runtime HTTP
+  # fetch -- that fetch needs a live Flutter binding (breaks plain `test()`
+  # theme unit tests) and a network round-trip on first launch, neither of
+  # which fits an otherwise fully offline-capable theme. InterVariable.ttf
+  # is a single variable-weight file; declaring it once per weight actually
+  # used lets Skia render the correct instance for each.
+  fonts:
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/inter/InterVariable.ttf
+          weight: 400
+        - asset: assets/fonts/inter/InterVariable.ttf
+          weight: 500
+        - asset: assets/fonts/inter/InterVariable.ttf
+          weight: 600
+        - asset: assets/fonts/inter/InterVariable.ttf
+          weight: 700
+        - asset: assets/fonts/inter/InterVariable.ttf
+          weight: 800
 
 flutter_twemoji:
   includes:

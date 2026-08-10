@@ -9,6 +9,7 @@ import '../../chats/presentation/conversation_screen.dart';
 import '../../shared/widgets/avatar_badge.dart';
 import '../../shared/widgets/empty_state_card.dart';
 import '../../shared/widgets/error_dialog.dart';
+import '../../shared/widgets/search_field.dart';
 import '../../updates/application/updates_controller.dart';
 import '../application/communities_controller.dart';
 import '../domain/app_invite_link.dart';
@@ -410,22 +411,12 @@ class _CommunityDetailInviteSheetState
                         ),
                   ),
                   const SizedBox(height: 16),
-                  TextField(
-                    key: const Key('community_detail_invite_search_field'),
+                  SearchField(
+                    fieldKey:
+                        const Key('community_detail_invite_search_field'),
                     controller: _searchController,
-                    textInputAction: TextInputAction.search,
+                    hintText: 'Search contacts, numbers, or notes',
                     onTapOutside: (_) => FocusScope.of(context).unfocus(),
-                    decoration: InputDecoration(
-                      isDense: true,
-                      prefixIcon: const Icon(Icons.search_rounded),
-                      hintText: 'Search contacts, numbers, or notes',
-                      suffixIcon: _searchController.text.trim().isEmpty
-                          ? null
-                          : IconButton(
-                              onPressed: _searchController.clear,
-                              icon: const Icon(Icons.close_rounded),
-                            ),
-                    ),
                   ),
                   const SizedBox(height: 16),
                   Expanded(

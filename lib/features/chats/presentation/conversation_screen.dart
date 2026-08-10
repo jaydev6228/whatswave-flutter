@@ -264,7 +264,13 @@ class _ConversationScreenState extends State<ConversationScreen> {
               LiquidGlassIconButton(
                 icon: Icons.call_outlined,
                 tooltip: 'Audio call',
-                size: 40,
+                // The tap target still clamps up to the 48dp minimum (see
+                // LiquidGlassIconButton), but the drawn glass circle is now
+                // visibly smaller than the 44pt header avatar instead of
+                // matching/exceeding it, so the avatar reads as the
+                // header's primary element.
+                size: 44,
+                visualSize: 34,
                 // The app bar is a fixed, non-overlapping toolbar here (not
                 // a floating sliver over scrolling content), so there is no
                 // real content behind it for a blur to reveal.
@@ -278,11 +284,12 @@ class _ConversationScreenState extends State<ConversationScreen> {
                   );
                 },
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 4),
               LiquidGlassIconButton(
                 icon: Icons.videocam_outlined,
                 tooltip: 'Video call',
-                size: 40,
+                size: 44,
+                visualSize: 34,
                 blurred: false,
                 onTap: () {
                   startCallFlow(
@@ -386,7 +393,13 @@ class _ConversationScreenState extends State<ConversationScreen> {
                               ),
                             ),
                             if (index != visibleMessages.length - 1)
-                              const SizedBox(height: 12),
+                              // A reacted message's badge overlaps 12px
+                              // below its own bubble (see _ReactionBadge's
+                              // Positioned(bottom: -12) above) -- with the
+                              // badge now opaque instead of transparent, it
+                              // needs real clearance from the next bubble
+                              // instead of touching it.
+                              SizedBox(height: message.hasReactions ? 22 : 12),
                           ],
                         );
                         },
@@ -425,6 +438,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
       context,
       controller: widget.updatesController,
       story: story,
+      chatsController: widget.controller,
     );
   }
 
@@ -1619,8 +1633,13 @@ class _MessageBubble extends StatelessWidget {
                 if (message.hasReactions)
                   Positioned(
                     bottom: -12,
-                    right: isMine ? 8 : null,
-                    left: isMine ? null : 8,
+                    // Negative (hanging outside the bubble's corner) rather
+                    // than a positive inset -- now that the badge is opaque
+                    // instead of transparent, an inward offset sat directly
+                    // on top of the timestamp text in that corner. Hanging
+                    // off the corner instead keeps the badge clear of it.
+                    right: isMine ? -6 : null,
+                    left: isMine ? null : -6,
                     child: _ReactionBadge(reactions: message.reactions),
                   ),
               ],
@@ -1696,7 +1715,7 @@ class _MessageBubble extends StatelessWidget {
   /// recent, categories, grid) instead of relying on the OS keyboard's own
   /// emoji panel.
   Future<String?> _showCustomEmojiSheet(BuildContext context) {
-    return EmojiReactionPickerScreen.show(context);
+    return EmojiReactionPickerSheet.show(context);
   }
 
   /// Photo/video attachments render full-bleed (a grid when more than one
@@ -1877,29 +1896,49 @@ class _ReactionBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     final distinctEmojis = reactions.values.toSet().toList(growable: false);
 
-    // No pill/surface background -- the emoji glyphs read fine directly
-    // against whatever sits behind them, and the badge looked visually
-    // disconnected from the bubble it's overlapping with one.
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          for (final emoji in distinctEmojis)
-            Text(emoji, style: const TextStyle(fontSize: 13)),
-          if (reactions.length > 1) ...[
-            const SizedBox(width: 3),
-            Text(
-              '${reactions.length}',
-              style: theme.textTheme.labelSmall?.copyWith(
-                fontWeight: FontWeight.w700,
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.72),
-              ),
-            ),
-          ],
+    // A fully opaque pill (not the earlier translucent glass, which read as
+    // background-less/disconnected) so the badge stays legible over any
+    // bubble color. Matches the page background rather than the bubble --
+    // like iMessage's tapback bubble, it should read as floating in front
+    // of the chat, not tinted by whatever bubble it's overlapping.
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF2C2C2E) : Colors.white,
+        borderRadius: BorderRadius.circular(999),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.36 : 0.14),
+            blurRadius: 5,
+            offset: const Offset(0, 1),
+          ),
         ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final emoji in distinctEmojis)
+              // Sized to match the emoji picker sheet's own grid glyphs
+              // (EmojiViewConfig.emojiSizeMax: 30 in
+              // emoji_reaction_picker_screen.dart) so a reaction looks the
+              // same size here as it did when picked.
+              Text(emoji, style: const TextStyle(fontSize: 20)),
+            if (reactions.length > 1) ...[
+              const SizedBox(width: 4),
+              Text(
+                '${reactions.length}',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.72),
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

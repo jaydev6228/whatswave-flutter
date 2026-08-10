@@ -5,6 +5,7 @@ import '../../chats/application/chats_controller.dart';
 import '../../shared/widgets/avatar_badge.dart';
 import '../../shared/widgets/empty_state_card.dart';
 import '../../shared/widgets/liquid_glass.dart';
+import '../../shared/widgets/search_field.dart';
 import '../../updates/application/updates_controller.dart';
 import '../application/communities_controller.dart';
 import '../domain/community_hub.dart';
@@ -114,62 +115,11 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
                               ),
                             ],
                             const SizedBox(height: 12),
-                            TextField(
-                              key: const Key('communities_search_field'),
+                            SearchField(
+                              fieldKey: const Key('communities_search_field'),
                               controller: _searchController,
+                              hintText: 'Search communities',
                               onChanged: widget.controller.updateSearchQuery,
-                              textInputAction: TextInputAction.search,
-                              decoration: InputDecoration(
-                                prefixIcon: const Icon(Icons.search_rounded),
-                                isDense: true,
-                                filled: true,
-                                fillColor: theme
-                                    .colorScheme.surfaceContainerHighest
-                                    .withValues(
-                                  alpha: theme.brightness == Brightness.dark
-                                      ? 0.24
-                                      : 0.56,
-                                ),
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 14,
-                                  vertical: 9,
-                                ),
-                                prefixIconConstraints: const BoxConstraints(
-                                  minWidth: 40,
-                                  minHeight: 40,
-                                ),
-                                hintText: 'Search communities',
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(14),
-                                  borderSide: BorderSide.none,
-                                ),
-                                enabledBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(14),
-                                  borderSide: BorderSide(
-                                    color: theme.colorScheme.outlineVariant
-                                        .withValues(alpha: 0.3),
-                                  ),
-                                ),
-                                focusedBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(14),
-                                  borderSide: BorderSide(
-                                    color: theme.colorScheme.primary
-                                        .withValues(alpha: 0.68),
-                                  ),
-                                ),
-                                suffixIcon: _searchController.text
-                                        .trim()
-                                        .isEmpty
-                                    ? null
-                                    : IconButton(
-                                        onPressed: () {
-                                          _searchController.clear();
-                                          widget.controller
-                                              .updateSearchQuery('');
-                                        },
-                                        icon: const Icon(Icons.close_rounded),
-                                      ),
-                              ),
                             ),
                           ],
                         ),

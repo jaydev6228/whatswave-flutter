@@ -12,6 +12,7 @@ import '../../communities/domain/contact_access_status.dart';
 import '../../shared/widgets/avatar_badge.dart';
 import '../../shared/widgets/empty_state_card.dart';
 import '../../shared/widgets/error_dialog.dart';
+import '../../shared/widgets/search_field.dart';
 import '../application/chats_controller.dart';
 import 'new_group_screen.dart';
 
@@ -120,19 +121,11 @@ class _NewChatScreenState extends State<NewChatScreen>
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-                    child: TextField(
-                      key: const Key('new_chat_search_field'),
+                    child: SearchField(
+                      fieldKey: const Key('new_chat_search_field'),
                       controller: _searchController,
+                      hintText: 'Search name or number',
                       onChanged: (_) => setState(() {}),
-                      textInputAction: TextInputAction.search,
-                      decoration: InputDecoration(
-                        isDense: true,
-                        prefixIcon: const Icon(Icons.search_rounded),
-                        hintText: 'Search name or number',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
                     ),
                   ),
                 ),

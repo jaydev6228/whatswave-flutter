@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/models/status_story.dart';
+import '../../chats/application/chats_controller.dart';
 import '../application/updates_controller.dart';
 import 'status_story_viewer_screen.dart';
 
@@ -9,12 +10,14 @@ Future<void> openStatusStoryViewer(
   required UpdatesController controller,
   required StatusStory story,
   int? initialSegmentIndex,
+  ChatsController? chatsController,
 }) {
   return Navigator.of(context).push(
     MaterialPageRoute<void>(
       builder: (_) => StatusStoryViewerScreen(
         story: story,
         initialSegmentIndex: initialSegmentIndex,
+        chatsController: chatsController,
         onStoryViewed: (viewedStory) {
           controller.markStoryViewed(
             viewedStory.id,

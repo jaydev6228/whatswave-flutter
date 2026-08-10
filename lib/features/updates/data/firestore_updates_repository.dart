@@ -453,11 +453,23 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
       seenSegments = (viewDoc.data()?['seenSegments'] as num?)?.toInt() ?? 0;
     }
 
+    // How many distinct people have viewed -- only meaningful (and only
+    // readable, see firestore.rules) for the owner's own story. An
+    // aggregate count() query reads a single number, not every viewer's
+    // document, so this stays cheap even with a large audience.
+    var viewerCount = 0;
+    if (isMine && liveSegments.isNotEmpty) {
+      final countSnapshot =
+          await doc.reference.collection('views').count().get();
+      viewerCount = countSnapshot.count ?? 0;
+    }
+
     final freshStory = story.copyWith(
       segments: liveSegments,
       totalSegments: liveSegments.length,
       seenSegments:
           liveSegments.isEmpty ? 0 : seenSegments.clamp(0, liveSegments.length).toInt(),
+      viewerCount: viewerCount,
     );
 
     final profile =

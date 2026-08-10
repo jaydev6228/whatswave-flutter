@@ -103,6 +103,7 @@ class LiquidGlassIconButton extends StatelessWidget {
     required this.onTap,
     this.tooltip,
     this.size = 44,
+    this.visualSize,
     this.iconSize,
     this.iconColor,
     this.blurred = true,
@@ -119,6 +120,14 @@ class LiquidGlassIconButton extends StatelessWidget {
   final VoidCallback? onTap;
   final String? tooltip;
   final double size;
+
+  /// When set, the glass circle is drawn at this smaller size while the tap
+  /// target -- and the minimum accessible touch area enforced by [size] --
+  /// stays unchanged. For chrome that should look visually lighter without
+  /// shrinking below the 44x44pt/48x48dp minimum tap target (see
+  /// docs/ui_layout_guidelines.md rule 7). Defaults to null, i.e. the glass
+  /// circle fills the whole tap target exactly as before.
+  final double? visualSize;
   final double? iconSize;
   final Color? iconColor;
   final bool blurred;
@@ -142,13 +151,35 @@ class LiquidGlassIconButton extends StatelessWidget {
     final resolvedIconColor = iconColor ??
         (selected ? theme.colorScheme.primary : theme.colorScheme.onSurface);
 
-    final button = LiquidGlassSurface(
+    // Minimum 48x48dp tap target (docs/ui_layout_guidelines.md rule 7) even
+    // when the drawn circle itself is smaller.
+    final tapSize = size < 48 ? 48.0 : size;
+    final drawnSize = visualSize ?? tapSize;
+
+    final glass = LiquidGlassSurface(
       blurred: blurred,
       tintOpacityLight: selected ? 0.78 : 0.56,
       tintOpacityDark: selected ? 0.5 : 0.34,
       color: color,
       borderColor: borderColor,
       shadowColor: shadowColor,
+      child: SizedBox(
+        width: drawnSize,
+        height: drawnSize,
+        child: Center(
+          child: child ??
+              Icon(icon,
+                  size: iconSize ?? drawnSize * 0.44, color: resolvedIconColor),
+        ),
+      ),
+    );
+
+    final button = SizedBox(
+      // The tap target is always this SizedBox's full size -- the glass
+      // circle inside it may be drawn smaller (see [visualSize]) but never
+      // shrinks the actual hit region.
+      width: tapSize,
+      height: tapSize,
       child: Material(
         color: Colors.transparent,
         shape: const CircleBorder(),
@@ -170,16 +201,7 @@ class LiquidGlassIconButton extends StatelessWidget {
           // control tab traversal skips them, an acceptable tradeoff for an
           // icon-only action button.
           canRequestFocus: false,
-          child: SizedBox(
-            // Minimum 48x48dp tap target (docs/ui_layout_guidelines.md
-            // rule 7) even when the drawn circle itself is smaller.
-            width: size < 48 ? 48 : size,
-            height: size < 48 ? 48 : size,
-            child: Center(
-              child: child ??
-                  Icon(icon, size: iconSize ?? size * 0.44, color: resolvedIconColor),
-            ),
-          ),
+          child: Center(child: glass),
         ),
       ),
     );

@@ -3,6 +3,18 @@ import 'package:flutter/material.dart';
 import 'app_palette.dart';
 
 abstract final class AppTheme {
+  // The single UI typeface for the whole app -- every screen previously
+  // fell back to Flutter's unset-fontFamily default (bundled Roboto) with
+  // no deliberate choice made anywhere, which is what "1 or 2 families
+  // throughout the app" is asking to fix. Bundled locally as a real asset
+  // (see pubspec.yaml's fonts: entry) rather than fetched at runtime, so
+  // this is a plain synchronous string, not an async font lookup.
+  // Deliberate per-feature choices elsewhere (status text style presets'
+  // serif/monospace, the emoji font fallback, the document viewer's
+  // monospace) are content styling, not UI chrome, and are untouched by
+  // this.
+  static const String _uiFontFamily = 'Inter';
+
   static ThemeData lightTheme() {
     final colorScheme = ColorScheme.fromSeed(
       seedColor: AppPalette.emerald,
@@ -16,6 +28,7 @@ abstract final class AppTheme {
     return ThemeData(
       useMaterial3: true,
       colorScheme: colorScheme,
+      fontFamily: _uiFontFamily,
       scaffoldBackgroundColor: AppPalette.cloud,
       appBarTheme: const AppBarTheme(
         backgroundColor: Colors.transparent,
@@ -135,6 +148,7 @@ abstract final class AppTheme {
     return ThemeData(
       useMaterial3: true,
       colorScheme: colorScheme,
+      fontFamily: _uiFontFamily,
       scaffoldBackgroundColor: AppPalette.deepOcean,
       appBarTheme: const AppBarTheme(
         backgroundColor: Colors.transparent,

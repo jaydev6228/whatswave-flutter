@@ -4,6 +4,7 @@ import '../../communities/application/communities_controller.dart';
 import '../../communities/domain/community_contact.dart';
 import '../../shared/widgets/avatar_badge.dart';
 import '../../shared/widgets/empty_state_card.dart';
+import '../../shared/widgets/search_field.dart';
 import '../application/chats_controller.dart';
 
 /// Two-step group creation: select members, then name the group. Pops with
@@ -157,19 +158,11 @@ class _NewGroupScreenState extends State<NewGroupScreen> {
               children: [
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-                  child: TextField(
-                    key: const Key('new_group_search_field'),
+                  child: SearchField(
+                    fieldKey: const Key('new_group_search_field'),
                     controller: _searchController,
+                    hintText: 'Search contacts',
                     onChanged: (_) => setState(() {}),
-                    textInputAction: TextInputAction.search,
-                    decoration: InputDecoration(
-                      isDense: true,
-                      prefixIcon: const Icon(Icons.search_rounded),
-                      hintText: 'Search contacts',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                    ),
                   ),
                 ),
                 Expanded(

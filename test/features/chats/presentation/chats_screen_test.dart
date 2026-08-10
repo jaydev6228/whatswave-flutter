@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:image_picker_platform_interface/image_picker_platform_interface.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:whatswave/app/theme/app_theme.dart';
+import 'package:whatswave/core/models/status_story.dart';
 import 'package:whatswave/core/permissions/app_permission_service.dart';
 import 'package:whatswave/core/permissions/device_location_service.dart';
 import 'package:whatswave/features/auth/application/auth_controller.dart';
@@ -277,7 +278,7 @@ void main() {
   });
 
   testWidgets(
-      'the reaction tray\'s + button opens a full-screen emoji picker and '
+      'the reaction tray\'s + button opens a sheet-based emoji picker and '
       'reacts with the tapped emoji', (tester) async {
     await _pumpChatsScreen(
       tester,
@@ -299,23 +300,22 @@ void main() {
     await tester.tap(find.byKey(const Key('reaction_option_custom')));
     await tester.pumpAndSettle();
 
-    // Full-screen picker (search, recent, categories, grid), not a bottom
-    // sheet -- search down to a single unambiguous result and tap it.
-    expect(
-      find.byKey(const Key('emoji_reaction_picker_screen')),
-      findsOneWidget,
-    );
+    // A sheet presented over the conversation (search, recent, categories,
+    // grid), not a separate pushed screen -- the composer's own TextField
+    // is still in the tree underneath it, so scope finders to the sheet.
+    final sheetFinder = find.byKey(const Key('emoji_reaction_picker_screen'));
+    expect(sheetFinder, findsOneWidget);
     await tester.tap(find.byIcon(Icons.search));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField), 'unicorn');
+    await tester.enterText(
+      find.descendant(of: sheetFinder, matching: find.byType(TextField)),
+      'unicorn',
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.text('🦄'));
     await tester.pumpAndSettle();
 
-    expect(
-      find.byKey(const Key('emoji_reaction_picker_screen')),
-      findsNothing,
-    );
+    expect(sheetFinder, findsNothing);
     expect(find.text('🦄'), findsOneWidget);
   });
 
@@ -533,6 +533,97 @@ void main() {
     );
     expect(ring.totalSegments, 3);
     expect(ring.seenSegments, 2);
+  });
+
+  testWidgets(
+      'someone else\'s story shows a reply bar, and the heart button sends '
+      'a reply message', (tester) async {
+    final avatarFinder =
+        find.byKey(const ValueKey<String>('chat_story_avatar_ava-patel'));
+
+    await _pumpChatsScreen(
+      tester,
+      device: iphoneProProfile,
+      controller: ChatsController(
+        repository: FakeChatRepository(latency: Duration.zero),
+      ),
+      updatesController: UpdatesController(
+        repository: FakeUpdatesRepository(latency: Duration.zero),
+      ),
+    );
+
+    await tester.drag(
+      find.byType(CustomScrollView),
+      const Offset(0, -260),
+    );
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(avatarFinder);
+    await tester.pump();
+    await tester.tap(avatarFinder);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+
+    expect(find.byKey(const Key('updates_story_viewer')), findsOneWidget);
+    // Someone else's story -- a reply bar (text field + heart quick-react),
+    // not the poster-only delete button.
+    expect(
+      find.byKey(const Key('updates_story_reply_field')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('updates_story_delete_button')),
+      findsNothing,
+    );
+
+    await tester.tap(
+      find.byKey(const Key('updates_story_heart_react_button')),
+    );
+    // Not pumpAndSettle -- the story's own progress bar keeps animating
+    // (tapping the heart doesn't pause it the way focusing the reply field
+    // does), so settling would burn through the SnackBar's own 2s duration
+    // advancing that animation instead.
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    // The story's own name field is just the first name ("Ava"), distinct
+    // from the chat thread's full display name ("Ava Patel").
+    expect(find.text('Reply sent to Ava'), findsOneWidget);
+  });
+
+  testWidgets('your own story shows a view count instead of a reply bar',
+      (tester) async {
+    final updatesController = UpdatesController(
+      repository: FakeUpdatesRepository(latency: Duration.zero),
+    );
+    await updatesController.ensureLoaded();
+    await updatesController.createStatus(
+      type: StatusStoryType.text,
+      caption: 'Hello!',
+    );
+
+    await _pumpChatsScreen(
+      tester,
+      device: iphoneProProfile,
+      controller: ChatsController(
+        repository: FakeChatRepository(latency: Duration.zero),
+      ),
+      updatesController: updatesController,
+    );
+
+    await tester.tap(find.byKey(const Key('chats_status_mine')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+
+    expect(find.byKey(const Key('updates_story_viewer')), findsOneWidget);
+    expect(
+      find.byKey(const Key('updates_story_viewer_count')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('updates_story_reply_field')),
+      findsNothing,
+    );
   });
 
   testWidgets(

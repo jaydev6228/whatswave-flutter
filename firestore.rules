@@ -73,8 +73,15 @@ service cloud.firestore {
         // why seen state reverted after the app restarted and re-read the
         // untouched story doc. Each viewer's own progress lives in their
         // own doc here instead, readable and writable only by that viewer.
-        allow read, write: if request.auth != null
-                              && request.auth.uid == viewerUid;
+        allow get, write: if request.auth != null
+                             && request.auth.uid == viewerUid;
+        // The owner may list/count this subcollection -- that's how
+        // FirestoreUpdatesRepository shows "N views" on their own story
+        // (a count() aggregate query needs the same `list` permission a
+        // regular list query would). Real WhatsApp shows the owner exactly
+        // who viewed, so exposing viewerUids here to the owner isn't a
+        // narrower privacy bar than the feature this is building toward.
+        allow list: if request.auth != null && request.auth.uid == ownerUid;
       }
     }
 
