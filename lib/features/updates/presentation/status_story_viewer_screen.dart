@@ -109,8 +109,7 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
   double get _segmentProgress => _segmentProgressController.value;
 
   bool get _currentSegmentHasMusic =>
-      _currentSegment?.musicTrack?.previewAssetPath?.trim().isNotEmpty ==
-      true;
+      _currentSegment?.musicTrack?.previewAssetPath?.trim().isNotEmpty == true;
 
   /// Whether the current segment has anything audible to mute -- either its
   /// own video audio track, or an overlaid music track (never both: a video
@@ -1044,8 +1043,7 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
                         isSending: _isSendingReply,
                         hasHearted: _hasHearted,
                         onSendText: _sendReply,
-                        onHeartTap: () =>
-                            _sendReply('❤️', isHeart: true),
+                        onHeartTap: () => _sendReply('❤️', isHeart: true),
                       ),
                   ],
                 ),
@@ -1281,8 +1279,9 @@ class _FallbackStoryCard extends StatelessWidget {
     StatusStory story,
     int currentSegmentIndex,
   ) {
-    final candidate = story.segmentAt(currentSegmentIndex)?.previewText.trim() ??
-        story.previewText.trim();
+    final candidate =
+        story.segmentAt(currentSegmentIndex)?.previewText.trim() ??
+            story.previewText.trim();
     if (candidate.isNotEmpty &&
         candidate.toLowerCase() != 'shared a new photo update' &&
         candidate.toLowerCase() != 'shared a new video update') {
@@ -1405,8 +1404,7 @@ class _StoryReplyBar extends StatelessWidget {
               return _StoryReplyActionButton(
                 actionKey: const Key('updates_story_reply_send_button'),
                 tooltip: 'Send',
-                onPressed:
-                    canSend ? () => onSendText(controller.text) : null,
+                onPressed: canSend ? () => onSendText(controller.text) : null,
                 child: isSending
                     ? const SizedBox(
                         width: 18,
@@ -1418,7 +1416,8 @@ class _StoryReplyBar extends StatelessWidget {
                       )
                     : Icon(
                         Icons.send_rounded,
-                        color: Colors.white.withValues(alpha: canSend ? 1 : 0.4),
+                        color:
+                            Colors.white.withValues(alpha: canSend ? 1 : 0.4),
                         size: 20,
                       ),
               );
@@ -1483,19 +1482,32 @@ class _StoryViewersSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final bottomInset = MediaQuery.paddingOf(context).bottom;
-    return SafeArea(
-      top: false,
-      child: Container(
-        key: const Key('story_viewers_sheet'),
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.sizeOf(context).height * 0.7,
+    // Deliberately NOT wrapped in SafeArea -- that would pad *outside* this
+    // Container, leaving a gap of transparent barrier between the sheet's
+    // rounded surface and the actual screen edge instead of the surface
+    // extending flush to it (the same seam this codebase already avoids
+    // for _BlockedContactBanner/_ComposerBar). The safe-area inset is
+    // instead added as padding on the content itself, below.
+    return Container(
+      key: const Key('story_viewers_sheet'),
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.sizeOf(context).height * 0.7,
+      ),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: const BorderRadius.vertical(
+          top: Radius.circular(20),
         ),
-        decoration: BoxDecoration(
-          color: theme.colorScheme.surface,
-          borderRadius: const BorderRadius.vertical(
-            top: Radius.circular(20),
-          ),
-        ),
+      ),
+      // The sheet opens showing a small loading spinner, then the viewer
+      // future resolves to either a short "No views yet" line or a full
+      // list -- without animating that height change, the sheet visibly
+      // snaps taller/shorter right after its open transition finishes,
+      // which reads as a jerk. AnimatedSize smooths that resize instead.
+      child: AnimatedSize(
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+        alignment: Alignment.topCenter,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -1540,12 +1552,12 @@ class _StoryViewersSheet extends StatelessWidget {
                   final viewers = snapshot.data ?? const <StoryViewer>[];
                   if (viewers.isEmpty) {
                     return Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+                      padding: EdgeInsets.fromLTRB(20, 8, 20, 32 + bottomInset),
                       child: Text(
                         'No views yet.',
                         style: theme.textTheme.bodyMedium?.copyWith(
-                          color:
-                              theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                          color: theme.colorScheme.onSurface
+                              .withValues(alpha: 0.6),
                         ),
                       ),
                     );
