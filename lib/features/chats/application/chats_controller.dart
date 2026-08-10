@@ -108,13 +108,16 @@ class ChatsController extends ChangeNotifier {
     final normalizedQuery = (query ?? _searchQuery).trim().toLowerCase();
     final activeFilter = filter ?? _selectedFilter;
     final filteredThreads = _chatsTabThreads.where((thread) {
-      // A thread startThreadWith() just created (or one someone opened
+      // A 1:1 thread startThreadWith() just created (or one someone opened
       // and never messaged) has no messages yet -- keep it out of every
       // list view until there's an actual conversation, same idea as an
       // empty status not showing up as a real update. threadById() still
       // finds it directly, so the conversation screen it was just opened
-      // from keeps working.
-      if (thread.messages.isEmpty) {
+      // from keeps working. A group is different: creating one is already
+      // a deliberate, named action with chosen participants (matching
+      // WhatsApp, which shows a just-created group in the list right
+      // away), so this only hides empty 1:1 threads.
+      if (thread.messages.isEmpty && !thread.isGroup) {
         return false;
       }
       if (thread.isArchived != archivedOnly) {

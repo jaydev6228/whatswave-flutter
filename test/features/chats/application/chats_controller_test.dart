@@ -87,6 +87,28 @@ void main() {
       expect(controller.threadById(threadId!)?.isCommunityGroup, isFalse);
     });
 
+    test(
+        'a regular new group appears in the chat list immediately, before '
+        'any message is sent', () async {
+      await controller.loadThreads();
+
+      final threadId = await controller.createGroup(
+        name: 'Weekend Trip',
+        memberUids: const ['friend-uid'],
+      );
+
+      expect(threadId, isNotNull);
+      expect(controller.threadById(threadId!)?.messages, isEmpty);
+      expect(
+        controller.visibleThreads.any((thread) => thread.id == threadId),
+        isTrue,
+      );
+      expect(
+        controller.inboxThreads().any((thread) => thread.id == threadId),
+        isTrue,
+      );
+    });
+
     test('filters by unread state and search query', () async {
       await controller.loadThreads();
 
