@@ -314,6 +314,59 @@ class TrackedChatRepository implements ChatRepository {
   }
 
   @override
+  Future<List<ChatThread>> addGroupMembers({
+    required String threadId,
+    required List<String> memberUids,
+  }) {
+    return _delegate.addGroupMembers(threadId: threadId, memberUids: memberUids);
+  }
+
+  @override
+  Future<List<ChatThread>> removeGroupMember({
+    required String threadId,
+    required String memberUid,
+  }) {
+    return _delegate.removeGroupMember(threadId: threadId, memberUid: memberUid);
+  }
+
+  @override
+  Future<List<ChatThread>> leaveGroup(String threadId) {
+    return _delegate.leaveGroup(threadId);
+  }
+
+  @override
+  Future<List<ChatThread>> setGroupAdmin({
+    required String threadId,
+    required String memberUid,
+    required bool isAdmin,
+  }) {
+    return _delegate.setGroupAdmin(
+      threadId: threadId,
+      memberUid: memberUid,
+      isAdmin: isAdmin,
+    );
+  }
+
+  @override
+  Future<List<ChatThread>> renameGroup({
+    required String threadId,
+    required String name,
+  }) {
+    return _delegate.renameGroup(threadId: threadId, name: name);
+  }
+
+  @override
+  Future<List<ChatThread>> updateGroupDescription({
+    required String threadId,
+    required String description,
+  }) {
+    return _delegate.updateGroupDescription(
+      threadId: threadId,
+      description: description,
+    );
+  }
+
+  @override
   Future<List<ChatThread>> setThreadArchived({
     required String threadId,
     required bool isArchived,

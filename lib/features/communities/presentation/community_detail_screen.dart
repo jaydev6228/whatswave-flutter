@@ -187,6 +187,7 @@ class CommunityDetailScreen extends StatelessWidget {
           callsController: callsController,
           controller: chatsController,
           updatesController: updatesController,
+          communitiesController: controller,
           threadId: threadId,
         ),
       ),

@@ -1,23 +1,30 @@
 import 'package:flutter/material.dart';
 
+import '../../communities/application/communities_controller.dart';
 import '../../shared/widgets/avatar_badge.dart';
 import '../../updates/presentation/widgets/status_media_source.dart';
 import '../application/chats_controller.dart';
 import '../domain/chat_attachment.dart';
 import '../domain/chat_thread.dart';
+import '../domain/group_participant.dart';
+import 'add_group_members_screen.dart';
 import 'attachment_viewer_screen.dart';
 
 /// WhatsApp-style contact info: shared media, common groups, and
 /// destructive actions (clear chat, block), reached by tapping the
-/// contact/group name in the conversation app bar.
+/// contact/group name in the conversation app bar. For a group thread,
+/// doubles as "Group info": participant list with admin roles, add/remove
+/// members, rename, description, and leaving the group.
 class ContactInfoScreen extends StatefulWidget {
   const ContactInfoScreen({
     required this.controller,
+    required this.communitiesController,
     required this.threadId,
     super.key,
   });
 
   final ChatsController controller;
+  final CommunitiesController communitiesController;
   final String threadId;
 
   @override
@@ -107,11 +114,36 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                                 size: 84,
                               ),
                               const SizedBox(height: 14),
-                              Text(
-                                thread.name,
-                                textAlign: TextAlign.center,
-                                style: theme.textTheme.headlineSmall
-                                    ?.copyWith(fontWeight: FontWeight.w800),
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Flexible(
+                                    child: Text(
+                                      thread.name,
+                                      textAlign: TextAlign.center,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: theme.textTheme.headlineSmall
+                                          ?.copyWith(fontWeight: FontWeight.w800),
+                                    ),
+                                  ),
+                                  if (thread.isGroup &&
+                                      thread.currentUserIsGroupAdmin) ...[
+                                    const SizedBox(width: 6),
+                                    IconButton(
+                                      key: const Key(
+                                        'contact_info_rename_group_button',
+                                      ),
+                                      visualDensity: VisualDensity.compact,
+                                      icon: const Icon(
+                                        Icons.edit_outlined,
+                                        size: 20,
+                                      ),
+                                      onPressed: () =>
+                                          _confirmRenameGroup(thread),
+                                    ),
+                                  ],
+                                ],
                               ),
                               const SizedBox(height: 4),
                               Text(
@@ -149,6 +181,47 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                           ),
                         ),
                         const SizedBox(height: 28),
+                        if (thread.isGroup) ...[
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  (thread.groupDescription?.isNotEmpty ??
+                                          false)
+                                      ? thread.groupDescription!
+                                      : 'Add a group description',
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    color: theme.colorScheme.onSurface
+                                        .withValues(
+                                      alpha: (thread.groupDescription
+                                                  ?.isNotEmpty ??
+                                              false)
+                                          ? 0.8
+                                          : 0.5,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              if (thread.currentUserIsGroupAdmin) ...[
+                                const SizedBox(width: 8),
+                                IconButton(
+                                  key: const Key(
+                                    'contact_info_edit_description_button',
+                                  ),
+                                  visualDensity: VisualDensity.compact,
+                                  icon: const Icon(
+                                    Icons.edit_outlined,
+                                    size: 18,
+                                  ),
+                                  onPressed: () =>
+                                      _confirmEditDescription(thread),
+                                ),
+                              ],
+                            ],
+                          ),
+                          const SizedBox(height: 28),
+                        ],
                         if (mediaAttachments.isNotEmpty) ...[
                           Text(
                             'Shared media',
@@ -160,6 +233,58 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                           _SharedMediaGrid(
                             attachments: mediaAttachments,
                             threadName: thread.name,
+                          ),
+                          const SizedBox(height: 28),
+                        ],
+                        if (thread.isGroup &&
+                            (thread.participants?.isNotEmpty ?? false)) ...[
+                          Text(
+                            '${thread.participants!.length} participants',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          _FlatInfoPanel(
+                            padding: EdgeInsets.zero,
+                            child: Column(
+                              children: [
+                                if (thread.currentUserIsGroupAdmin) ...[
+                                  _ActionRow(
+                                    actionKey: const Key(
+                                      'contact_info_add_participants_button',
+                                    ),
+                                    icon: Icons.person_add_alt_outlined,
+                                    label: 'Add participants',
+                                    onTap: () => _addParticipants(thread),
+                                  ),
+                                  Divider(
+                                    height: 1,
+                                    color: theme.colorScheme.outlineVariant
+                                        .withValues(alpha: 0.24),
+                                  ),
+                                ],
+                                for (var index = 0;
+                                    index < thread.participants!.length;
+                                    index++) ...[
+                                  if (index > 0)
+                                    Divider(
+                                      height: 1,
+                                      color: theme.colorScheme.outlineVariant
+                                          .withValues(alpha: 0.24),
+                                    ),
+                                  _ParticipantRow(
+                                    participant: thread.participants![index],
+                                    canManage: thread.currentUserIsGroupAdmin &&
+                                        !thread.participants![index].isSelf,
+                                    onTap: () => _showParticipantOptions(
+                                      thread,
+                                      thread.participants![index],
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
                           ),
                           const SizedBox(height: 28),
                         ],
@@ -218,17 +343,27 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                                 color: theme.colorScheme.outlineVariant
                                     .withValues(alpha: 0.24),
                               ),
-                              _ActionRow(
-                                actionKey:
-                                    const Key('contact_info_block_button'),
-                                icon: thread.isBlocked
-                                    ? Icons.block_flipped
-                                    : Icons.block_outlined,
-                                label: thread.isBlocked
-                                    ? 'Unblock ${thread.name}'
-                                    : 'Block ${thread.name}',
-                                onTap: () => _confirmToggleBlock(thread),
-                              ),
+                              if (thread.isGroup)
+                                _ActionRow(
+                                  actionKey: const Key(
+                                    'contact_info_exit_group_button',
+                                  ),
+                                  icon: Icons.logout_rounded,
+                                  label: 'Exit group',
+                                  onTap: () => _confirmLeaveGroup(thread),
+                                )
+                              else
+                                _ActionRow(
+                                  actionKey:
+                                      const Key('contact_info_block_button'),
+                                  icon: thread.isBlocked
+                                      ? Icons.block_flipped
+                                      : Icons.block_outlined,
+                                  label: thread.isBlocked
+                                      ? 'Unblock ${thread.name}'
+                                      : 'Block ${thread.name}',
+                                  onTap: () => _confirmToggleBlock(thread),
+                                ),
                             ],
                           ),
                         ),
@@ -317,7 +452,248 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
       );
     }
   }
+
+  Future<void> _confirmRenameGroup(ChatThread thread) async {
+    // Uncontrolled TextFormField, not a caller-owned TextEditingController
+    // -- see _editMessage's doc comment in conversation_screen.dart for why
+    // disposing a controller right after showDialog resolves is unsafe.
+    var currentName = thread.name;
+    final newName = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Group name'),
+          content: TextFormField(
+            key: const Key('rename_group_field'),
+            initialValue: thread.name,
+            autofocus: true,
+            maxLength: 60,
+            textCapitalization: TextCapitalization.words,
+            onChanged: (value) => currentName = value,
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              key: const Key('confirm_rename_group_button'),
+              onPressed: () => Navigator.of(dialogContext).pop(currentName),
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
+
+    final trimmed = newName?.trim();
+    if (trimmed == null || trimmed.isEmpty || trimmed == thread.name) {
+      return;
+    }
+    if (!mounted) {
+      return;
+    }
+    await widget.controller.renameGroup(threadId: thread.id, name: trimmed);
+  }
+
+  Future<void> _confirmEditDescription(ChatThread thread) async {
+    var currentDescription = thread.groupDescription ?? '';
+    final newDescription = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Group description'),
+          content: TextFormField(
+            key: const Key('edit_group_description_field'),
+            initialValue: thread.groupDescription ?? '',
+            autofocus: true,
+            minLines: 1,
+            maxLines: 4,
+            maxLength: 200,
+            textCapitalization: TextCapitalization.sentences,
+            onChanged: (value) => currentDescription = value,
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              key: const Key('confirm_edit_group_description_button'),
+              onPressed: () =>
+                  Navigator.of(dialogContext).pop(currentDescription),
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
+
+    final trimmed = newDescription?.trim();
+    if (trimmed == null || trimmed == (thread.groupDescription ?? '')) {
+      return;
+    }
+    if (!mounted) {
+      return;
+    }
+    await widget.controller.updateGroupDescription(
+      threadId: thread.id,
+      description: trimmed,
+    );
+  }
+
+  Future<void> _addParticipants(ChatThread thread) async {
+    final memberUids = await pickGroupMembersToAdd(
+      context,
+      communitiesController: widget.communitiesController,
+      thread: thread,
+    );
+    if (memberUids == null || memberUids.isEmpty || !mounted) {
+      return;
+    }
+    await widget.controller.addGroupMembers(
+      threadId: thread.id,
+      memberUids: memberUids,
+    );
+  }
+
+  Future<void> _showParticipantOptions(
+    ChatThread thread,
+    GroupParticipant participant,
+  ) async {
+    final action = await showModalBottomSheet<_ParticipantAction>(
+      context: context,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                key: const Key('participant_option_toggle_admin'),
+                leading: Icon(
+                  participant.isAdmin
+                      ? Icons.remove_moderator_outlined
+                      : Icons.admin_panel_settings_outlined,
+                ),
+                title: Text(
+                  participant.isAdmin
+                      ? 'Dismiss as admin'
+                      : 'Make group admin',
+                ),
+                onTap: () => Navigator.of(sheetContext)
+                    .pop(_ParticipantAction.toggleAdmin),
+              ),
+              ListTile(
+                key: const Key('participant_option_remove'),
+                leading: Icon(
+                  Icons.person_remove_outlined,
+                  color: Theme.of(sheetContext).colorScheme.error,
+                ),
+                title: Text(
+                  'Remove ${participant.name}',
+                  style: TextStyle(
+                    color: Theme.of(sheetContext).colorScheme.error,
+                  ),
+                ),
+                onTap: () =>
+                    Navigator.of(sheetContext).pop(_ParticipantAction.remove),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (action == null || !mounted) {
+      return;
+    }
+
+    switch (action) {
+      case _ParticipantAction.toggleAdmin:
+        await widget.controller.setGroupAdmin(
+          threadId: thread.id,
+          memberUid: participant.uid,
+          isAdmin: !participant.isAdmin,
+        );
+      case _ParticipantAction.remove:
+        await _confirmRemoveParticipant(thread, participant);
+    }
+  }
+
+  Future<void> _confirmRemoveParticipant(
+    ChatThread thread,
+    GroupParticipant participant,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: Text('Remove ${participant.name}?'),
+          content: Text(
+            '${participant.name} will be removed from ${thread.name}.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              key: const Key('confirm_remove_participant_button'),
+              style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(dialogContext).colorScheme.error,
+              ),
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Remove'),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed == true && mounted) {
+      await widget.controller.removeGroupMember(
+        threadId: thread.id,
+        memberUid: participant.uid,
+      );
+    }
+  }
+
+  Future<void> _confirmLeaveGroup(ChatThread thread) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Exit group?'),
+          content: Text(
+            "You'll no longer receive messages from ${thread.name}.",
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              key: const Key('confirm_exit_group_button'),
+              style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(dialogContext).colorScheme.error,
+              ),
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Exit group'),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed != true || !mounted) {
+      return;
+    }
+    await widget.controller.leaveGroup(thread.id);
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
+  }
 }
+
+enum _ParticipantAction { toggleAdmin, remove }
 
 class _FlatInfoPanel extends StatelessWidget {
   const _FlatInfoPanel({
@@ -462,6 +838,75 @@ class _CommonGroupRow extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _ParticipantRow extends StatelessWidget {
+  const _ParticipantRow({
+    required this.participant,
+    required this.canManage,
+    required this.onTap,
+  });
+
+  final GroupParticipant participant;
+
+  /// Whether the viewer is an admin who may act on this row (promote/
+  /// demote/remove) -- false for their own row or when they're not an
+  /// admin, in which case the row is informational only.
+  final bool canManage;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        key: Key('participant_row_${participant.uid}'),
+        onTap: canManage ? onTap : null,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Row(
+            children: [
+              AvatarBadge(
+                label: participant.avatarLabel,
+                color: participant.accentColor,
+                avatarUrl: participant.avatarUrl,
+                size: 40,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  participant.isSelf ? 'You' : participant.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleSmall
+                      ?.copyWith(fontWeight: FontWeight.w700),
+                ),
+              ),
+              if (participant.isAdmin) ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.primary.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    'Admin',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.primary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }

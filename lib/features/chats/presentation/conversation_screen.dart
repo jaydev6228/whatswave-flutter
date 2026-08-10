@@ -18,6 +18,7 @@ import '../../calls/application/calls_controller.dart';
 import '../../calls/domain/call_contact.dart';
 import '../../calls/domain/call_history_entry.dart';
 import '../../calls/presentation/call_flow.dart';
+import '../../communities/application/communities_controller.dart';
 import '../../shared/widgets/avatar_badge.dart';
 import '../../shared/widgets/floating_glass_popup.dart';
 import '../../shared/widgets/liquid_glass.dart';
@@ -45,6 +46,7 @@ class ConversationScreen extends StatefulWidget {
     required this.callsController,
     required this.controller,
     required this.updatesController,
+    required this.communitiesController,
     required this.threadId,
     super.key,
   });
@@ -52,6 +54,7 @@ class ConversationScreen extends StatefulWidget {
   final CallsController callsController;
   final ChatsController controller;
   final UpdatesController updatesController;
+  final CommunitiesController communitiesController;
   final String threadId;
 
   @override
@@ -488,6 +491,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
       MaterialPageRoute<void>(
         builder: (_) => ContactInfoScreen(
           controller: widget.controller,
+          communitiesController: widget.communitiesController,
           threadId: threadId,
         ),
       ),

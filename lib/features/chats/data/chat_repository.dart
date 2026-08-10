@@ -39,6 +39,48 @@ abstract class ChatRepository {
     bool isCommunityGroup = false,
   });
 
+  /// Adds [memberUids] to an existing group thread's membership. Only a
+  /// current admin may call this against a real backend -- see
+  /// [ChatThread.currentUserIsGroupAdmin].
+  Future<List<ChatThread>> addGroupMembers({
+    required String threadId,
+    required List<String> memberUids,
+  });
+
+  /// Removes [memberUid] from a group thread. Only a current admin may
+  /// call this, and never to remove themselves -- use [leaveGroup] for
+  /// that instead.
+  Future<List<ChatThread>> removeGroupMember({
+    required String threadId,
+    required String memberUid,
+  });
+
+  /// The caller leaves [threadId] themselves -- the thread then drops out
+  /// of their own thread list the same way [deleteThread] does, but
+  /// (unlike deleteThread) other members see they've left.
+  Future<List<ChatThread>> leaveGroup(String threadId);
+
+  /// Promotes/demotes [memberUid] to/from group admin. Only a current
+  /// admin may call this.
+  Future<List<ChatThread>> setGroupAdmin({
+    required String threadId,
+    required String memberUid,
+    required bool isAdmin,
+  });
+
+  /// Renames a group thread. Only a current admin may call this.
+  Future<List<ChatThread>> renameGroup({
+    required String threadId,
+    required String name,
+  });
+
+  /// Sets a group thread's description. Only a current admin may call
+  /// this.
+  Future<List<ChatThread>> updateGroupDescription({
+    required String threadId,
+    required String description,
+  });
+
   Future<List<ChatThread>> setThreadArchived({
     required String threadId,
     required bool isArchived,

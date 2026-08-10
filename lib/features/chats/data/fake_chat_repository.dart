@@ -5,6 +5,7 @@ import '../../../core/sample/demo_data.dart';
 import '../domain/chat_attachment.dart';
 import '../domain/chat_message.dart';
 import '../domain/chat_thread.dart';
+import '../domain/group_participant.dart';
 import '../domain/story_reply_context.dart';
 import 'chat_repository.dart';
 
@@ -92,9 +93,147 @@ class FakeChatRepository implements ChatRepository {
       messages: const [],
       isGroup: true,
       isCommunityGroup: isCommunityGroup,
+      participants: [
+        const GroupParticipant(
+          uid: 'me',
+          name: 'You',
+          avatarLabel: 'ME',
+          accentColor: AppPalette.slate,
+          isAdmin: true,
+          isSelf: true,
+        ),
+        for (final uid in memberUids) _syntheticParticipant(uid),
+      ],
     );
     _threads = [thread, ..._threads];
     return thread;
+  }
+
+  // The fake repository is only ever given a bare uid for a new member
+  // (see createGroup/addGroupMembers) -- unlike FirestoreChatRepository,
+  // it has no userProfiles collection to resolve a real name/avatar from,
+  // so this is a readable placeholder rather than an attempt at a real
+  // lookup.
+  GroupParticipant _syntheticParticipant(String uid) {
+    final label = uid.length >= 4 ? uid.substring(uid.length - 4) : uid;
+    return GroupParticipant(
+      uid: uid,
+      name: 'Member $label',
+      avatarLabel: _avatarLabelForName(label),
+      accentColor: _accentColorForName(uid),
+    );
+  }
+
+  @override
+  Future<List<ChatThread>> addGroupMembers({
+    required String threadId,
+    required List<String> memberUids,
+  }) async {
+    await _wait();
+    final thread = _threadForId(threadId);
+    final existingUids =
+        thread.participants?.map((p) => p.uid).toSet() ?? <String>{};
+    final updated = [
+      ...?thread.participants,
+      for (final uid in memberUids)
+        if (!existingUids.contains(uid)) _syntheticParticipant(uid),
+    ];
+    _threads = _threads
+        .map(
+          (entry) => entry.id == thread.id
+              ? entry.copyWith(participants: updated)
+              : entry,
+        )
+        .toList(growable: false);
+    return _deepCopyThreads(_threads);
+  }
+
+  @override
+  Future<List<ChatThread>> removeGroupMember({
+    required String threadId,
+    required String memberUid,
+  }) async {
+    await _wait();
+    final thread = _threadForId(threadId);
+    final updated = (thread.participants ?? const <GroupParticipant>[])
+        .where((p) => p.uid != memberUid)
+        .toList(growable: false);
+    _threads = _threads
+        .map(
+          (entry) => entry.id == thread.id
+              ? entry.copyWith(participants: updated)
+              : entry,
+        )
+        .toList(growable: false);
+    return _deepCopyThreads(_threads);
+  }
+
+  @override
+  Future<List<ChatThread>> leaveGroup(String threadId) async {
+    await _wait();
+    _threads =
+        _threads.where((entry) => entry.id != threadId).toList(growable: false);
+    return _deepCopyThreads(_threads);
+  }
+
+  @override
+  Future<List<ChatThread>> setGroupAdmin({
+    required String threadId,
+    required String memberUid,
+    required bool isAdmin,
+  }) async {
+    await _wait();
+    final thread = _threadForId(threadId);
+    final updated = (thread.participants ?? const <GroupParticipant>[])
+        .map(
+          (p) => p.uid == memberUid ? p.copyWith(isAdmin: isAdmin) : p,
+        )
+        .toList(growable: false);
+    _threads = _threads
+        .map(
+          (entry) => entry.id == thread.id
+              ? entry.copyWith(participants: updated)
+              : entry,
+        )
+        .toList(growable: false);
+    return _deepCopyThreads(_threads);
+  }
+
+  @override
+  Future<List<ChatThread>> renameGroup({
+    required String threadId,
+    required String name,
+  }) async {
+    await _wait();
+    final trimmedName = name.trim();
+    if (trimmedName.isEmpty) {
+      throw const ChatRepositoryException('Give the group a name.');
+    }
+    final thread = _threadForId(threadId);
+    _threads = _threads
+        .map(
+          (entry) =>
+              entry.id == thread.id ? entry.copyWith(name: trimmedName) : entry,
+        )
+        .toList(growable: false);
+    return _deepCopyThreads(_threads);
+  }
+
+  @override
+  Future<List<ChatThread>> updateGroupDescription({
+    required String threadId,
+    required String description,
+  }) async {
+    await _wait();
+    final thread = _threadForId(threadId);
+    _threads = _threads
+        .map(
+          (entry) => entry.id == thread.id
+              ? entry.copyWith(groupDescription: description.trim())
+              : entry,
+        )
+        .toList(growable: false);
+    return _deepCopyThreads(_threads);
   }
 
   @override

@@ -318,6 +318,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
           callsController: widget.callsController,
           controller: widget.controller,
           updatesController: widget.updatesController,
+          communitiesController: widget.communitiesController,
           threadId: thread.id,
         ),
       ),
@@ -361,6 +362,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
           callsController: widget.callsController,
           controller: widget.controller,
           updatesController: widget.updatesController,
+          communitiesController: widget.communitiesController,
         ),
       ),
     );
@@ -481,12 +483,14 @@ class ArchivedChatsScreen extends StatefulWidget {
     required this.callsController,
     required this.controller,
     required this.updatesController,
+    required this.communitiesController,
     super.key,
   });
 
   final CallsController callsController;
   final ChatsController controller;
   final UpdatesController updatesController;
+  final CommunitiesController communitiesController;
 
   @override
   State<ArchivedChatsScreen> createState() => _ArchivedChatsScreenState();
@@ -626,6 +630,7 @@ class _ArchivedChatsScreenState extends State<ArchivedChatsScreen> {
           callsController: widget.callsController,
           controller: widget.controller,
           updatesController: widget.updatesController,
+          communitiesController: widget.communitiesController,
           threadId: thread.id,
         ),
       ),

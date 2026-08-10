@@ -545,6 +545,125 @@ void main() {
     );
   });
 
+  testWidgets(
+      'group info: shows participants with admin badges and lets an admin '
+      'rename the group, promote a member, and remove a member',
+      (tester) async {
+    await _pumpChatsScreen(
+      tester,
+      device: iphoneProProfile,
+      controller: ChatsController(
+        repository: FakeChatRepository(latency: Duration.zero),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('chat_tile_design-sprint')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Design Sprint'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Group info'), findsOneWidget);
+    expect(find.text('3 participants'), findsOneWidget);
+    // Scoped to each participant row's own key -- group message bubbles
+    // also render the sender's name above them (see
+    // ConversationScreen's `if (thread.isGroup && !isMine) Text(message.
+    // senderName)`), so a bare find.text('Priya') would match twice while
+    // the previous (still-mounted, offstage) conversation route is in the
+    // Navigator stack underneath this pushed route.
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('participant_row_me')),
+        matching: find.text('You'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('participant_row_priya')),
+        matching: find.text('Priya'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('participant_row_marco')),
+        matching: find.text('Marco'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Admin'), findsOneWidget);
+
+    // Rename the group.
+    await tester.tap(find.byKey(const Key('contact_info_rename_group_button')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('rename_group_field')),
+      'Design Sprint 2.0',
+    );
+    await tester.tap(find.byKey(const Key('confirm_rename_group_button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Design Sprint 2.0'), findsWidgets);
+
+    // Promote Priya to admin.
+    await tester.tap(find.byKey(const Key('participant_row_priya')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('participant_option_toggle_admin')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Admin'), findsNWidgets(2));
+
+    // Remove Marco from the group.
+    await tester.tap(find.byKey(const Key('participant_row_marco')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('participant_option_remove')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const Key('confirm_remove_participant_button')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('2 participants'), findsOneWidget);
+    // Marco's own message bubble (sent before he was removed) is
+    // untouched -- his name still renders there -- so this checks the
+    // participant row specifically disappeared, not the word "Marco"
+    // anywhere on screen.
+    expect(find.byKey(const Key('participant_row_marco')), findsNothing);
+  });
+
+  testWidgets('group info: exiting a group returns to a closed conversation',
+      (tester) async {
+    await _pumpChatsScreen(
+      tester,
+      device: iphoneProProfile,
+      controller: ChatsController(
+        repository: FakeChatRepository(latency: Duration.zero),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('chat_tile_family')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('contact_info_exit_group_button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('confirm_exit_group_button')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('This conversation is no longer available.'),
+      findsOneWidget,
+    );
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('chat_tile_family')), findsNothing);
+  });
+
   testWidgets('keeps the attachment sheet overflow-free on compact phones',
       (tester) async {
     await _pumpChatsScreen(
@@ -1267,6 +1386,52 @@ class _FailingChatRepository implements ChatRepository {
   }) {
     throw UnimplementedError();
   }
+
+  @override
+  Future<List<Never>> addGroupMembers({
+    required String threadId,
+    required List<String> memberUids,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<List<Never>> removeGroupMember({
+    required String threadId,
+    required String memberUid,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<List<Never>> leaveGroup(String threadId) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<List<Never>> setGroupAdmin({
+    required String threadId,
+    required String memberUid,
+    required bool isAdmin,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<List<Never>> renameGroup({
+    required String threadId,
+    required String name,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<List<Never>> updateGroupDescription({
+    required String threadId,
+    required String description,
+  }) {
+    throw UnimplementedError();
+  }
 }
 
 class _FlakySendChatRepository implements ChatRepository {
@@ -1401,6 +1566,53 @@ class _FlakySendChatRepository implements ChatRepository {
       _delegate.setThreadArchived(
         threadId: threadId,
         isArchived: isArchived,
+      );
+
+  @override
+  Future<List<ChatThread>> addGroupMembers({
+    required String threadId,
+    required List<String> memberUids,
+  }) =>
+      _delegate.addGroupMembers(threadId: threadId, memberUids: memberUids);
+
+  @override
+  Future<List<ChatThread>> removeGroupMember({
+    required String threadId,
+    required String memberUid,
+  }) =>
+      _delegate.removeGroupMember(threadId: threadId, memberUid: memberUid);
+
+  @override
+  Future<List<ChatThread>> leaveGroup(String threadId) =>
+      _delegate.leaveGroup(threadId);
+
+  @override
+  Future<List<ChatThread>> setGroupAdmin({
+    required String threadId,
+    required String memberUid,
+    required bool isAdmin,
+  }) =>
+      _delegate.setGroupAdmin(
+        threadId: threadId,
+        memberUid: memberUid,
+        isAdmin: isAdmin,
+      );
+
+  @override
+  Future<List<ChatThread>> renameGroup({
+    required String threadId,
+    required String name,
+  }) =>
+      _delegate.renameGroup(threadId: threadId, name: name);
+
+  @override
+  Future<List<ChatThread>> updateGroupDescription({
+    required String threadId,
+    required String description,
+  }) =>
+      _delegate.updateGroupDescription(
+        threadId: threadId,
+        description: description,
       );
 }
 

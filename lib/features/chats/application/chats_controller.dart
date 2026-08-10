@@ -386,6 +386,83 @@ class ChatsController extends ChangeNotifier {
     }
   }
 
+  Future<bool> addGroupMembers({
+    required String threadId,
+    required List<String> memberUids,
+  }) async {
+    return _runThreadMutation(
+      threadId,
+      () => _repository.addGroupMembers(
+        threadId: threadId,
+        memberUids: memberUids,
+      ),
+      fallbackError: 'We could not add those members right now.',
+    );
+  }
+
+  Future<bool> removeGroupMember({
+    required String threadId,
+    required String memberUid,
+  }) async {
+    return _runThreadMutation(
+      threadId,
+      () => _repository.removeGroupMember(
+        threadId: threadId,
+        memberUid: memberUid,
+      ),
+      fallbackError: 'We could not remove that member right now.',
+    );
+  }
+
+  Future<bool> leaveGroup(String threadId) async {
+    return _runThreadMutation(
+      threadId,
+      () => _repository.leaveGroup(threadId),
+      fallbackError: 'We could not leave that group right now.',
+    );
+  }
+
+  Future<bool> setGroupAdmin({
+    required String threadId,
+    required String memberUid,
+    required bool isAdmin,
+  }) async {
+    return _runThreadMutation(
+      threadId,
+      () => _repository.setGroupAdmin(
+        threadId: threadId,
+        memberUid: memberUid,
+        isAdmin: isAdmin,
+      ),
+      fallbackError: 'We could not update that admin right now.',
+    );
+  }
+
+  Future<bool> renameGroup({
+    required String threadId,
+    required String name,
+  }) async {
+    return _runThreadMutation(
+      threadId,
+      () => _repository.renameGroup(threadId: threadId, name: name),
+      fallbackError: 'We could not rename that group right now.',
+    );
+  }
+
+  Future<bool> updateGroupDescription({
+    required String threadId,
+    required String description,
+  }) async {
+    return _runThreadMutation(
+      threadId,
+      () => _repository.updateGroupDescription(
+        threadId: threadId,
+        description: description,
+      ),
+      fallbackError: 'We could not update that group right now.',
+    );
+  }
+
   Future<void> openThread(String threadId) async {
     final thread = threadById(threadId);
     if (thread == null || thread.unreadCount == 0) {

@@ -495,6 +495,52 @@ class _FailingChatRepository implements ChatRepository {
   }) {
     throw UnimplementedError();
   }
+
+  @override
+  Future<List<ChatThread>> addGroupMembers({
+    required String threadId,
+    required List<String> memberUids,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<List<ChatThread>> removeGroupMember({
+    required String threadId,
+    required String memberUid,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<List<ChatThread>> leaveGroup(String threadId) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<List<ChatThread>> setGroupAdmin({
+    required String threadId,
+    required String memberUid,
+    required bool isAdmin,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<List<ChatThread>> renameGroup({
+    required String threadId,
+    required String name,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<List<ChatThread>> updateGroupDescription({
+    required String threadId,
+    required String description,
+  }) {
+    throw UnimplementedError();
+  }
 }
 
 class _SendFailingChatRepository implements ChatRepository {
@@ -620,5 +666,52 @@ class _SendFailingChatRepository implements ChatRepository {
       _delegate.setThreadArchived(
         threadId: threadId,
         isArchived: isArchived,
+      );
+
+  @override
+  Future<List<ChatThread>> addGroupMembers({
+    required String threadId,
+    required List<String> memberUids,
+  }) =>
+      _delegate.addGroupMembers(threadId: threadId, memberUids: memberUids);
+
+  @override
+  Future<List<ChatThread>> removeGroupMember({
+    required String threadId,
+    required String memberUid,
+  }) =>
+      _delegate.removeGroupMember(threadId: threadId, memberUid: memberUid);
+
+  @override
+  Future<List<ChatThread>> leaveGroup(String threadId) =>
+      _delegate.leaveGroup(threadId);
+
+  @override
+  Future<List<ChatThread>> setGroupAdmin({
+    required String threadId,
+    required String memberUid,
+    required bool isAdmin,
+  }) =>
+      _delegate.setGroupAdmin(
+        threadId: threadId,
+        memberUid: memberUid,
+        isAdmin: isAdmin,
+      );
+
+  @override
+  Future<List<ChatThread>> renameGroup({
+    required String threadId,
+    required String name,
+  }) =>
+      _delegate.renameGroup(threadId: threadId, name: name);
+
+  @override
+  Future<List<ChatThread>> updateGroupDescription({
+    required String threadId,
+    required String description,
+  }) =>
+      _delegate.updateGroupDescription(
+        threadId: threadId,
+        description: description,
       );
 }

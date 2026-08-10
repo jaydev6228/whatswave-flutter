@@ -192,6 +192,7 @@ class _AppShellState extends State<AppShell> {
           callsController: widget.callsController,
           controller: widget.chatsController,
           updatesController: widget.updatesController,
+          communitiesController: widget.communitiesController,
           threadId: threadId,
         ),
       ),

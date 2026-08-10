@@ -14,8 +14,64 @@ service cloud.firestore {
                        || request.auth.uid in resource.data.participantUids);
       allow create: if request.auth != null
                      && request.auth.uid in request.resource.data.participantUids;
+
+      // Personal/shared thread state (mute, pin, archive, block, typing,
+      // per-uid unread counts, hiddenFor) -- any participant, but never the
+      // group-management fields below, which get their own narrower rules
+      // so a non-admin member can't rename the group, edit its description,
+      // add/remove other members, or change who's an admin.
       allow update: if request.auth != null
-                     && request.auth.uid in resource.data.participantUids;
+                     && request.auth.uid in resource.data.participantUids
+                     && !request.resource.data.diff(resource.data).affectedKeys()
+                          .hasAny(['groupName', 'groupDescription', 'groupAdminUids', 'participantUids']);
+
+      // Rename group / edit description -- admin only, one field at a
+      // time. See FirestoreChatRepository.renameGroup/updateGroupDescription.
+      allow update: if request.auth != null
+                     && request.auth.uid in resource.data.get('groupAdminUids', [])
+                     && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['groupName']);
+      allow update: if request.auth != null
+                     && request.auth.uid in resource.data.get('groupAdminUids', [])
+                     && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['groupDescription']);
+
+      // Promote/demote an admin -- only an existing admin may change the
+      // admin list. See FirestoreChatRepository.setGroupAdmin.
+      allow update: if request.auth != null
+                     && request.auth.uid in resource.data.get('groupAdminUids', [])
+                     && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['groupAdminUids']);
+
+      // Add members -- admin only, membership can only grow. See
+      // FirestoreChatRepository.addGroupMembers.
+      allow update: if request.auth != null
+                     && request.auth.uid in resource.data.get('groupAdminUids', [])
+                     && request.resource.data.diff(resource.data).affectedKeys()
+                          .hasOnly(['participantUids', 'unreadCounts'])
+                     && request.resource.data.participantUids.hasAll(resource.data.participantUids);
+
+      // Remove a member -- admin only, removes exactly one uid (never the
+      // acting admin themselves -- use leave-group for that), membership
+      // can only shrink. See FirestoreChatRepository.removeGroupMember.
+      allow update: if request.auth != null
+                     && request.auth.uid in resource.data.get('groupAdminUids', [])
+                     && request.auth.uid in request.resource.data.participantUids
+                     && request.resource.data.diff(resource.data).affectedKeys()
+                          .hasOnly(['participantUids', 'groupAdminUids'])
+                     && resource.data.participantUids.hasAll(request.resource.data.participantUids)
+                     && request.resource.data.participantUids.size()
+                          == resource.data.participantUids.size() - 1;
+
+      // Leave a group -- any participant may remove only their own uid
+      // from membership (and admin list, if they were one). See
+      // FirestoreChatRepository.leaveGroup.
+      allow update: if request.auth != null
+                     && request.auth.uid in resource.data.participantUids
+                     && !(request.auth.uid in request.resource.data.participantUids)
+                     && request.resource.data.diff(resource.data).affectedKeys()
+                          .hasOnly(['participantUids', 'groupAdminUids'])
+                     && resource.data.participantUids.hasAll(request.resource.data.participantUids)
+                     && request.resource.data.participantUids.size()
+                          == resource.data.participantUids.size() - 1;
+
       allow delete: if false;
 
       match /messages/{messageId} {

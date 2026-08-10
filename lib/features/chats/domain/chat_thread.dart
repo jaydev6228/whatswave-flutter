@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'chat_message.dart';
+import 'group_participant.dart';
 
 class ChatThread {
   const ChatThread({
@@ -20,6 +21,8 @@ class ChatThread {
     this.participantUid,
     this.isCommunityGroup = false,
     this.avatarUrl,
+    this.participants,
+    this.groupDescription,
   });
 
   final String id;
@@ -58,6 +61,20 @@ class ChatThread {
   /// for groups (which have no single other participant) and for anyone
   /// who hasn't set one, falling back to [avatarLabel]/[accentColor].
   final String? avatarUrl;
+
+  /// This group's membership, in creation order -- null for 1:1 threads,
+  /// and for a group whose membership hasn't been resolved yet (e.g. a
+  /// backend that doesn't support group management).
+  final List<GroupParticipant>? participants;
+
+  /// A short "what's this group for" blurb, editable by admins -- null if
+  /// never set. Not applicable to 1:1 threads.
+  final String? groupDescription;
+
+  /// Whether the viewer resolving this thread is a group admin -- always
+  /// false for 1:1 threads or a group with no [participants] data.
+  bool get currentUserIsGroupAdmin =>
+      participants?.any((p) => p.isSelf && p.isAdmin) ?? false;
 
   ChatMessage? get latestMessage => messages.isEmpty ? null : messages.last;
 
@@ -145,6 +162,8 @@ class ChatThread {
     String? participantUid,
     bool? isCommunityGroup,
     String? avatarUrl,
+    List<GroupParticipant>? participants,
+    String? groupDescription,
   }) {
     return ChatThread(
       id: id ?? this.id,
@@ -164,6 +183,8 @@ class ChatThread {
       participantUid: participantUid ?? this.participantUid,
       isCommunityGroup: isCommunityGroup ?? this.isCommunityGroup,
       avatarUrl: avatarUrl ?? this.avatarUrl,
+      participants: participants ?? this.participants,
+      groupDescription: groupDescription ?? this.groupDescription,
     );
   }
 }

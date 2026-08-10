@@ -12,6 +12,7 @@ import '../../features/communities/domain/community_hub.dart';
 import '../../features/chats/domain/chat_attachment.dart';
 import '../../features/chats/domain/chat_message.dart';
 import '../../features/chats/domain/chat_thread.dart';
+import '../../features/chats/domain/group_participant.dart';
 
 abstract final class DemoData {
   static const AppUser currentUser = AppUser(
@@ -104,6 +105,29 @@ abstract final class DemoData {
         isGroup: true,
         isPinned: true,
         typingPreview: 'Marco is typing…',
+        groupDescription: 'Motion, visual QA, and rollout checkpoints.',
+        participants: const [
+          GroupParticipant(
+            uid: 'me',
+            name: 'You',
+            avatarLabel: 'ME',
+            accentColor: AppPalette.slate,
+            isAdmin: true,
+            isSelf: true,
+          ),
+          GroupParticipant(
+            uid: 'priya',
+            name: 'Priya',
+            avatarLabel: 'PR',
+            accentColor: AppPalette.purple,
+          ),
+          GroupParticipant(
+            uid: 'marco',
+            name: 'Marco',
+            avatarLabel: 'MA',
+            accentColor: AppPalette.sky,
+          ),
+        ],
         messages: List<ChatMessage>.unmodifiable([
           ChatMessage(
             id: 'design-1',
@@ -147,6 +171,30 @@ abstract final class DemoData {
         unreadCount: 12,
         isGroup: true,
         isMuted: true,
+        groupDescription: 'Family things, dinner plans, and photos.',
+        participants: const [
+          GroupParticipant(
+            uid: 'me',
+            name: 'You',
+            avatarLabel: 'ME',
+            accentColor: AppPalette.slate,
+            isAdmin: true,
+            isSelf: true,
+          ),
+          GroupParticipant(
+            uid: 'mom',
+            name: 'Mom',
+            avatarLabel: 'MO',
+            accentColor: AppPalette.rose,
+            isAdmin: true,
+          ),
+          GroupParticipant(
+            uid: 'dad',
+            name: 'Dad',
+            avatarLabel: 'DA',
+            accentColor: AppPalette.amber,
+          ),
+        ],
         messages: List<ChatMessage>.unmodifiable([
           ChatMessage(
             id: 'family-1',
@@ -188,6 +236,23 @@ abstract final class DemoData {
         accentColor: AppPalette.emerald,
         isGroup: true,
         isPinned: true,
+        groupDescription: 'Launch coordination and rollout updates.',
+        participants: const [
+          GroupParticipant(
+            uid: 'me',
+            name: 'You',
+            avatarLabel: 'ME',
+            accentColor: AppPalette.slate,
+            isAdmin: true,
+            isSelf: true,
+          ),
+          GroupParticipant(
+            uid: 'rina',
+            name: 'Rina',
+            avatarLabel: 'RI',
+            accentColor: AppPalette.emerald,
+          ),
+        ],
         messages: List<ChatMessage>.unmodifiable([
           ChatMessage(
             id: 'ops-1',

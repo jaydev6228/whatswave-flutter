@@ -10,6 +10,7 @@ import '../../../core/utils/user_profile_lookup.dart';
 import '../domain/chat_attachment.dart';
 import '../domain/chat_message.dart';
 import '../domain/chat_thread.dart';
+import '../domain/group_participant.dart';
 import '../domain/story_reply_context.dart';
 import 'chat_repository.dart';
 
@@ -182,6 +183,7 @@ class FirestoreChatRepository implements ChatRepository {
         'groupName': trimmedName,
         'groupAvatarLabel': _avatarLabelForName(trimmedName),
         'groupAccentColorArgb': _accentColorForName(trimmedName).toARGB32(),
+        'groupAdminUids': [uid],
         'participantUids': participantUids,
         'unreadCounts': {for (final id in participantUids) id: 0},
         'hiddenFor': <String>[],
@@ -224,6 +226,120 @@ class FirestoreChatRepository implements ChatRepository {
       AppPalette.rose,
     ];
     return palette[name.hashCode.abs() % palette.length];
+  }
+
+  @override
+  Future<List<ChatThread>> addGroupMembers({
+    required String threadId,
+    required List<String> memberUids,
+  }) async {
+    try {
+      await _threadsRef.doc(threadId).update({
+        'participantUids': FieldValue.arrayUnion(memberUids),
+        for (final memberUid in memberUids) 'unreadCounts.$memberUid': 0,
+      });
+    } on FirebaseException catch (e) {
+      throw ChatRepositoryException(
+        e.message ?? 'Could not add members right now.',
+      );
+    }
+    return fetchThreads();
+  }
+
+  @override
+  Future<List<ChatThread>> removeGroupMember({
+    required String threadId,
+    required String memberUid,
+  }) async {
+    final uid = _requireCurrentUid;
+    if (memberUid == uid) {
+      throw const ChatRepositoryException(
+        'Use "Exit group" to remove yourself.',
+      );
+    }
+    try {
+      await _threadsRef.doc(threadId).update({
+        'participantUids': FieldValue.arrayRemove([memberUid]),
+        'groupAdminUids': FieldValue.arrayRemove([memberUid]),
+      });
+    } on FirebaseException catch (e) {
+      throw ChatRepositoryException(
+        e.message ?? 'Could not remove that member right now.',
+      );
+    }
+    return fetchThreads();
+  }
+
+  @override
+  Future<List<ChatThread>> leaveGroup(String threadId) async {
+    final uid = _requireCurrentUid;
+    try {
+      await _threadsRef.doc(threadId).update({
+        'participantUids': FieldValue.arrayRemove([uid]),
+        'groupAdminUids': FieldValue.arrayRemove([uid]),
+      });
+    } on FirebaseException catch (e) {
+      throw ChatRepositoryException(
+        e.message ?? 'Could not leave that group right now.',
+      );
+    }
+    return fetchThreads();
+  }
+
+  @override
+  Future<List<ChatThread>> setGroupAdmin({
+    required String threadId,
+    required String memberUid,
+    required bool isAdmin,
+  }) async {
+    try {
+      await _threadsRef.doc(threadId).update({
+        'groupAdminUids': isAdmin
+            ? FieldValue.arrayUnion([memberUid])
+            : FieldValue.arrayRemove([memberUid]),
+      });
+    } on FirebaseException catch (e) {
+      throw ChatRepositoryException(
+        e.message ?? 'Could not update that admin right now.',
+      );
+    }
+    return fetchThreads();
+  }
+
+  @override
+  Future<List<ChatThread>> renameGroup({
+    required String threadId,
+    required String name,
+  }) async {
+    final trimmedName = name.trim();
+    if (trimmedName.isEmpty) {
+      throw const ChatRepositoryException('Give the group a name.');
+    }
+    try {
+      await _threadsRef.doc(threadId).update({'groupName': trimmedName});
+    } on FirebaseException catch (e) {
+      throw ChatRepositoryException(
+        e.message ?? 'Could not rename that group right now.',
+      );
+    }
+    return fetchThreads();
+  }
+
+  @override
+  Future<List<ChatThread>> updateGroupDescription({
+    required String threadId,
+    required String description,
+  }) async {
+    try {
+      await _threadsRef
+          .doc(threadId)
+          .update({'groupDescription': description.trim()});
+    } on FirebaseException catch (e) {
+      throw ChatRepositoryException(
+        e.message ?? 'Could not update that group right now.',
+      );
+    }
+    return fetchThreads();
   }
 
   @override
@@ -523,11 +639,36 @@ class FirestoreChatRepository implements ChatRepository {
             orElse: () => null,
           );
 
+    List<GroupParticipant>? participants;
+    String? groupDescription;
+
     if (isGroup) {
       name = (data['groupName'] as String?) ?? 'Group';
       avatarLabel = (data['groupAvatarLabel'] as String?) ?? 'GR';
       accentColor =
           Color((data['groupAccentColorArgb'] as int?) ?? accentColor.toARGB32());
+      groupDescription = data['groupDescription'] as String?;
+
+      final adminUids =
+          (data['groupAdminUids'] as List<dynamic>?)?.cast<String>() ??
+              const <String>[];
+      final lookup = UserProfileLookup(firestore: _firestore);
+      participants = await Future.wait(
+        participantUids.map((memberUid) async {
+          final profile = await lookup.fetch(memberUid);
+          final isSelf = memberUid == currentUid;
+          return GroupParticipant(
+            uid: memberUid,
+            name: profile?.name ?? (isSelf ? 'You' : 'WhatsWave user'),
+            avatarLabel: profile?.avatarLabel ?? '?',
+            accentColor:
+                Color(profile?.accentColorArgb ?? AppPalette.slate.toARGB32()),
+            avatarUrl: profile?.avatarUrl,
+            isAdmin: adminUids.contains(memberUid),
+            isSelf: isSelf,
+          );
+        }),
+      );
     } else if (otherUid != null) {
       // A per-uid seed guess from whoever created the thread -- only ever
       // valid as a fallback for looking up THIS specific otherUid (see the
@@ -590,6 +731,8 @@ class FirestoreChatRepository implements ChatRepository {
       typingPreview: data['typingPreview'] as String?,
       participantUid: otherUid,
       isCommunityGroup: (data['isCommunityGroup'] as bool?) ?? false,
+      participants: participants,
+      groupDescription: groupDescription,
     );
   }
 
