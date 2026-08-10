@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../communities/application/communities_controller.dart';
 import '../../communities/domain/community_contact.dart';
@@ -32,6 +35,12 @@ class _NewGroupScreenState extends State<NewGroupScreen> {
   bool _isCreating = false;
   String? _errorMessage;
 
+  /// A picked-but-not-yet-uploaded group icon -- previewed locally, then
+  /// uploaded via ChatsController.updateGroupAvatar right after the group
+  /// itself is created (see _createGroup), the same call an admin can make
+  /// again later from group info to change it.
+  File? _pendingIconPhoto;
+
   @override
   void initState() {
     super.initState();
@@ -48,10 +57,10 @@ class _NewGroupScreenState extends State<NewGroupScreen> {
 
   // Only contacts with a real uid can be added to a real Firestore group --
   // matches the same restriction Calls/Message already apply elsewhere.
-  List<CommunityContact> get _eligibleContacts => widget
-      .communitiesController.onWhatsWaveContacts
-      .where((contact) => contact.matchedUid != null)
-      .toList(growable: false);
+  List<CommunityContact> get _eligibleContacts =>
+      widget.communitiesController.onWhatsWaveContacts
+          .where((contact) => contact.matchedUid != null)
+          .toList(growable: false);
 
   List<CommunityContact> get _filteredContacts {
     final query = _searchController.text.trim().toLowerCase();
@@ -79,6 +88,19 @@ class _NewGroupScreenState extends State<NewGroupScreen> {
       return;
     }
     setState(() => _showNameStep = true);
+  }
+
+  Future<void> _pickGroupIcon() async {
+    final picked = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 1024,
+      maxHeight: 1024,
+      imageQuality: 85,
+    );
+    if (picked == null || !mounted) {
+      return;
+    }
+    setState(() => _pendingIconPhoto = File(picked.path));
   }
 
   Future<void> _createGroup() async {
@@ -115,6 +137,21 @@ class _NewGroupScreenState extends State<NewGroupScreen> {
       });
       widget.chatsController.clearError();
       return;
+    }
+
+    final pendingIconPhoto = _pendingIconPhoto;
+    if (pendingIconPhoto != null) {
+      // Best-effort -- the group itself is already created at this point,
+      // so a failed icon upload shouldn't block finishing/opening it (the
+      // icon can always be set again from group info, same as this call).
+      await widget.chatsController.updateGroupAvatar(
+        threadId: threadId,
+        photo: pendingIconPhoto,
+      );
+      widget.chatsController.clearError();
+      if (!mounted) {
+        return;
+      }
     }
 
     Navigator.of(context).pop(threadId);
@@ -189,8 +226,7 @@ class _NewGroupScreenState extends State<NewGroupScreen> {
                               key: Key('new_group_member_${contact.id}'),
                               value: isSelected,
                               onChanged: (_) => _toggleContact(contact.id),
-                              controlAffinity:
-                                  ListTileControlAffinity.trailing,
+                              controlAffinity: ListTileControlAffinity.trailing,
                               secondary: AvatarBadge(
                                 label: contact.avatarLabel,
                                 color: contact.accentColor,
@@ -228,7 +264,8 @@ class _NewGroupScreenState extends State<NewGroupScreen> {
     return Scaffold(
       key: const Key('new_group_details_screen'),
       appBar: AppBar(
-        title: const Text('New group', maxLines: 1, overflow: TextOverflow.ellipsis),
+        title: const Text('New group',
+            maxLines: 1, overflow: TextOverflow.ellipsis),
         leading: IconButton(
           key: const Key('new_group_back_to_members'),
           icon: const Icon(Icons.arrow_back_rounded),
@@ -242,10 +279,49 @@ class _NewGroupScreenState extends State<NewGroupScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Center(
-                child: AvatarBadge(
-                  label: _previewAvatarLabel(),
-                  color: theme.colorScheme.primary,
-                  size: 72,
+                child: GestureDetector(
+                  key: const Key('new_group_icon_picker_button'),
+                  onTap: _isCreating ? null : _pickGroupIcon,
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      if (_pendingIconPhoto != null)
+                        ClipOval(
+                          child: Image.file(
+                            _pendingIconPhoto!,
+                            width: 72,
+                            height: 72,
+                            fit: BoxFit.cover,
+                          ),
+                        )
+                      else
+                        AvatarBadge(
+                          label: _previewAvatarLabel(),
+                          color: theme.colorScheme.primary,
+                          size: 72,
+                        ),
+                      Positioned(
+                        right: -2,
+                        bottom: -2,
+                        child: Container(
+                          padding: const EdgeInsets.all(5),
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.primary,
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: theme.colorScheme.surface,
+                              width: 2,
+                            ),
+                          ),
+                          child: Icon(
+                            Icons.camera_alt_rounded,
+                            size: 14,
+                            color: theme.colorScheme.onPrimary,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
               const SizedBox(height: 20),

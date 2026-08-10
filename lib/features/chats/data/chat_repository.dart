@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../domain/chat_attachment.dart';
@@ -80,6 +82,16 @@ abstract class ChatRepository {
   Future<List<ChatThread>> updateGroupDescription({
     required String threadId,
     required String description,
+  });
+
+  /// Uploads [photo] as a group thread's icon, replacing any previous one
+  /// (see [ChatThread.avatarUrl]). Only a current admin may call this
+  /// against a real backend. Used both right after creating a group (New
+  /// group's name step) and to change it later from group info -- the
+  /// same single path either way.
+  Future<List<ChatThread>> updateGroupAvatar({
+    required String threadId,
+    required File photo,
   });
 
   Future<List<ChatThread>> setThreadArchived({

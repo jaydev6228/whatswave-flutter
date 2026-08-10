@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 
@@ -465,6 +466,20 @@ class ChatsController extends ChangeNotifier {
         description: description,
       ),
       fallbackError: 'We could not update that group right now.',
+    );
+  }
+
+  /// Uploads [photo] as a group's icon -- called both right after
+  /// [createGroup] (New group's name step, if a photo was picked) and to
+  /// change it later from group info, the same single path either way.
+  Future<bool> updateGroupAvatar({
+    required String threadId,
+    required File photo,
+  }) async {
+    return _runThreadMutation(
+      threadId,
+      () => _repository.updateGroupAvatar(threadId: threadId, photo: photo),
+      fallbackError: 'We could not update that group photo right now.',
     );
   }
 

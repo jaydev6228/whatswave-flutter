@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:whatswave/core/permissions/app_permission_service.dart';
@@ -170,8 +172,7 @@ void main() {
       expect(controller.threadById('ava-patel')!.messages, isEmpty);
     });
 
-    test('common groups are empty for demo threads with no real uid',
-        () async {
+    test('common groups are empty for demo threads with no real uid', () async {
       await controller.loadThreads();
 
       final groups = await controller.groupThreadsSharedWith('ava-patel');
@@ -568,6 +569,14 @@ class _FailingChatRepository implements ChatRepository {
   }
 
   @override
+  Future<List<ChatThread>> updateGroupAvatar({
+    required String threadId,
+    required File photo,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
   Future<List<ChatThread>> toggleMessageStar({
     required String threadId,
     required String messageId,
@@ -686,7 +695,8 @@ class _SendFailingChatRepository implements ChatRepository {
     required String messageId,
     required String text,
   }) =>
-      _delegate.editMessage(threadId: threadId, messageId: messageId, text: text);
+      _delegate.editMessage(
+          threadId: threadId, messageId: messageId, text: text);
 
   @override
   Future<List<ChatThread>> deleteMessage({
@@ -756,4 +766,11 @@ class _SendFailingChatRepository implements ChatRepository {
         threadId: threadId,
         description: description,
       );
+
+  @override
+  Future<List<ChatThread>> updateGroupAvatar({
+    required String threadId,
+    required File photo,
+  }) =>
+      _delegate.updateGroupAvatar(threadId: threadId, photo: photo);
 }

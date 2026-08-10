@@ -23,16 +23,20 @@ service cloud.firestore {
       allow update: if request.auth != null
                      && request.auth.uid in resource.data.participantUids
                      && !request.resource.data.diff(resource.data).affectedKeys()
-                          .hasAny(['groupName', 'groupDescription', 'groupAdminUids', 'participantUids']);
+                          .hasAny(['groupName', 'groupDescription', 'groupAvatarUrl', 'groupAdminUids', 'participantUids']);
 
-      // Rename group / edit description -- admin only, one field at a
-      // time. See FirestoreChatRepository.renameGroup/updateGroupDescription.
+      // Rename group / edit description / change icon -- admin only, one
+      // field at a time. See
+      // FirestoreChatRepository.renameGroup/updateGroupDescription/updateGroupAvatar.
       allow update: if request.auth != null
                      && request.auth.uid in resource.data.get('groupAdminUids', [])
                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['groupName']);
       allow update: if request.auth != null
                      && request.auth.uid in resource.data.get('groupAdminUids', [])
                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['groupDescription']);
+      allow update: if request.auth != null
+                     && request.auth.uid in resource.data.get('groupAdminUids', [])
+                     && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['groupAvatarUrl']);
 
       // Promote/demote an admin -- only an existing admin may change the
       // admin list. See FirestoreChatRepository.setGroupAdmin.

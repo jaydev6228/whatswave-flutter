@@ -371,6 +371,14 @@ class TrackedChatRepository implements ChatRepository {
   }
 
   @override
+  Future<List<ChatThread>> updateGroupAvatar({
+    required String threadId,
+    required File photo,
+  }) {
+    return _delegate.updateGroupAvatar(threadId: threadId, photo: photo);
+  }
+
+  @override
   Future<List<ChatThread>> setThreadArchived({
     required String threadId,
     required bool isArchived,

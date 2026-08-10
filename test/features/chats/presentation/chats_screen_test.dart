@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show Clipboard, SystemChannels;
 import 'package:flutter_test/flutter_test.dart';
@@ -882,6 +884,42 @@ void main() {
     expect(find.byKey(const Key('participant_row_marco')), findsNothing);
   });
 
+  testWidgets('group info: an admin can change the group icon', (tester) async {
+    final controller = ChatsController(
+      repository: FakeChatRepository(latency: Duration.zero),
+    );
+    await _pumpChatsScreen(
+      tester,
+      device: iphoneProProfile,
+      controller: controller,
+    );
+
+    await tester.tap(find.byKey(const Key('chat_tile_design-sprint')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Design Sprint'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Group info'), findsOneWidget);
+    expect(controller.threadById('design-sprint')?.avatarUrl, isNull);
+
+    // Only an admin sees the camera-badge affordance on the group avatar
+    // (the current user is an admin of design-sprint -- see DemoData).
+    final iconButtonFinder =
+        find.byKey(const Key('contact_info_change_group_icon_button'));
+    expect(iconButtonFinder, findsOneWidget);
+
+    await tester.tap(iconButtonFinder);
+    await tester.pumpAndSettle();
+
+    // FakeImagePickerPlatform (see setUp above) always resolves a single
+    // pickImage call to this path.
+    expect(
+      controller.threadById('design-sprint')?.avatarUrl,
+      '/fake/test-photo.jpg',
+    );
+  });
+
   testWidgets('group info: exiting a group returns to a closed conversation',
       (tester) async {
     await _pumpChatsScreen(
@@ -1706,6 +1744,14 @@ class _FailingChatRepository implements ChatRepository {
   }
 
   @override
+  Future<List<Never>> updateGroupAvatar({
+    required String threadId,
+    required File photo,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
   Future<List<Never>> toggleMessageStar({
     required String threadId,
     required String messageId,
@@ -1906,6 +1952,13 @@ class _FlakySendChatRepository implements ChatRepository {
         threadId: threadId,
         description: description,
       );
+
+  @override
+  Future<List<ChatThread>> updateGroupAvatar({
+    required String threadId,
+    required File photo,
+  }) =>
+      _delegate.updateGroupAvatar(threadId: threadId, photo: photo);
 }
 
 class _FakeDeviceLocationService implements DeviceLocationService {

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../../../app/theme/app_palette.dart';
@@ -231,6 +233,28 @@ class FakeChatRepository implements ChatRepository {
         .map(
           (entry) => entry.id == thread.id
               ? entry.copyWith(groupDescription: description.trim())
+              : entry,
+        )
+        .toList(growable: false);
+    return _deepCopyThreads(_threads);
+  }
+
+  @override
+  Future<List<ChatThread>> updateGroupAvatar({
+    required String threadId,
+    required File photo,
+  }) async {
+    await _wait();
+    final thread = _threadForId(threadId);
+    // No real upload (or filesystem check) for the fake/demo backend --
+    // just stand in the picked file's own path, the same as
+    // FakeAuthRepository.updateAvatar's equivalent for profile photos.
+    // AvatarBadge already resolves a non-http avatarUrl as a local file
+    // path.
+    _threads = _threads
+        .map(
+          (entry) => entry.id == thread.id
+              ? entry.copyWith(avatarUrl: photo.path)
               : entry,
         )
         .toList(growable: false);

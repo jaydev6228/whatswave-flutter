@@ -118,7 +118,8 @@ class FirestoreChatRepository implements ChatRepository {
   }) async {
     final uid = _requireCurrentUid;
     if (participantUid == uid) {
-      throw const ChatRepositoryException('You cannot start a chat with yourself.');
+      throw const ChatRepositoryException(
+          'You cannot start a chat with yourself.');
     }
 
     // Deterministic id from the sorted pair of uids -- repeated calls for
@@ -344,6 +345,37 @@ class FirestoreChatRepository implements ChatRepository {
   }
 
   @override
+  Future<List<ChatThread>> updateGroupAvatar({
+    required String threadId,
+    required File photo,
+  }) async {
+    if (!await photo.exists()) {
+      throw const ChatRepositoryException('That photo is no longer available.');
+    }
+
+    final extension = photo.path.contains('.')
+        ? photo.path.substring(photo.path.lastIndexOf('.'))
+        : '.jpg';
+    try {
+      // A fixed filename (not a timestamp), same reasoning as
+      // FirebaseAuthRepository.updateAvatar -- re-uploading replaces the
+      // previous icon in Storage instead of accumulating orphans.
+      final downloadUrl = await _mediaUploader.uploadFile(
+        photo,
+        storagePath: 'groupPhotos/$threadId/icon$extension',
+      );
+      await _threadsRef.doc(threadId).update({'groupAvatarUrl': downloadUrl});
+    } on MediaUploadException catch (e) {
+      throw ChatRepositoryException(e.message);
+    } on FirebaseException catch (e) {
+      throw ChatRepositoryException(
+        e.message ?? 'Could not update that group photo right now.',
+      );
+    }
+    return fetchThreads();
+  }
+
+  @override
   Future<List<ChatThread>> setThreadArchived({
     required String threadId,
     required bool isArchived,
@@ -403,8 +435,7 @@ class FirestoreChatRepository implements ChatRepository {
           .get();
       final matchingDocs = snapshot.docs.where((doc) {
         final memberUids =
-            (doc.data()['participantUids'] as List<dynamic>?)
-                    ?.cast<String>() ??
+            (doc.data()['participantUids'] as List<dynamic>?)?.cast<String>() ??
                 const <String>[];
         return memberUids.contains(participantUid);
       }).toList();
@@ -671,9 +702,9 @@ class FirestoreChatRepository implements ChatRepository {
     final otherUid = isGroup
         ? null
         : participantUids.cast<String?>().firstWhere(
-            (entry) => entry != null && entry != currentUid,
-            orElse: () => null,
-          );
+              (entry) => entry != null && entry != currentUid,
+              orElse: () => null,
+            );
 
     List<GroupParticipant>? participants;
     String? groupDescription;
@@ -681,8 +712,9 @@ class FirestoreChatRepository implements ChatRepository {
     if (isGroup) {
       name = (data['groupName'] as String?) ?? 'Group';
       avatarLabel = (data['groupAvatarLabel'] as String?) ?? 'GR';
-      accentColor =
-          Color((data['groupAccentColorArgb'] as int?) ?? accentColor.toARGB32());
+      accentColor = Color(
+          (data['groupAccentColorArgb'] as int?) ?? accentColor.toARGB32());
+      avatarUrl = data['groupAvatarUrl'] as String?;
       groupDescription = data['groupDescription'] as String?;
 
       final adminUids =
@@ -716,8 +748,8 @@ class FirestoreChatRepository implements ChatRepository {
         if (seedName != null && seedName.isNotEmpty) {
           name = seedName;
           avatarLabel = (seed['avatarLabel'] as String?) ?? avatarLabel;
-          accentColor =
-              Color((seed['accentColorArgb'] as int?) ?? accentColor.toARGB32());
+          accentColor = Color(
+              (seed['accentColorArgb'] as int?) ?? accentColor.toARGB32());
         }
       }
 
@@ -754,10 +786,9 @@ class FirestoreChatRepository implements ChatRepository {
       accentColor: accentColor,
       avatarUrl: avatarUrl,
       messages: messages,
-      unreadCount:
-          (data['unreadCounts'] as Map<String, dynamic>?)?[currentUid]
-                  as int? ??
-              0,
+      unreadCount: (data['unreadCounts'] as Map<String, dynamic>?)?[currentUid]
+              as int? ??
+          0,
       isMuted: (data['isMuted'] as bool?) ?? false,
       isPinned: (data['isPinned'] as bool?) ?? false,
       isGroup: (data['isGroup'] as bool?) ?? false,
@@ -796,8 +827,7 @@ class FirestoreChatRepository implements ChatRepository {
       reactions: reactionsRaw.map(
         (uid, emoji) => MapEntry(uid, emoji as String),
       ),
-      storyReplyContext:
-          StoryReplyContext.fromJson(data['storyReplyContext']),
+      storyReplyContext: StoryReplyContext.fromJson(data['storyReplyContext']),
       isDeleted: (data['isDeleted'] as bool?) ?? false,
       isEdited: (data['isEdited'] as bool?) ?? false,
       isStarred: ((data['starredBy'] as List<dynamic>?) ?? const [])
@@ -849,7 +879,8 @@ class FirestoreChatRepository implements ChatRepository {
             };
       final downloadUrl = await _mediaUploader.uploadFile(
         file,
-        storagePath: 'chatMedia/$threadId/$messageId-${attachment.id}$extension',
+        storagePath:
+            'chatMedia/$threadId/$messageId-${attachment.id}$extension',
       );
       return attachment.copyWith(localMediaPath: downloadUrl);
     } catch (e) {

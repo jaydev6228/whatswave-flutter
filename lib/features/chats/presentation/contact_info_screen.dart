@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../communities/application/communities_controller.dart';
 import '../../shared/widgets/avatar_badge.dart';
@@ -106,12 +109,54 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                         Center(
                           child: Column(
                             children: [
-                              AvatarBadge(
-                                label: thread.avatarLabel,
-                                color: thread.accentColor,
-                                avatarUrl: thread.avatarUrl,
-                                size: 84,
-                              ),
+                              if (thread.isGroup &&
+                                  thread.currentUserIsGroupAdmin)
+                                GestureDetector(
+                                  key: const Key(
+                                    'contact_info_change_group_icon_button',
+                                  ),
+                                  onTap: () => _pickAndUpdateGroupAvatar(
+                                    thread,
+                                  ),
+                                  child: Stack(
+                                    clipBehavior: Clip.none,
+                                    children: [
+                                      AvatarBadge(
+                                        label: thread.avatarLabel,
+                                        color: thread.accentColor,
+                                        avatarUrl: thread.avatarUrl,
+                                        size: 84,
+                                      ),
+                                      Positioned(
+                                        right: -2,
+                                        bottom: -2,
+                                        child: Container(
+                                          padding: const EdgeInsets.all(6),
+                                          decoration: BoxDecoration(
+                                            color: theme.colorScheme.primary,
+                                            shape: BoxShape.circle,
+                                            border: Border.all(
+                                              color: theme.colorScheme.surface,
+                                              width: 2,
+                                            ),
+                                          ),
+                                          child: Icon(
+                                            Icons.camera_alt_rounded,
+                                            size: 16,
+                                            color: theme.colorScheme.onPrimary,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                )
+                              else
+                                AvatarBadge(
+                                  label: thread.avatarLabel,
+                                  color: thread.accentColor,
+                                  avatarUrl: thread.avatarUrl,
+                                  size: 84,
+                                ),
                               const SizedBox(height: 14),
                               Row(
                                 mainAxisSize: MainAxisSize.min,
@@ -541,6 +586,22 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
     await widget.controller.updateGroupDescription(
       threadId: thread.id,
       description: trimmed,
+    );
+  }
+
+  Future<void> _pickAndUpdateGroupAvatar(ChatThread thread) async {
+    final picked = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 1024,
+      maxHeight: 1024,
+      imageQuality: 85,
+    );
+    if (picked == null || !mounted) {
+      return;
+    }
+    await widget.controller.updateGroupAvatar(
+      threadId: thread.id,
+      photo: File(picked.path),
     );
   }
 
