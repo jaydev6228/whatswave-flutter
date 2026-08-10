@@ -6,6 +6,7 @@ import '../domain/chat_attachment.dart';
 import '../domain/chat_message.dart';
 import '../domain/chat_thread.dart';
 import '../domain/group_participant.dart';
+import '../domain/message_reply_preview.dart';
 import '../domain/story_reply_context.dart';
 import 'chat_repository.dart';
 
@@ -317,6 +318,7 @@ class FakeChatRepository implements ChatRepository {
     required String threadId,
     required String text,
     StoryReplyContext? storyReplyContext,
+    MessageReplyPreview? replyPreview,
   }) async {
     await _wait();
     final normalizedText = text.trim();
@@ -335,6 +337,7 @@ class FakeChatRepository implements ChatRepository {
       text: normalizedText,
       deliveryState: MessageDeliveryState.delivered,
       storyReplyContext: storyReplyContext,
+      replyPreview: replyPreview,
     );
 
     _threads = _threads
@@ -431,6 +434,7 @@ class FakeChatRepository implements ChatRepository {
     required String threadId,
     required List<ChatAttachment> attachments,
     String? caption,
+    MessageReplyPreview? replyPreview,
   }) async {
     await _wait();
     final thread = _threadForId(threadId);
@@ -443,6 +447,7 @@ class FakeChatRepository implements ChatRepository {
       text: trimmedCaption,
       attachments: List<ChatAttachment>.unmodifiable(attachments),
       deliveryState: MessageDeliveryState.delivered,
+      replyPreview: replyPreview,
     );
 
     _threads = _threads

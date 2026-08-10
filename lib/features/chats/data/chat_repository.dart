@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../domain/chat_attachment.dart';
 import '../domain/chat_thread.dart';
+import '../domain/message_reply_preview.dart';
 import '../domain/story_reply_context.dart';
 
 abstract class ChatRepository {
@@ -115,6 +116,7 @@ abstract class ChatRepository {
     required String threadId,
     required String text,
     StoryReplyContext? storyReplyContext,
+    MessageReplyPreview? replyPreview,
   });
 
   /// Replaces [messageId]'s text with [text] -- only ever valid for a
@@ -143,6 +145,7 @@ abstract class ChatRepository {
     required String threadId,
     required List<ChatAttachment> attachments,
     String? caption,
+    MessageReplyPreview? replyPreview,
   });
 
   /// Sets (or replaces) the caller's reaction on [messageId] to [emoji]. If

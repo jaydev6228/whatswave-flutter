@@ -31,6 +31,7 @@ import '../domain/chat_attachment.dart';
 import '../domain/chat_message.dart';
 import '../domain/chat_thread.dart';
 import '../domain/message_reaction.dart';
+import '../domain/message_reply_preview.dart';
 import '../domain/story_reply_context.dart';
 import 'attachment_viewer_screen.dart';
 import 'contact_info_screen.dart';
@@ -109,12 +110,26 @@ class _ConversationScreenState extends State<ConversationScreen> {
   String? _highlightedMessageId;
   Timer? _highlightClearTimer;
 
+  /// Set by [MessageAction.reply] -- a snapshot of the message being
+  /// replied to, shown as a dismissible bar above the composer while it's
+  /// set, and attached to the next message sent.
+  MessageReplyPreview? _pendingReply;
+  late final FocusNode _composerFocusNode;
+
+  /// Non-empty while in multi-select mode (entered via [MessageAction.select]
+  /// or long-pressing an already-selected bubble) -- the app bar swaps to a
+  /// "N selected" bulk-action toolbar and tapping any bubble toggles its
+  /// membership instead of the bubble's normal tap behavior.
+  final Set<String> _selectedMessageIds = <String>{};
+  bool get _isSelecting => _selectedMessageIds.isNotEmpty;
+
   @override
   void initState() {
     super.initState();
     _composerController = TextEditingController();
     _messageListController = ScrollController();
     _searchController = TextEditingController();
+    _composerFocusNode = FocusNode();
   }
 
   @override
@@ -125,6 +140,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
     _composerController.dispose();
     _messageListController.dispose();
     _searchController.dispose();
+    _composerFocusNode.dispose();
     super.dispose();
   }
 
@@ -238,17 +254,25 @@ class _ConversationScreenState extends State<ConversationScreen> {
         return Scaffold(
           appBar: AppBar(
             titleSpacing: 0,
-            leading: _isSearching
+            leading: _isSelecting
                 ? IconButton(
-                    key: const Key('conversation_search_close_button'),
-                    icon: const Icon(Icons.arrow_back_rounded),
-                    onPressed: _closeSearch,
+                    key: const Key('conversation_selection_close_button'),
+                    icon: const Icon(Icons.close_rounded),
+                    onPressed: _exitSelection,
                   )
-                : null,
+                : _isSearching
+                    ? IconButton(
+                        key: const Key('conversation_search_close_button'),
+                        icon: const Icon(Icons.arrow_back_rounded),
+                        onPressed: _closeSearch,
+                      )
+                    : null,
             // Fixed-height chrome (the toolbar) with a two-line title stack
             // -- clamp text scale so it can't outgrow that height at large
             // accessibility scale. See docs/ui_layout_guidelines.md rule 4.
-            title: _isSearching
+            title: _isSelecting
+                ? Text('${_selectedMessageIds.length} selected')
+                : _isSearching
                 ? MediaQuery.withClampedTextScaling(
                     maxScaleFactor: 1.3,
                     child: TextField(
@@ -319,7 +343,34 @@ class _ConversationScreenState extends State<ConversationScreen> {
                 ],
               ),
             ),
-            actions: _isSearching
+            actions: _isSelecting
+                ? [
+                    if (_selectedMessagesInOrder(visibleMessages).length == 1 &&
+                        _selectedMessagesInOrder(visibleMessages).single.hasText)
+                      IconButton(
+                        key: const Key('conversation_selection_copy_button'),
+                        icon: const Icon(Icons.content_copy_rounded),
+                        onPressed: () => _copySelectedMessage(visibleMessages),
+                      ),
+                    IconButton(
+                      key: const Key('conversation_selection_forward_button'),
+                      icon: const Icon(Icons.forward_rounded),
+                      onPressed: () =>
+                          _forwardSelectedMessages(thread, visibleMessages),
+                    ),
+                    IconButton(
+                      key: const Key('conversation_selection_star_button'),
+                      icon: const Icon(Icons.star_border_rounded),
+                      onPressed: () => _starSelectedMessages(visibleMessages),
+                    ),
+                    IconButton(
+                      key: const Key('conversation_selection_delete_button'),
+                      icon: const Icon(Icons.delete_outline_rounded),
+                      onPressed: () => _deleteSelectedMessages(visibleMessages),
+                    ),
+                    const SizedBox(width: 4),
+                  ]
+                : _isSearching
                 ? [
                     if (trimmedQuery.isNotEmpty)
                       Padding(
@@ -513,6 +564,12 @@ class _ConversationScreenState extends State<ConversationScreen> {
                                           message.storyReplyContext!,
                                         )
                                     : null,
+                                onReplyPreviewTap: _jumpToMessage,
+                                isSelectionMode: _isSelecting,
+                                isSelected:
+                                    _selectedMessageIds.contains(message.id),
+                                onToggleSelection: () =>
+                                    _toggleMessageSelection(message.id),
                               ),
                             ),
                             if (index != visibleMessages.length - 1)
@@ -532,10 +589,16 @@ class _ConversationScreenState extends State<ConversationScreen> {
                 ),
                 if (thread.isBlocked)
                   _BlockedContactBanner(name: thread.name)
-                else
+                else ...[
+                  if (_pendingReply != null)
+                    _ReplyPreviewBar(
+                      replyPreview: _pendingReply!,
+                      onCancel: _cancelReply,
+                    ),
                   _ComposerBar(
                     composerBarKey: _composerBarKey,
                     controller: _composerController,
+                    focusNode: _composerFocusNode,
                     isBusy: composerInteractionsLocked,
                     canSendText: canSendText,
                     lockedMinHeight: _composerLockedMinHeight,
@@ -547,6 +610,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
                     },
                     onChanged: (_) => setState(() {}),
                   ),
+                ],
               ],
             ),
           ),
@@ -690,16 +754,19 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
     final trimmedCaption = _composerController.text.trim();
     final wasNearLatest = _isNearLatestMessage();
+    final replyPreview = _pendingReply;
     final localMessage = _buildLocalMessage(
       threadId: threadId,
       text: trimmedCaption,
       attachments: attachments,
+      replyPreview: replyPreview,
     );
 
     _lockComposerHeight();
     _upsertLocalMessage(localMessage);
     _markMessageForAnimation(localMessage.id);
     _composerController.clear();
+    _pendingReply = null;
     if (mounted) {
       setState(() {});
     }
@@ -709,6 +776,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
       threadId: threadId,
       attachments: attachments,
       caption: trimmedCaption.isEmpty ? null : trimmedCaption,
+      replyPreview: replyPreview,
     );
 
     if (!mounted) {
@@ -800,15 +868,18 @@ class _ConversationScreenState extends State<ConversationScreen> {
       return;
     }
 
+    final replyPreview = _pendingReply;
     final localMessage = _buildLocalMessage(
       threadId: threadId,
       text: trimmedDraft,
+      replyPreview: replyPreview,
     );
     _composerUnlockTimer?.cancel();
     _upsertLocalMessage(localMessage);
     _markMessageForAnimation(localMessage.id);
     _composerController.clear();
     _composerLockedMinHeight = null;
+    _pendingReply = null;
     if (mounted) {
       setState(() {});
     }
@@ -817,6 +888,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
     final didSend = await widget.controller.sendTextMessage(
       threadId: threadId,
       text: trimmedDraft,
+      replyPreview: replyPreview,
     );
 
     if (!mounted) {
@@ -1081,6 +1153,8 @@ class _ConversationScreenState extends State<ConversationScreen> {
     required ChatMessage message,
   }) async {
     switch (action) {
+      case MessageAction.reply:
+        _startReplyingTo(message);
       case MessageAction.copy:
         await Clipboard.setData(ClipboardData(text: message.text));
         if (mounted) {
@@ -1097,12 +1171,215 @@ class _ConversationScreenState extends State<ConversationScreen> {
         );
       case MessageAction.edit:
         await _editMessage(thread, message);
+      case MessageAction.select:
+        _startSelecting(message.id);
       case MessageAction.deleteForMe:
         await _confirmDeleteMessage(thread, message, forEveryone: false);
       case MessageAction.deleteForEveryone:
         await _confirmDeleteMessage(thread, message, forEveryone: true);
       case MessageAction.save:
         await _saveMessageMedia(message);
+    }
+  }
+
+  void _startReplyingTo(ChatMessage message) {
+    setState(() {
+      _pendingReply = MessageReplyPreview(
+        messageId: message.id,
+        senderName: message.senderName,
+        previewText: message.hasText
+            ? message.text
+            : message.hasAttachments
+                ? message.attachments.first.compactLabel
+                : '',
+      );
+    });
+    FocusScope.of(context).requestFocus(_composerFocusNode);
+  }
+
+  void _cancelReply() {
+    setState(() => _pendingReply = null);
+  }
+
+  void _startSelecting(String messageId) {
+    setState(() => _selectedMessageIds.add(messageId));
+  }
+
+  void _toggleMessageSelection(String messageId) {
+    setState(() {
+      if (!_selectedMessageIds.remove(messageId)) {
+        _selectedMessageIds.add(messageId);
+      }
+    });
+  }
+
+  void _exitSelection() {
+    setState(_selectedMessageIds.clear);
+  }
+
+  List<ChatMessage> _selectedMessagesInOrder(List<ChatMessage> visibleMessages) {
+    return visibleMessages
+        .where((message) => _selectedMessageIds.contains(message.id))
+        .toList(growable: false);
+  }
+
+  Future<void> _forwardSelectedMessages(
+    ChatThread thread,
+    List<ChatMessage> visibleMessages,
+  ) async {
+    final selected = _selectedMessagesInOrder(visibleMessages);
+    if (selected.isEmpty) {
+      return;
+    }
+    final targetThreadIds = await pickForwardTarget(
+      context,
+      controller: widget.controller,
+      excludeThreadId: thread.id,
+    );
+    if (targetThreadIds == null || targetThreadIds.isEmpty || !mounted) {
+      return;
+    }
+
+    var successCount = 0;
+    for (final targetThreadId in targetThreadIds) {
+      for (final message in selected) {
+        final didSend = message.hasAttachments
+            ? await widget.controller.sendAttachmentMessage(
+                threadId: targetThreadId,
+                attachments: message.attachments,
+                caption: message.hasText ? message.text : null,
+              )
+            : await widget.controller.sendTextMessage(
+                threadId: targetThreadId,
+                text: message.text,
+              );
+        if (didSend) {
+          successCount++;
+        }
+      }
+    }
+    if (!mounted) {
+      return;
+    }
+    _exitSelection();
+
+    final totalSends = targetThreadIds.length * selected.length;
+    final summary = successCount == totalSends
+        ? (targetThreadIds.length == 1 && selected.length == 1
+            ? 'Message forwarded'
+            : 'Forwarded to ${targetThreadIds.length} chat${targetThreadIds.length == 1 ? '' : 's'}')
+        : 'Forwarded $successCount of $totalSends messages';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(summary)),
+    );
+  }
+
+  Future<void> _starSelectedMessages(List<ChatMessage> visibleMessages) async {
+    final thread = widget.controller.threadById(widget.threadId);
+    if (thread == null) {
+      return;
+    }
+    final selected = _selectedMessagesInOrder(visibleMessages);
+    if (selected.isEmpty) {
+      return;
+    }
+    // If every selected message is already starred, the action unstars
+    // them all; otherwise it stars whichever aren't starred yet -- matches
+    // WhatsApp's own bulk-star behavior rather than blindly toggling each
+    // one (which would flip an already-starred message back off).
+    final shouldStar = selected.any((message) => !message.isStarred);
+    for (final message in selected) {
+      if (message.isStarred != shouldStar) {
+        await widget.controller.toggleMessageStar(
+          threadId: thread.id,
+          messageId: message.id,
+        );
+      }
+    }
+    if (mounted) {
+      _exitSelection();
+    }
+  }
+
+  Future<void> _copySelectedMessage(List<ChatMessage> visibleMessages) async {
+    final selected = _selectedMessagesInOrder(visibleMessages);
+    if (selected.length != 1) {
+      return;
+    }
+    await Clipboard.setData(ClipboardData(text: selected.single.text));
+    if (!mounted) {
+      return;
+    }
+    _exitSelection();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Copied to clipboard')),
+    );
+  }
+
+  Future<void> _deleteSelectedMessages(List<ChatMessage> visibleMessages) async {
+    final thread = widget.controller.threadById(widget.threadId);
+    if (thread == null) {
+      return;
+    }
+    final selected = _selectedMessagesInOrder(visibleMessages);
+    if (selected.isEmpty) {
+      return;
+    }
+    final allMine = selected.every((message) => message.isFromCurrentUser);
+    final count = selected.length;
+
+    final forEveryone = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: Text(
+            count == 1 ? 'Delete message?' : 'Delete $count messages?',
+          ),
+          content: Text(
+            allMine
+                ? 'Choose who this should be deleted for.'
+                : "These will be deleted for you -- they'll stay in this "
+                    'chat for everyone else.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            if (allMine)
+              TextButton(
+                key: const Key('confirm_bulk_delete_everyone_button'),
+                style: TextButton.styleFrom(
+                  foregroundColor: Theme.of(dialogContext).colorScheme.error,
+                ),
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: const Text('Delete for everyone'),
+              ),
+            FilledButton(
+              key: const Key('confirm_bulk_delete_me_button'),
+              style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(dialogContext).colorScheme.error,
+              ),
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Delete for me'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (forEveryone == null || !mounted) {
+      return;
+    }
+    for (final message in selected) {
+      await widget.controller.deleteMessage(
+        threadId: thread.id,
+        messageId: message.id,
+        forEveryone: forEveryone,
+      );
+    }
+    if (mounted) {
+      _exitSelection();
     }
   }
 
@@ -1440,6 +1717,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
     required String threadId,
     required String text,
     List<ChatAttachment> attachments = const <ChatAttachment>[],
+    MessageReplyPreview? replyPreview,
   }) {
     return ChatMessage(
       id: '$threadId-local-${DateTime.now().microsecondsSinceEpoch}',
@@ -1449,6 +1727,76 @@ class _ConversationScreenState extends State<ConversationScreen> {
       text: text,
       attachments: List<ChatAttachment>.unmodifiable(attachments),
       deliveryState: MessageDeliveryState.sending,
+      replyPreview: replyPreview,
+    );
+  }
+}
+
+/// The dismissible "Replying to ..." bar shown above the composer while
+/// [MessageAction.reply] is active -- WhatsApp's own quote-reply staging
+/// area.
+class _ReplyPreviewBar extends StatelessWidget {
+  const _ReplyPreviewBar({
+    required this.replyPreview,
+    required this.onCancel,
+  });
+
+  final MessageReplyPreview replyPreview;
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
+      color: theme.colorScheme.surfaceContainerHighest.withValues(
+        alpha: theme.brightness == Brightness.dark ? 0.3 : 0.5,
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 3,
+            height: 34,
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primary,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  replyPreview.senderName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: theme.colorScheme.primary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                Text(
+                  replyPreview.previewText.isEmpty
+                      ? 'Media'
+                      : replyPreview.previewText,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            key: const Key('conversation_cancel_reply_button'),
+            icon: const Icon(Icons.close_rounded, size: 18),
+            onPressed: onCancel,
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1514,6 +1862,7 @@ class _ComposerBar extends StatelessWidget {
     required this.onAttachmentTap,
     required this.onSendTap,
     required this.onChanged,
+    this.focusNode,
   });
 
   final GlobalKey composerBarKey;
@@ -1524,6 +1873,7 @@ class _ComposerBar extends StatelessWidget {
   final ValueChanged<ChatAttachmentType> onAttachmentTap;
   final VoidCallback onSendTap;
   final ValueChanged<String> onChanged;
+  final FocusNode? focusNode;
 
   @override
   Widget build(BuildContext context) {
@@ -1616,6 +1966,7 @@ class _ComposerBar extends StatelessWidget {
             child: TextField(
               key: const Key('conversation_composer_field'),
               controller: controller,
+              focusNode: focusNode,
               minLines: 1,
               maxLines: 4,
               keyboardType: TextInputType.multiline,
@@ -1925,6 +2276,7 @@ class _AnimatedMessageEntryState extends State<_AnimatedMessageEntry>
 /// _MessageBubble._showReactionTray, which shows this alongside the
 /// reaction tray) -- WhatsApp's own delete/forward/copy/edit/save set.
 enum MessageAction {
+  reply,
   copy,
   forward,
   star,
@@ -1932,6 +2284,7 @@ enum MessageAction {
   deleteForMe,
   deleteForEveryone,
   save,
+  select,
 }
 
 class _MessageBubble extends StatelessWidget {
@@ -1945,10 +2298,27 @@ class _MessageBubble extends StatelessWidget {
     this.isStoryReplyAvailable = false,
     this.onStoryReplyCardTap,
     this.isHighlighted = false,
+    this.onReplyPreviewTap,
+    this.isSelectionMode = false,
+    this.isSelected = false,
+    this.onToggleSelection,
   });
 
   final ChatThread thread;
   final ChatMessage message;
+
+  /// True once any message in the thread is selected -- see
+  /// ConversationScreen._isSelecting. Suppresses the long-press reaction
+  /// tray and makes a plain tap toggle this bubble's own selection instead.
+  final bool isSelectionMode;
+  final bool isSelected;
+  final VoidCallback? onToggleSelection;
+
+  /// Tapping this message's own quoted "replying to ..." card (see
+  /// [ChatMessage.replyPreview]) jumps back to the original message it
+  /// quotes -- null hides that affordance (the conversation screen only
+  /// ever passes it once _messageKeys/_jumpToMessage exist to serve it).
+  final ValueChanged<String>? onReplyPreviewTap;
 
   /// Briefly true right after in-conversation search jumps to this message
   /// -- see ConversationScreen._jumpToMessage -- so the reader can spot
@@ -1989,7 +2359,7 @@ class _MessageBubble extends StatelessWidget {
         : theme.colorScheme.onSurface;
     final alignment = isMine ? Alignment.centerRight : Alignment.centerLeft;
 
-    return Align(
+    final bubble = Align(
       alignment: alignment,
       // A Builder here (rather than reading `context` from this outer
       // `build`) matters: this method's own `context` resolves through
@@ -1999,7 +2369,10 @@ class _MessageBubble extends StatelessWidget {
       child: Builder(
         builder: (bubbleContext) {
           return GestureDetector(
-            onLongPress: () => _showReactionTray(bubbleContext, isMine: isMine),
+            onTap: isSelectionMode ? onToggleSelection : null,
+            onLongPress: isSelectionMode
+                ? null
+                : () => _showReactionTray(bubbleContext, isMine: isMine),
             child: Stack(
               clipBehavior: Clip.none,
               children: [
@@ -2058,6 +2431,18 @@ class _MessageBubble extends StatelessWidget {
                             ),
                           )
                         else ...[
+                          if (message.hasReplyPreview) ...[
+                            _ReplyPreviewQuoteCard(
+                              replyPreview: message.replyPreview!,
+                              accentColor: thread.accentColor,
+                              onTap: onReplyPreviewTap == null
+                                  ? null
+                                  : () => onReplyPreviewTap!(
+                                        message.replyPreview!.messageId,
+                                      ),
+                            ),
+                            const SizedBox(height: 8),
+                          ],
                           if (message.hasStoryReplyContext) ...[
                             _StoryReplyCard(
                               replyContext: message.storyReplyContext!,
@@ -2194,6 +2579,37 @@ class _MessageBubble extends StatelessWidget {
         },
       ),
     );
+
+    if (!isSelectionMode) {
+      return bubble;
+    }
+
+    // In selection mode, a leading checkbox circle sits to the left of
+    // every bubble regardless of isMine (matching WhatsApp) -- Expanded
+    // keeps the bubble's own Align filling the remaining row width
+    // exactly like it filled the whole row before this wrapper existed.
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(right: 8),
+          child: GestureDetector(
+            key: Key('message_selection_checkbox_${message.id}'),
+            onTap: onToggleSelection,
+            child: Icon(
+              isSelected
+                  ? Icons.check_circle_rounded
+                  : Icons.radio_button_unchecked_rounded,
+              size: 22,
+              color: isSelected
+                  ? theme.colorScheme.primary
+                  : theme.colorScheme.onSurface.withValues(alpha: 0.38),
+            ),
+          ),
+        ),
+        Expanded(child: bubble),
+      ],
+    );
   }
 
   Future<void> _showReactionTray(
@@ -2307,11 +2723,13 @@ class _MessageBubble extends StatelessWidget {
   List<MessageAction> _availableActions() {
     final isMine = message.isFromCurrentUser;
     return [
+      if (!message.isDeleted) MessageAction.reply,
       if (message.hasText && !message.isDeleted) MessageAction.copy,
       if (!message.isDeleted) MessageAction.forward,
       if (!message.isDeleted) MessageAction.star,
       if (isMine && message.hasText && !message.isDeleted) MessageAction.edit,
       if (_hasSavableMedia) MessageAction.save,
+      if (!message.isDeleted) MessageAction.select,
       MessageAction.deleteForMe,
       if (isMine && !message.isDeleted) MessageAction.deleteForEveryone,
     ];
@@ -2421,6 +2839,69 @@ class _MessageBubble extends StatelessWidget {
       MessageDeliveryState.read => Icons.done_all_rounded,
       MessageDeliveryState.failed => Icons.error_outline_rounded,
     };
+  }
+}
+
+/// A small quoted card above a reply's own text -- WhatsApp's own
+/// quote-reply. Tapping it jumps back to the original message (see
+/// ConversationScreen._jumpToMessage); [onTap] is null once that lookup
+/// has nothing live to scroll to (the GlobalKey map only ever holds
+/// currently-rendered messages).
+class _ReplyPreviewQuoteCard extends StatelessWidget {
+  const _ReplyPreviewQuoteCard({
+    required this.replyPreview,
+    required this.accentColor,
+    required this.onTap,
+  });
+
+  final MessageReplyPreview replyPreview;
+  final Color accentColor;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        key: const Key('reply_preview_quote_card'),
+        borderRadius: BorderRadius.circular(10),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.06),
+            borderRadius: BorderRadius.circular(10),
+            border: Border(left: BorderSide(color: accentColor, width: 3)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                replyPreview.senderName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: accentColor,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              Text(
+                replyPreview.previewText.isEmpty
+                    ? 'Media'
+                    : replyPreview.previewText,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -2647,10 +3128,12 @@ class _MessageActionMenu extends StatelessWidget {
   final ValueChanged<MessageAction> onSelected;
 
   static const Map<MessageAction, (IconData, String)> _presentation = {
+    MessageAction.reply: (Icons.reply_rounded, 'Reply'),
     MessageAction.copy: (Icons.content_copy_rounded, 'Copy'),
     MessageAction.forward: (Icons.forward_rounded, 'Forward'),
     MessageAction.edit: (Icons.edit_outlined, 'Edit'),
     MessageAction.save: (Icons.download_rounded, 'Save'),
+    MessageAction.select: (Icons.check_circle_outline_rounded, 'Select'),
     MessageAction.deleteForMe: (Icons.delete_outline_rounded, 'Delete for me'),
     MessageAction.deleteForEveryone: (
       Icons.delete_forever_rounded,

@@ -10,6 +10,7 @@ import '../data/chat_repository.dart';
 import '../domain/chat_attachment.dart';
 import '../domain/chat_message.dart';
 import '../domain/chat_thread.dart';
+import '../domain/message_reply_preview.dart';
 import '../domain/story_reply_context.dart';
 
 enum ChatListFilter { all, unread, groups }
@@ -481,6 +482,7 @@ class ChatsController extends ChangeNotifier {
     required String threadId,
     required String text,
     StoryReplyContext? storyReplyContext,
+    MessageReplyPreview? replyPreview,
   }) async {
     final normalizedText = text.trim();
     if (normalizedText.isEmpty) {
@@ -495,6 +497,7 @@ class ChatsController extends ChangeNotifier {
         threadId: threadId,
         text: normalizedText,
         storyReplyContext: storyReplyContext,
+        replyPreview: replyPreview,
       ),
       fallbackError: 'We could not send that message right now.',
       clearSearch: false,
@@ -546,6 +549,7 @@ class ChatsController extends ChangeNotifier {
     required String threadId,
     required List<ChatAttachment> attachments,
     String? caption,
+    MessageReplyPreview? replyPreview,
   }) {
     return _runThreadMutation(
       threadId,
@@ -553,6 +557,7 @@ class ChatsController extends ChangeNotifier {
         threadId: threadId,
         attachments: attachments,
         caption: caption,
+        replyPreview: replyPreview,
       ),
       fallbackError: 'We could not send that attachment right now.',
       clearSearch: false,

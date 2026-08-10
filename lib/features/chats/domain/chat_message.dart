@@ -1,4 +1,5 @@
 import 'chat_attachment.dart';
+import 'message_reply_preview.dart';
 import 'story_reply_context.dart';
 
 enum MessageDeliveryState { sending, sent, delivered, read, failed }
@@ -17,6 +18,7 @@ class ChatMessage {
     this.isDeleted = false,
     this.isEdited = false,
     this.isStarred = false,
+    this.replyPreview,
   });
 
   final String id;
@@ -51,10 +53,16 @@ class ChatMessage {
   /// message on one account doesn't star it for the other participants).
   final bool isStarred;
 
+  /// Set when this message was sent via "Reply" on another message -- a
+  /// frozen snapshot of what was replied to, rendered as a small quoted
+  /// card inside this message's own bubble. See [MessageReplyPreview].
+  final MessageReplyPreview? replyPreview;
+
   bool get hasText => text.trim().isNotEmpty;
   bool get hasAttachments => attachments.isNotEmpty;
   bool get hasReactions => reactions.isNotEmpty;
   bool get hasStoryReplyContext => storyReplyContext != null;
+  bool get hasReplyPreview => replyPreview != null;
 
   ChatMessage copyWith({
     String? id,
@@ -69,6 +77,7 @@ class ChatMessage {
     bool? isDeleted,
     bool? isEdited,
     bool? isStarred,
+    MessageReplyPreview? replyPreview,
   }) {
     return ChatMessage(
       id: id ?? this.id,
@@ -83,6 +92,7 @@ class ChatMessage {
       isDeleted: isDeleted ?? this.isDeleted,
       isEdited: isEdited ?? this.isEdited,
       isStarred: isStarred ?? this.isStarred,
+      replyPreview: replyPreview ?? this.replyPreview,
     );
   }
 }

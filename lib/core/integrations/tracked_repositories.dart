@@ -11,6 +11,7 @@ import '../../features/chats/data/chat_repository.dart';
 import '../../features/chats/domain/chat_attachment.dart';
 import '../../features/chats/domain/chat_attachment.dart' as chat_attachment;
 import '../../features/chats/domain/chat_thread.dart';
+import '../../features/chats/domain/message_reply_preview.dart';
 import '../../features/chats/domain/story_reply_context.dart';
 import '../../features/communities/data/communities_overview.dart';
 import '../../features/communities/data/communities_repository.dart';
@@ -388,12 +389,14 @@ class TrackedChatRepository implements ChatRepository {
     required String threadId,
     required String text,
     StoryReplyContext? storyReplyContext,
+    MessageReplyPreview? replyPreview,
   }) async {
     try {
       final threads = await _delegate.sendTextMessage(
         threadId: threadId,
         text: text,
         storyReplyContext: storyReplyContext,
+        replyPreview: replyPreview,
       );
       unawaited(
         _integrations.recordSyncSuccess(
@@ -499,6 +502,7 @@ class TrackedChatRepository implements ChatRepository {
     required String threadId,
     required List<ChatAttachment> attachments,
     String? caption,
+    MessageReplyPreview? replyPreview,
   }) async {
     final combinedLabel = attachments.length == 1
         ? attachments.single.compactLabel
@@ -517,6 +521,7 @@ class TrackedChatRepository implements ChatRepository {
         threadId: threadId,
         attachments: attachments,
         caption: caption,
+        replyPreview: replyPreview,
       );
     } on ChatRepositoryException catch (error) {
       unawaited(

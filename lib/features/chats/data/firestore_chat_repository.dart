@@ -11,6 +11,7 @@ import '../domain/chat_attachment.dart';
 import '../domain/chat_message.dart';
 import '../domain/chat_thread.dart';
 import '../domain/group_participant.dart';
+import '../domain/message_reply_preview.dart';
 import '../domain/story_reply_context.dart';
 import 'chat_repository.dart';
 
@@ -447,12 +448,14 @@ class FirestoreChatRepository implements ChatRepository {
     required String threadId,
     required String text,
     StoryReplyContext? storyReplyContext,
+    MessageReplyPreview? replyPreview,
   }) async {
     await _sendMessage(
       threadId: threadId,
       text: text,
       attachments: const [],
       storyReplyContext: storyReplyContext,
+      replyPreview: replyPreview,
     );
     return fetchThreads();
   }
@@ -515,11 +518,13 @@ class FirestoreChatRepository implements ChatRepository {
     required String threadId,
     required List<ChatAttachment> attachments,
     String? caption,
+    MessageReplyPreview? replyPreview,
   }) async {
     await _sendMessage(
       threadId: threadId,
       text: caption ?? '',
       attachments: attachments,
+      replyPreview: replyPreview,
     );
     return fetchThreads();
   }
@@ -587,6 +592,7 @@ class FirestoreChatRepository implements ChatRepository {
     required String text,
     required List<ChatAttachment> attachments,
     StoryReplyContext? storyReplyContext,
+    MessageReplyPreview? replyPreview,
   }) async {
     final uid = _requireCurrentUid;
     final senderName = _firebaseAuth.currentUser?.displayName ?? 'You';
@@ -619,6 +625,7 @@ class FirestoreChatRepository implements ChatRepository {
         'deliveryState': MessageDeliveryState.delivered.name,
         if (storyReplyContext != null)
           'storyReplyContext': storyReplyContext.toJson(),
+        if (replyPreview != null) 'replyPreview': replyPreview.toJson(),
       });
 
       final threadUpdate = <String, Object?>{
@@ -795,6 +802,7 @@ class FirestoreChatRepository implements ChatRepository {
       isEdited: (data['isEdited'] as bool?) ?? false,
       isStarred: ((data['starredBy'] as List<dynamic>?) ?? const [])
           .contains(currentUid),
+      replyPreview: MessageReplyPreview.fromJson(data['replyPreview']),
     );
   }
 

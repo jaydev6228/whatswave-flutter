@@ -21,6 +21,7 @@ import 'package:whatswave/features/chats/data/fake_chat_repository.dart';
 import 'package:whatswave/features/chats/domain/chat_attachment.dart';
 import 'package:whatswave/features/chats/domain/chat_message.dart';
 import 'package:whatswave/features/chats/domain/chat_thread.dart';
+import 'package:whatswave/features/chats/domain/message_reply_preview.dart';
 import 'package:whatswave/features/chats/domain/story_reply_context.dart';
 import 'package:whatswave/features/chats/presentation/chats_screen.dart';
 import 'package:whatswave/features/chats/presentation/widgets/location_map_preview.dart';
@@ -323,6 +324,130 @@ void main() {
     final clipboardData =
         await Clipboard.getData(Clipboard.kTextPlain);
     expect(clipboardData?.text, messageText);
+  });
+
+  testWidgets(
+      'message long-press menu: replying shows a quote card that jumps '
+      'back to the original message', (tester) async {
+    await _pumpChatsScreen(
+      tester,
+      device: iphoneProProfile,
+      controller: ChatsController(
+        repository: FakeChatRepository(latency: Duration.zero),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('chat_tile_ava-patel')));
+    await tester.pumpAndSettle();
+
+    const originalText =
+        'The onboarding shots look good. The motion pacing feels much cleaner.';
+    await tester.longPress(find.text(originalText));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('message_action_reply')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('message_action_reply')));
+    await tester.pumpAndSettle();
+
+    // "Ava Patel" also appears in the app bar title, and the original
+    // text is still visible in its own message bubble too -- both checks
+    // just confirm a second occurrence exists (the reply bar itself)
+    // rather than scoping into the bar's own subtree.
+    expect(find.text('Ava Patel'), findsNWidgets(2));
+    expect(find.text(originalText), findsNWidgets(2));
+
+    await tester.enterText(
+      find.byKey(const Key('conversation_composer_field')),
+      'Sure thing!',
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('conversation_send_button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Sure thing!'), findsOneWidget);
+    // The reply bar clears itself after sending.
+    expect(
+      find.byKey(const Key('conversation_cancel_reply_button')),
+      findsNothing,
+    );
+    expect(find.byKey(const Key('reply_preview_quote_card')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('reply_preview_quote_card')));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    // Jumping back to the original message can scroll the new reply's own
+    // bubble (and its quote card, also showing this text) out of the
+    // ListView's lazily-built viewport -- at least the original bubble
+    // itself must still be visible after the jump.
+    expect(find.text(originalText), findsWidgets);
+  });
+
+  testWidgets(
+      'message long-press menu: multi-select bulk-stars then bulk-deletes '
+      'messages', (tester) async {
+    await _pumpChatsScreen(
+      tester,
+      device: iphoneProProfile,
+      controller: ChatsController(
+        repository: FakeChatRepository(latency: Duration.zero),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('chat_tile_design-sprint')));
+    await tester.pumpAndSettle();
+
+    const priyaText = 'Pinned the revised motion notes in Figma.';
+    const marcoText = 'Added the rollout checklist too.';
+
+    await tester.longPress(find.text(priyaText));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('message_action_select')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('1 selected'), findsOneWidget);
+
+    await tester.tap(find.text(marcoText));
+    await tester.pumpAndSettle();
+
+    expect(find.text('2 selected'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const Key('conversation_selection_star_button')),
+    );
+    await tester.pumpAndSettle();
+
+    // Bulk actions exit selection mode on completion -- back to the
+    // normal header confirms it cleared.
+    expect(find.text('Design Sprint'), findsOneWidget);
+    expect(find.text('2 selected'), findsNothing);
+
+    await tester.longPress(find.text(priyaText));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('message_action_select')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(marcoText));
+    await tester.pumpAndSettle();
+
+    expect(find.text('2 selected'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const Key('conversation_selection_delete_button')),
+    );
+    await tester.pumpAndSettle();
+
+    // Neither message was sent by the current user, so only "Delete for
+    // me" is offered.
+    expect(
+      find.byKey(const Key('confirm_bulk_delete_everyone_button')),
+      findsNothing,
+    );
+    await tester.tap(find.byKey(const Key('confirm_bulk_delete_me_button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text(priyaText), findsNothing);
+    expect(find.text(marcoText), findsNothing);
+    expect(find.text('Design Sprint'), findsOneWidget);
   });
 
   testWidgets(
@@ -1479,6 +1604,7 @@ class _FailingChatRepository implements ChatRepository {
     required String threadId,
     required List<ChatAttachment> attachments,
     String? caption,
+    MessageReplyPreview? replyPreview,
   }) {
     throw UnimplementedError();
   }
@@ -1497,6 +1623,7 @@ class _FailingChatRepository implements ChatRepository {
     required String threadId,
     required String text,
     StoryReplyContext? storyReplyContext,
+    MessageReplyPreview? replyPreview,
   }) {
     throw UnimplementedError();
   }
@@ -1650,11 +1777,13 @@ class _FlakySendChatRepository implements ChatRepository {
     required String threadId,
     required List<ChatAttachment> attachments,
     String? caption,
+    MessageReplyPreview? replyPreview,
   }) =>
       _delegate.sendAttachmentMessage(
         threadId: threadId,
         attachments: attachments,
         caption: caption,
+        replyPreview: replyPreview,
       );
 
   @override
@@ -1681,6 +1810,7 @@ class _FlakySendChatRepository implements ChatRepository {
     required String threadId,
     required String text,
     StoryReplyContext? storyReplyContext,
+    MessageReplyPreview? replyPreview,
   }) {
     if (_shouldFailNextTextSend) {
       _shouldFailNextTextSend = false;
@@ -1690,6 +1820,7 @@ class _FlakySendChatRepository implements ChatRepository {
       threadId: threadId,
       text: text,
       storyReplyContext: storyReplyContext,
+      replyPreview: replyPreview,
     );
   }
 

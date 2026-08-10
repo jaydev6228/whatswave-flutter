@@ -8,6 +8,7 @@ import 'package:whatswave/features/chats/data/chat_repository.dart';
 import 'package:whatswave/features/chats/data/fake_chat_repository.dart';
 import 'package:whatswave/features/chats/domain/chat_attachment.dart';
 import 'package:whatswave/features/chats/domain/chat_thread.dart';
+import 'package:whatswave/features/chats/domain/message_reply_preview.dart';
 import 'package:whatswave/features/chats/domain/story_reply_context.dart';
 
 void main() {
@@ -448,6 +449,7 @@ class _FailingChatRepository implements ChatRepository {
     required String threadId,
     required List<ChatAttachment> attachments,
     String? caption,
+    MessageReplyPreview? replyPreview,
   }) {
     throw UnimplementedError();
   }
@@ -466,6 +468,7 @@ class _FailingChatRepository implements ChatRepository {
     required String threadId,
     required String text,
     StoryReplyContext? storyReplyContext,
+    MessageReplyPreview? replyPreview,
   }) {
     throw UnimplementedError();
   }
@@ -621,6 +624,7 @@ class _SendFailingChatRepository implements ChatRepository {
     required String threadId,
     required List<ChatAttachment> attachments,
     String? caption,
+    MessageReplyPreview? replyPreview,
   }) {
     throw const ChatRepositoryException('Message service offline');
   }
@@ -649,6 +653,7 @@ class _SendFailingChatRepository implements ChatRepository {
     required String threadId,
     required String text,
     StoryReplyContext? storyReplyContext,
+    MessageReplyPreview? replyPreview,
   }) {
     throw const ChatRepositoryException('Message service offline');
   }
