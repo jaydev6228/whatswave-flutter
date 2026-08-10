@@ -2,13 +2,12 @@ import 'package:flutter/material.dart';
 
 import '../../communities/application/communities_controller.dart';
 import '../../shared/widgets/avatar_badge.dart';
-import '../../updates/presentation/widgets/status_media_source.dart';
 import '../application/chats_controller.dart';
 import '../domain/chat_attachment.dart';
 import '../domain/chat_thread.dart';
 import '../domain/group_participant.dart';
 import 'add_group_members_screen.dart';
-import 'attachment_viewer_screen.dart';
+import 'shared_media_screen.dart';
 
 /// WhatsApp-style contact info: shared media, common groups, and
 /// destructive actions (clear chat, block), reached by tapping the
@@ -124,7 +123,8 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                                       maxLines: 2,
                                       overflow: TextOverflow.ellipsis,
                                       style: theme.textTheme.headlineSmall
-                                          ?.copyWith(fontWeight: FontWeight.w800),
+                                          ?.copyWith(
+                                              fontWeight: FontWeight.w800),
                                     ),
                                   ),
                                   if (thread.isGroup &&
@@ -187,13 +187,12 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                             children: [
                               Expanded(
                                 child: Text(
-                                  (thread.groupDescription?.isNotEmpty ??
-                                          false)
+                                  (thread.groupDescription?.isNotEmpty ?? false)
                                       ? thread.groupDescription!
                                       : 'Add a group description',
                                   style: theme.textTheme.bodyMedium?.copyWith(
-                                    color: theme.colorScheme.onSurface
-                                        .withValues(
+                                    color:
+                                        theme.colorScheme.onSurface.withValues(
                                       alpha: (thread.groupDescription
                                                   ?.isNotEmpty ??
                                               false)
@@ -230,9 +229,12 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                             ),
                           ),
                           const SizedBox(height: 12),
-                          _SharedMediaGrid(
-                            attachments: mediaAttachments,
-                            threadName: thread.name,
+                          _FlatInfoPanel(
+                            padding: EdgeInsets.zero,
+                            child: _SharedMediaDisclosureRow(
+                              attachments: mediaAttachments,
+                              threadName: thread.name,
+                            ),
                           ),
                           const SizedBox(height: 28),
                         ],
@@ -576,9 +578,7 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                       : Icons.admin_panel_settings_outlined,
                 ),
                 title: Text(
-                  participant.isAdmin
-                      ? 'Dismiss as admin'
-                      : 'Make group admin',
+                  participant.isAdmin ? 'Dismiss as admin' : 'Make group admin',
                 ),
                 onTap: () => Navigator.of(sheetContext)
                     .pop(_ParticipantAction.toggleAdmin),
@@ -721,8 +721,13 @@ class _FlatInfoPanel extends StatelessWidget {
   }
 }
 
-class _SharedMediaGrid extends StatelessWidget {
-  const _SharedMediaGrid({
+/// A single-row summary of a thread's shared media -- a preview thumbnail
+/// of the most recent item plus an item count, tapping through to
+/// [SharedMediaScreen]'s full grid. Replaces showing the grid inline,
+/// which pushed common groups/destructive actions much further down the
+/// scroll for any thread with more than a few shared items.
+class _SharedMediaDisclosureRow extends StatelessWidget {
+  const _SharedMediaDisclosureRow({
     required this.attachments,
     required this.threadName,
   });
@@ -732,83 +737,51 @@ class _SharedMediaGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GridView.builder(
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        crossAxisSpacing: 4,
-        mainAxisSpacing: 4,
-      ),
-      itemCount: attachments.length,
-      itemBuilder: (context, index) {
-        final attachment = attachments[index];
-        final localPath = attachment.localMediaPath;
-        final hasRealPhoto = attachment.type == ChatAttachmentType.photo &&
-            localPath != null &&
-            statusMediaSourceExists(localPath);
+    final theme = Theme.of(context);
+    // .last, not .first -- attachments is built from thread.messages in
+    // chronological (oldest-first) order, so the most recently shared item
+    // is the last one.
+    final previewAttachment = attachments.last;
 
-        return ClipRRect(
-          borderRadius: BorderRadius.circular(10),
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              key: Key('contact_info_media_${attachment.id}'),
-              onTap: () => showAttachmentPreview(
-                context,
-                attachment: attachment,
-                threadName: threadName,
-              ),
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  if (hasRealPhoto)
-                    Image(
-                      image: imageProviderForStatusMediaPath(localPath)!,
-                      fit: BoxFit.cover,
-                      loadingBuilder: (context, child, loadingProgress) {
-                        if (loadingProgress == null) {
-                          return child;
-                        }
-                        return ColoredBox(
-                          color: attachment.tintColor.withValues(alpha: 0.18),
-                          child: Center(
-                            child: SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: attachment.tintColor,
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    )
-                  else
-                    ColoredBox(
-                      color: attachment.tintColor.withValues(alpha: 0.18),
-                      child: Icon(
-                        attachment.type == ChatAttachmentType.video
-                            ? Icons.videocam_outlined
-                            : Icons.photo_outlined,
-                        color: attachment.tintColor,
-                      ),
-                    ),
-                  if (attachment.type == ChatAttachmentType.video)
-                    const Center(
-                      child: Icon(
-                        Icons.play_arrow_rounded,
-                        color: Colors.white,
-                        size: 22,
-                      ),
-                    ),
-                ],
-              ),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        key: const Key('contact_info_shared_media_row'),
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => SharedMediaScreen(
+              attachments: attachments,
+              threadName: threadName,
             ),
           ),
-        );
-      },
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 48,
+                height: 48,
+                child: SharedMediaThumbnail(attachment: previewAttachment),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Text(
+                  attachments.length == 1
+                      ? '1 item'
+                      : '${attachments.length} items',
+                  style: theme.textTheme.titleSmall
+                      ?.copyWith(fontWeight: FontWeight.w700),
+                ),
+              ),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

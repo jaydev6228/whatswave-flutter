@@ -753,6 +753,49 @@ void main() {
   });
 
   testWidgets(
+      'contact info: shared media shows as a disclosure row that opens the '
+      'full grid', (tester) async {
+    await _pumpChatsScreen(
+      tester,
+      device: iphoneProProfile,
+      controller: ChatsController(
+        repository: FakeChatRepository(latency: Duration.zero),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('chat_tile_ava-patel')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Ava Patel'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Contact info'), findsOneWidget);
+    // A row, not an inline grid -- ava-patel has exactly one shared photo
+    // (see DemoData), so the row reads "1 item" and there's no standalone
+    // media tile sitting directly in contact info.
+    final rowFinder = find.byKey(const Key('contact_info_shared_media_row'));
+    expect(rowFinder, findsOneWidget);
+    expect(find.text('1 item'), findsOneWidget);
+    expect(find.byKey(const Key('shared_media_ava-photo-1')), findsNothing);
+
+    await tester.tap(rowFinder);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Shared media'), findsOneWidget);
+    expect(
+      find.byKey(const Key('shared_media_screen_grid')),
+      findsOneWidget,
+    );
+    final tileFinder = find.byKey(const Key('shared_media_ava-photo-1'));
+    expect(tileFinder, findsOneWidget);
+
+    await tester.tap(tileFinder);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Onboarding board'), findsWidgets);
+  });
+
+  testWidgets(
       'group info: shows participants with admin badges and lets an admin '
       'rename the group, promote a member, and remove a member',
       (tester) async {
