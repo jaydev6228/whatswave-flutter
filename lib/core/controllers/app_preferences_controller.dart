@@ -27,6 +27,8 @@ class AppPreferencesController extends ChangeNotifier {
   static const _groupsAudienceKey = 'app_preferences_groups_audience_v1';
   static const _securityNotificationsKey =
       'app_preferences_security_notifications_v1';
+  static const _mediaAutoDownloadEnabledKey =
+      'app_preferences_media_auto_download_enabled_v1';
 
   final DateTime Function() _nowProvider;
   SharedPreferences? _preferences;
@@ -41,6 +43,7 @@ class AppPreferencesController extends ChangeNotifier {
   PrivacyAudience _statusAudience = PrivacyAudience.contacts;
   PrivacyAudience _groupsAudience = PrivacyAudience.contacts;
   bool _securityNotificationsEnabled = true;
+  bool _mediaAutoDownloadEnabled = true;
   bool _hasLoaded = false;
   bool _isLoading = false;
   bool _isAppLocked = false;
@@ -57,6 +60,7 @@ class AppPreferencesController extends ChangeNotifier {
   PrivacyAudience get statusAudience => _statusAudience;
   PrivacyAudience get groupsAudience => _groupsAudience;
   bool get securityNotificationsEnabled => _securityNotificationsEnabled;
+  bool get mediaAutoDownloadEnabled => _mediaAutoDownloadEnabled;
   bool get hasLoaded => _hasLoaded;
   bool get isLoading => _isLoading;
   bool get isAppLocked => _isAppLocked;
@@ -96,6 +100,8 @@ class AppPreferencesController extends ChangeNotifier {
       );
       _securityNotificationsEnabled =
           preferences.getBool(_securityNotificationsKey) ?? true;
+      _mediaAutoDownloadEnabled =
+          preferences.getBool(_mediaAutoDownloadEnabledKey) ?? true;
       _hasLoaded = true;
     } finally {
       _isLoading = false;
@@ -209,6 +215,16 @@ class AppPreferencesController extends ChangeNotifier {
     _queuePersistence();
   }
 
+  void setMediaAutoDownloadEnabled(bool value) {
+    if (_mediaAutoDownloadEnabled == value) {
+      return;
+    }
+
+    _mediaAutoDownloadEnabled = value;
+    notifyListeners();
+    _queuePersistence();
+  }
+
   void handleLifecycleChange(AppLifecycleState state) {
     if (!_appLockEnabled) {
       return;
@@ -300,6 +316,10 @@ class AppPreferencesController extends ChangeNotifier {
     await preferences.setBool(
       _securityNotificationsKey,
       _securityNotificationsEnabled,
+    );
+    await preferences.setBool(
+      _mediaAutoDownloadEnabledKey,
+      _mediaAutoDownloadEnabled,
     );
   }
 

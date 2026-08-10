@@ -11,8 +11,11 @@ import '../../chats/presentation/starred_messages_screen.dart';
 import '../../communities/application/communities_controller.dart';
 import '../../updates/application/updates_controller.dart';
 import 'backend_sync_screen.dart';
+import 'blocked_contacts_screen.dart';
+import 'help_screen.dart';
 import 'privacy_settings_screen.dart';
 import 'profile_settings_screen.dart';
+import 'storage_data_screen.dart';
 import 'widgets/profile_header_card.dart';
 import 'widgets/settings_tile.dart';
 
@@ -165,6 +168,16 @@ class SettingsScreen extends StatelessWidget {
                             ),
                             const Divider(height: 1),
                             SettingsTile(
+                              key: const Key('settings_blocked_contacts_tile'),
+                              icon: Icons.block_outlined,
+                              title: 'Blocked contacts',
+                              subtitle: _blockedContactsCount() == 0
+                                  ? 'No blocked contacts.'
+                                  : '${_blockedContactsCount()} blocked.',
+                              onTap: () => _openBlockedContacts(context),
+                            ),
+                            const Divider(height: 1),
+                            SettingsTile(
                               key: const Key('settings_notifications_tile'),
                               icon: Icons.notifications_none_rounded,
                               title: 'Notifications',
@@ -205,11 +218,14 @@ class SettingsScreen extends StatelessWidget {
                               onTap: () => _openBackendSync(context),
                             ),
                             const Divider(height: 1),
-                            const SettingsTile(
+                            SettingsTile(
+                              key: const Key('settings_storage_data_tile'),
                               icon: Icons.folder_outlined,
                               title: 'Storage and data',
-                              subtitle:
-                                  'Media quality, download controls, and cache trimming stay ready for the next hardening pass.',
+                              subtitle: chatsController.threads.isEmpty
+                                  ? 'Media usage and auto-download settings.'
+                                  : '${_mediaItemCount()} media items across your chats.',
+                              onTap: () => _openStorageData(context),
                             ),
                           ],
                         ),
@@ -222,12 +238,13 @@ class SettingsScreen extends StatelessWidget {
                         child: _SettingsSectionLabel(title: 'More'),
                       ),
                       const SizedBox(height: 8),
-                      const _SettingsGroup(
+                      _SettingsGroup(
                         child: SettingsTile(
+                          key: const Key('settings_help_tile'),
                           icon: Icons.help_outline_rounded,
                           title: 'Help',
-                          subtitle:
-                              'FAQ, support, diagnostics, and safety guidance surfaces.',
+                          subtitle: 'FAQ and contact support.',
+                          onTap: () => _openHelp(context),
                         ),
                       ),
                       const SizedBox(height: 18),
@@ -286,6 +303,46 @@ class SettingsScreen extends StatelessWidget {
           updatesController: updatesController,
           communitiesController: communitiesController,
         ),
+      ),
+    );
+  }
+
+  int _blockedContactsCount() =>
+      chatsController.threads.where((thread) => thread.isBlocked).length;
+
+  int _mediaItemCount() {
+    var count = 0;
+    for (final thread in chatsController.threads) {
+      for (final message in thread.messages) {
+        count += message.attachments.length;
+      }
+    }
+    return count;
+  }
+
+  Future<void> _openBlockedContacts(BuildContext context) async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => BlockedContactsScreen(chatsController: chatsController),
+      ),
+    );
+  }
+
+  Future<void> _openStorageData(BuildContext context) async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => StorageDataScreen(
+          chatsController: chatsController,
+          preferencesController: preferencesController,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openHelp(BuildContext context) async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => const HelpScreen(),
       ),
     );
   }

@@ -307,6 +307,120 @@ void main() {
 
     expect(find.text('Want the final export tonight?'), findsWidgets);
   });
+
+  testWidgets('blocked contacts tile lists a blocked chat and unblocks it',
+      (tester) async {
+    final authController = await _createAuthenticatedAuthController();
+    final preferencesController = AppPreferencesController();
+    await preferencesController.ensureLoaded();
+
+    final threads = DemoData.buildChatThreads().map((thread) {
+      return thread.id == 'ava-patel'
+          ? thread.copyWith(isBlocked: true)
+          : thread;
+    }).toList(growable: false);
+    final chatsController = ChatsController(
+      repository: FakeChatRepository(
+        initialThreads: threads,
+        latency: Duration.zero,
+      ),
+    );
+    await chatsController.loadThreads();
+
+    await _pumpSettingsScreen(
+      tester,
+      authController: authController,
+      preferencesController: preferencesController,
+      chatsController: chatsController,
+    );
+
+    expect(find.text('1 blocked.'), findsOneWidget);
+
+    await _scrollUntilVisibleOnSettings(
+      tester,
+      find.byKey(const Key('settings_blocked_contacts_tile')),
+    );
+    await tester.tap(find.byKey(const Key('settings_blocked_contacts_tile')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('blocked_contacts_screen')),
+      findsOneWidget,
+    );
+    expect(find.text('Ava Patel'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('unblock_ava-patel')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('No blocked contacts'), findsOneWidget);
+  });
+
+  testWidgets('storage and data tile shows real media counts and the '
+      'auto-download toggle', (tester) async {
+    final authController = await _createAuthenticatedAuthController();
+    final preferencesController = AppPreferencesController();
+    await preferencesController.ensureLoaded();
+
+    final chatsController = ChatsController(
+      repository: FakeChatRepository(latency: Duration.zero),
+    );
+    await chatsController.loadThreads();
+
+    await _pumpSettingsScreen(
+      tester,
+      authController: authController,
+      preferencesController: preferencesController,
+      chatsController: chatsController,
+    );
+
+    await _scrollUntilVisibleOnSettings(
+      tester,
+      find.byKey(const Key('settings_storage_data_tile')),
+    );
+    await tester.tap(find.byKey(const Key('settings_storage_data_tile')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('storage_data_screen')), findsOneWidget);
+    expect(find.text('Photos'), findsOneWidget);
+    expect(find.text('Videos'), findsOneWidget);
+
+    expect(preferencesController.mediaAutoDownloadEnabled, isTrue);
+    await tester.tap(find.byKey(const Key('storage_auto_download_switch')));
+    await tester.pumpAndSettle();
+
+    expect(preferencesController.mediaAutoDownloadEnabled, isFalse);
+  });
+
+  testWidgets('help tile shows the FAQ and expands a topic', (tester) async {
+    final authController = await _createAuthenticatedAuthController();
+    final preferencesController = AppPreferencesController();
+    await preferencesController.ensureLoaded();
+
+    await _pumpSettingsScreen(
+      tester,
+      authController: authController,
+      preferencesController: preferencesController,
+    );
+
+    await _scrollUntilVisibleOnSettings(
+      tester,
+      find.byKey(const Key('settings_help_tile')),
+    );
+    await tester.tap(find.byKey(const Key('settings_help_tile')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('help_screen')), findsOneWidget);
+    expect(find.text('How do I manage a group?'), findsOneWidget);
+    expect(
+      find.byKey(const Key('help_contact_support_button')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.text('How do I manage a group?'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Group info'), findsOneWidget);
+  });
 }
 
 Future<AuthController> _createAuthenticatedAuthController() async {
