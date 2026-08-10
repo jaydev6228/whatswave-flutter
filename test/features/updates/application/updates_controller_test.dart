@@ -251,4 +251,9 @@ class _FailingUpdatesRepository implements UpdatesRepository {
   Future<List<StoryViewer>> fetchStoryViewers(String storyId) {
     throw UnimplementedError();
   }
+
+  @override
+  Future<void> likeStory(String storyId) {
+    throw UnimplementedError();
+  }
 }

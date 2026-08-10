@@ -130,8 +130,7 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
         .listen((snapshot) {
       for (final doc in snapshot.docs) {
         final participantUids =
-            (doc.data()['participantUids'] as List<dynamic>?)
-                    ?.cast<String>() ??
+            (doc.data()['participantUids'] as List<dynamic>?)?.cast<String>() ??
                 const <String>[];
         for (final participantUid in participantUids) {
           if (participantUid != uid) {
@@ -157,14 +156,14 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
     try {
       final partnerUids = await _chatPartnerUids(uid);
       final docs = await Future.wait(
-        <String>{uid, ...partnerUids}.map((ownerUid) => _storiesRef.doc(ownerUid).get()),
+        <String>{uid, ...partnerUids}
+            .map((ownerUid) => _storiesRef.doc(ownerUid).get()),
       );
       final resolvedStories = await Future.wait(
         docs.map((doc) => _storyFromDoc(doc, currentUid: uid)),
       );
-      final stories = resolvedStories
-          .whereType<StatusStory>()
-          .toList(growable: false);
+      final stories =
+          resolvedStories.whereType<StatusStory>().toList(growable: false);
 
       // Channels/discovery aren't part of this Firestore slice yet.
       return UpdatesFeed(stories: stories, channels: const <ChannelPreview>[]);
@@ -443,7 +442,7 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
           .orderBy('viewedAt', descending: true)
           .get();
       final lookup = UserProfileLookup(firestore: _firestore);
-      return await Future.wait(
+      final viewers = await Future.wait(
         snapshot.docs.map((doc) async {
           final data = doc.data();
           final profile = await lookup.fetch(doc.id);
@@ -456,12 +455,46 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
                 Color(profile?.accentColorArgb ?? AppPalette.slate.toARGB32()),
             avatarUrl: profile?.avatarUrl,
             viewedAt: viewedAt is Timestamp ? viewedAt.toDate() : null,
+            liked: data['liked'] == true,
           );
         }),
       );
+
+      // Liked viewers first, then everyone else -- both groups keep the
+      // query's own viewedAt-descending order (List.sort isn't guaranteed
+      // stable, so partitioning via .where preserves it instead of relying
+      // on a comparator), matching WhatsApp's own "Viewed by" ordering.
+      final liked = viewers.where((viewer) => viewer.liked);
+      final others = viewers.where((viewer) => !viewer.liked);
+      return <StoryViewer>[...liked, ...others];
     } on FirebaseException catch (e) {
       throw UpdatesRepositoryException(
         e.message ?? 'Could not load viewers right now.',
+      );
+    }
+  }
+
+  @override
+  Future<void> likeStory(String storyId) async {
+    final uid = _requireCurrentUid;
+    if (storyId == uid) {
+      return;
+    }
+
+    try {
+      // Written to the viewer's own per-viewer doc, the same as
+      // markStoryViewed above -- security rules only let the owner write
+      // that (see firestore.rules).
+      await _storiesRef.doc(storyId).collection('views').doc(uid).set(
+        {
+          'liked': true,
+          'likedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+    } on FirebaseException catch (e) {
+      throw UpdatesRepositoryException(
+        e.message ?? 'We could not like that status right now.',
       );
     }
   }
@@ -535,8 +568,9 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
     final freshStory = story.copyWith(
       segments: liveSegments,
       totalSegments: liveSegments.length,
-      seenSegments:
-          liveSegments.isEmpty ? 0 : seenSegments.clamp(0, liveSegments.length).toInt(),
+      seenSegments: liveSegments.isEmpty
+          ? 0
+          : seenSegments.clamp(0, liveSegments.length).toInt(),
       viewerCount: viewerCount,
     );
 
@@ -547,8 +581,9 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
       isMine: isMine,
       name: profile?.name,
       avatarLabel: profile?.avatarLabel,
-      accentColor:
-          profile?.accentColorArgb == null ? null : Color(profile!.accentColorArgb!),
+      accentColor: profile?.accentColorArgb == null
+          ? null
+          : Color(profile!.accentColorArgb!),
       avatarUrl: profile?.avatarUrl,
     );
   }
@@ -584,7 +619,8 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
   /// out past 24h, or the owner explicitly deleted/cleared it), so the
   /// next thing posted starts with a clean viewer count instead of
   /// inheriting views recorded against content that no longer exists.
-  Future<void> _clearViews(DocumentReference<Map<String, dynamic>> storyRef) async {
+  Future<void> _clearViews(
+      DocumentReference<Map<String, dynamic>> storyRef) async {
     final viewsSnapshot = await storyRef.collection('views').get();
     if (viewsSnapshot.docs.isEmpty) {
       return;

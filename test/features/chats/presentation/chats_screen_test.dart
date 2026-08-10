@@ -321,8 +321,7 @@ void main() {
     await tester.tap(find.byKey(const Key('message_action_copy')));
     await tester.pumpAndSettle();
 
-    final clipboardData =
-        await Clipboard.getData(Clipboard.kTextPlain);
+    final clipboardData = await Clipboard.getData(Clipboard.kTextPlain);
     expect(clipboardData?.text, messageText);
   });
 
@@ -513,7 +512,8 @@ void main() {
     expect(find.text('This message was deleted'), findsOneWidget);
   });
 
-  testWidgets('message long-press menu: editing shows the new text and '
+  testWidgets(
+      'message long-press menu: editing shows the new text and '
       '"Edited"', (tester) async {
     await _pumpChatsScreen(
       tester,
@@ -704,8 +704,7 @@ void main() {
     expect(find.text('🦄'), findsOneWidget);
   });
 
-  testWidgets(
-      'contact info: clears chat, then blocks and hides the composer',
+  testWidgets('contact info: clears chat, then blocks and hides the composer',
       (tester) async {
     await _pumpChatsScreen(
       tester,
@@ -1040,8 +1039,8 @@ void main() {
   });
 
   testWidgets(
-      'someone else\'s story shows a reply bar, and the heart button sends '
-      'a reply message', (tester) async {
+      'someone else\'s story shows a reply bar, and the heart button just '
+      'fills in without sending a chat message', (tester) async {
     final avatarFinder =
         find.byKey(const ValueKey<String>('chat_story_avatar_ava-patel'));
 
@@ -1078,21 +1077,31 @@ void main() {
       find.byKey(const Key('updates_story_delete_button')),
       findsNothing,
     );
+    expect(find.byIcon(Icons.favorite_border_rounded), findsOneWidget);
 
     await tester.tap(
       find.byKey(const Key('updates_story_heart_react_button')),
     );
     // Not pumpAndSettle -- the story's own progress bar keeps animating
     // (tapping the heart doesn't pause it the way focusing the reply field
-    // does), so settling would burn through the SnackBar's own 2s duration
-    // advancing that animation instead.
+    // does).
     await tester.pump();
     await tester.pump();
-    await tester.pump(const Duration(milliseconds: 300));
 
-    // The story's own name field is just the first name ("Ava"), distinct
-    // from the chat thread's full display name ("Ava Patel").
-    expect(find.text('Reply sent to Ava'), findsOneWidget);
+    // Filled in, but no chat message (and no SnackBar) went out for it --
+    // liking is a lightweight, message-free reaction (see
+    // StatusStoryViewerScreen.onLikeStory / _toggleHeart), unlike a typed
+    // reply.
+    expect(find.byIcon(Icons.favorite_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.favorite_border_rounded), findsNothing);
+    expect(find.text('Reply sent to Ava'), findsNothing);
+
+    await tester.tap(find.byTooltip('Close'));
+    await tester.pumpAndSettle();
+
+    // startThreadWith only ever runs for a typed reply -- liking never
+    // creates (or reuses) the 1:1 thread keyed by the story's own id.
+    expect(find.byKey(const Key('chat_tile_ava-story')), findsNothing);
   });
 
   testWidgets(
@@ -1783,7 +1792,8 @@ class _FlakySendChatRepository implements ChatRepository {
     required String messageId,
     required String text,
   }) =>
-      _delegate.editMessage(threadId: threadId, messageId: messageId, text: text);
+      _delegate.editMessage(
+          threadId: threadId, messageId: messageId, text: text);
 
   @override
   Future<List<ChatThread>> deleteMessage({

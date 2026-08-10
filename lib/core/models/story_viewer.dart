@@ -11,6 +11,7 @@ class StoryViewer {
     required this.accentColor,
     this.avatarUrl,
     this.viewedAt,
+    this.liked = false,
   });
 
   final String uid;
@@ -22,4 +23,9 @@ class StoryViewer {
   /// Null if the backend hasn't recorded a timestamp for this view (older
   /// data written before this field existed).
   final DateTime? viewedAt;
+
+  /// Whether this viewer sent a heart quick-react to the story -- liked
+  /// viewers are listed first, ahead of everyone sorted by [viewedAt], the
+  /// same as WhatsApp's own "Viewed by" list.
+  final bool liked;
 }

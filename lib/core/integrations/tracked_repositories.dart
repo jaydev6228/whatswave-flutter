@@ -320,7 +320,8 @@ class TrackedChatRepository implements ChatRepository {
     required String threadId,
     required List<String> memberUids,
   }) {
-    return _delegate.addGroupMembers(threadId: threadId, memberUids: memberUids);
+    return _delegate.addGroupMembers(
+        threadId: threadId, memberUids: memberUids);
   }
 
   @override
@@ -328,7 +329,8 @@ class TrackedChatRepository implements ChatRepository {
     required String threadId,
     required String memberUid,
   }) {
-    return _delegate.removeGroupMember(threadId: threadId, memberUid: memberUid);
+    return _delegate.removeGroupMember(
+        threadId: threadId, memberUid: memberUid);
   }
 
   @override
@@ -447,7 +449,8 @@ class TrackedChatRepository implements ChatRepository {
     required String threadId,
     required String messageId,
   }) {
-    return _delegate.toggleMessageStar(threadId: threadId, messageId: messageId);
+    return _delegate.toggleMessageStar(
+        threadId: threadId, messageId: messageId);
   }
 
   @override
@@ -685,6 +688,11 @@ class TrackedUpdatesRepository implements UpdatesRepository {
   @override
   Future<List<StoryViewer>> fetchStoryViewers(String storyId) {
     return _delegate.fetchStoryViewers(storyId);
+  }
+
+  @override
+  Future<void> likeStory(String storyId) {
+    return _delegate.likeStory(storyId);
   }
 }
 

@@ -53,6 +53,12 @@ abstract class UpdatesRepository {
   /// own; implementations may return an empty list otherwise. See
   /// [StoryViewer].
   Future<List<StoryViewer>> fetchStoryViewers(String storyId);
+
+  /// Records a heart quick-react to someone else's story -- a one-way
+  /// action (there's no unlike), surfaced back to the owner via
+  /// [fetchStoryViewers]'s [StoryViewer.liked] flag. Never sends a chat
+  /// message; that's [StatusStoryViewerScreen]'s separate typed-reply path.
+  Future<void> likeStory(String storyId);
 }
 
 class UpdatesRepositoryException implements Exception {

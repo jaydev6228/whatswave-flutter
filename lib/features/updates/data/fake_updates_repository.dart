@@ -356,6 +356,14 @@ class FakeUpdatesRepository implements UpdatesRepository {
     return const <StoryViewer>[];
   }
 
+  @override
+  Future<void> likeStory(String storyId) async {
+    await _wait();
+    // No-op for the same reason fetchStoryViewers above never has anyone
+    // to list -- there's no other simulated account whose "Viewed by"
+    // list a like could show up in.
+  }
+
   Future<String?> _maybeImportMedia({
     required StatusStoryType type,
     String? localMediaPath,

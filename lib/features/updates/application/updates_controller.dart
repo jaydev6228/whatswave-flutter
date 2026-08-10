@@ -383,4 +383,20 @@ class UpdatesController extends ChangeNotifier {
       return const <StoryViewer>[];
     }
   }
+
+  /// Records a heart quick-react to someone else's story -- never sends a
+  /// chat message (that's the reply bar's separate typed-text path).
+  /// Best-effort and silent on failure, the same as [fetchStoryViewers]:
+  /// a lightweight reaction isn't worth surfacing an error banner for, but
+  /// the bool return lets the caller revert its own optimistic UI state.
+  Future<bool> likeStory(String storyId) async {
+    try {
+      await _repository.likeStory(storyId);
+      return true;
+    } on UpdatesRepositoryException {
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
 }

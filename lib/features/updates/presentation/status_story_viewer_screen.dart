@@ -38,6 +38,7 @@ class StatusStoryViewerScreen extends StatefulWidget {
     this.onDeleteSegment,
     this.chatsController,
     this.onFetchViewers,
+    this.onLikeStory,
     super.key,
   });
 
@@ -55,12 +56,19 @@ class StatusStoryViewerScreen extends StatefulWidget {
   /// views" label becomes tappable. Null hides that affordance entirely.
   final Future<List<StoryViewer>> Function(StatusStory story)? onFetchViewers;
 
-  /// Lets the viewer reply to (or heart-react to) someone else's story --
-  /// sent as a real direct message to them, the same as WhatsApp's own
-  /// status reply. Null (the default) hides the reply bar entirely --
-  /// only call sites with a ChatsController in scope pass one; viewing
-  /// your own story never shows a reply bar regardless.
+  /// Lets the viewer type a reply to someone else's story -- sent as a
+  /// real direct message to them, the same as WhatsApp's own status
+  /// reply. Null (the default) hides the reply bar entirely -- only call
+  /// sites with a ChatsController in scope pass one; viewing your own
+  /// story never shows a reply bar regardless.
   final ChatsController? chatsController;
+
+  /// Records a heart quick-react on someone else's story -- unlike a
+  /// typed reply, this never sends a chat message, it just flips the
+  /// heart button filled and (via [onFetchViewers]) surfaces you at the
+  /// top of the story owner's viewer list. Null hides the affordance the
+  /// same way a null [chatsController] would.
+  final Future<bool> Function(StatusStory story)? onLikeStory;
 
   @override
   State<StatusStoryViewerScreen> createState() =>
@@ -94,10 +102,12 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
   final FocusNode _replyFocusNode = FocusNode();
   bool _isSendingReply = false;
 
-  /// Session-local only -- true once a heart reply has been sent
-  /// successfully while viewing this story. Not persisted/read back from
-  /// anywhere, so it resets to outline again next time the story is
-  /// opened, same as most of this viewer's other transient UI state.
+  /// True once you've hearted this story this viewing session -- swaps the
+  /// heart button from outline to filled. Set optimistically on tap (see
+  /// [_toggleHeart]) rather than waiting on [onLikeStory] to resolve, since
+  /// this is a one-way, best-effort reaction rather than a message send.
+  /// Session-local: it resets to outline again next time the story is
+  /// reopened, same as most of this viewer's other transient UI state.
   bool _hasHearted = false;
 
   StatusStory get _story => _storyData;
@@ -560,12 +570,12 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
   }
 
   /// Sends [text] as a real direct message to the story's owner -- the
-  /// same as WhatsApp's own status reply, including the heart quick-react
-  /// (which just sends '❤️' the same way, [isHeart] true). Starts or
-  /// reuses the 1:1 thread with them first, and attaches a
-  /// [StoryReplyContext] snapshot of the segment being viewed so the chat
-  /// message renders a small tappable story-thumbnail card.
-  Future<void> _sendReply(String text, {bool isHeart = false}) async {
+  /// same as WhatsApp's own status reply. Starts or reuses the 1:1 thread
+  /// with them first, and attaches a [StoryReplyContext] snapshot of the
+  /// segment being viewed so the chat message renders a small tappable
+  /// story-thumbnail card. The heart quick-react is a separate, lighter
+  /// path -- see [_toggleHeart] -- that never sends a message.
+  Future<void> _sendReply(String text) async {
     final chatsController = widget.chatsController;
     final trimmed = text.trim();
     if (chatsController == null ||
@@ -599,12 +609,7 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
     if (!mounted) {
       return;
     }
-    setState(() {
-      _isSendingReply = false;
-      if (didSend && isHeart) {
-        _hasHearted = true;
-      }
-    });
+    setState(() => _isSendingReply = false);
     if (didSend) {
       _replyController.clear();
       _replyFocusNode.unfocus();
@@ -618,6 +623,32 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
                   'We could not send that reply right now.',
         ),
         duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  /// Hearts the story -- a lightweight, one-way reaction (no unlike, same
+  /// as WhatsApp) that only ever flips a flag on the owner's "Viewed by"
+  /// list via [StatusStoryViewerScreen.onLikeStory]; it never sends a chat
+  /// message, unlike a typed reply (see [_sendReply]). Set optimistically
+  /// so the heart fills in immediately on tap rather than waiting on a
+  /// network round-trip, and reverted if that call turns out to fail.
+  Future<void> _toggleHeart() async {
+    final onLikeStory = widget.onLikeStory;
+    if (onLikeStory == null || _hasHearted || _story.isMine) {
+      return;
+    }
+
+    setState(() => _hasHearted = true);
+    final didLike = await onLikeStory(_story);
+    if (!mounted || didLike) {
+      return;
+    }
+    setState(() => _hasHearted = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('We could not like that status right now.'),
+        duration: Duration(seconds: 2),
       ),
     );
   }
@@ -1038,12 +1069,13 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
                     if (!story.isMine && widget.chatsController != null)
                       _StoryReplyBar(
                         recipientName: story.name,
+                        accentColor: story.accentColor,
                         controller: _replyController,
                         focusNode: _replyFocusNode,
                         isSending: _isSendingReply,
                         hasHearted: _hasHearted,
                         onSendText: _sendReply,
-                        onHeartTap: () => _sendReply('❤️', isHeart: true),
+                        onHeartTap: _toggleHeart,
                       ),
                   ],
                 ),
@@ -1297,11 +1329,13 @@ class _FallbackStoryCard extends StatelessWidget {
 }
 
 /// A WhatsApp-style bottom reply bar for someone else's story -- a text
-/// field that sends a real direct message to them, plus a heart quick-react
-/// (sends '❤️' the same way with a single tap, no typing required).
+/// field that sends a real direct message to them, plus a heart
+/// quick-react (a lightweight, message-free like -- see
+/// [_StatusStoryViewerScreenState._toggleHeart]).
 class _StoryReplyBar extends StatelessWidget {
   const _StoryReplyBar({
     required this.recipientName,
+    required this.accentColor,
     required this.controller,
     required this.focusNode,
     required this.isSending,
@@ -1311,13 +1345,18 @@ class _StoryReplyBar extends StatelessWidget {
   });
 
   final String recipientName;
+
+  /// The story's own accent color -- used to fill the heart icon once
+  /// hearted, so the "liked" state reads as a color suited to this
+  /// particular story rather than a single fixed color for every story.
+  final Color accentColor;
   final TextEditingController controller;
   final FocusNode focusNode;
   final bool isSending;
 
-  /// Whether a heart reply has already been sent successfully this
-  /// viewing session -- swaps the heart button from outline to filled,
-  /// matching WhatsApp (only fills in once the send actually succeeds).
+  /// Whether this story has already been hearted this viewing session --
+  /// swaps the heart button from outline to filled, matching WhatsApp
+  /// (only fills in once the like actually succeeds).
   final bool hasHearted;
   final ValueChanged<String> onSendText;
   final VoidCallback onHeartTap;
@@ -1390,12 +1429,16 @@ class _StoryReplyBar extends StatelessWidget {
                 return _StoryReplyActionButton(
                   actionKey: const Key('updates_story_heart_react_button'),
                   tooltip: hasHearted ? 'Hearted' : 'Send a heart',
-                  onPressed: isSending ? null : onHeartTap,
+                  // Independent of isSending -- liking doesn't send a chat
+                  // message, so it's never blocked by a reply in flight.
+                  // A second tap while hasHearted is already true is a
+                  // no-op anyway (see _toggleHeart's own guard).
+                  onPressed: onHeartTap,
                   child: Icon(
                     hasHearted
                         ? Icons.favorite_rounded
                         : Icons.favorite_border_rounded,
-                    color: Colors.white,
+                    color: hasHearted ? accentColor : Colors.white,
                     size: 22,
                   ),
                 );
@@ -1582,14 +1625,30 @@ class _StoryViewersSheet extends StatelessWidget {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
-                        trailing: viewer.viewedAt == null
+                        trailing: !viewer.liked && viewer.viewedAt == null
                             ? null
-                            : Text(
-                                _relativeViewLabel(viewer.viewedAt!),
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: theme.colorScheme.onSurface
-                                      .withValues(alpha: 0.6),
-                                ),
+                            : Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (viewer.liked) ...[
+                                    Icon(
+                                      Icons.favorite_rounded,
+                                      size: 16,
+                                      color: viewer.accentColor,
+                                    ),
+                                    if (viewer.viewedAt != null)
+                                      const SizedBox(width: 6),
+                                  ],
+                                  if (viewer.viewedAt != null)
+                                    Text(
+                                      _relativeViewLabel(viewer.viewedAt!),
+                                      style:
+                                          theme.textTheme.bodySmall?.copyWith(
+                                        color: theme.colorScheme.onSurface
+                                            .withValues(alpha: 0.6),
+                                      ),
+                                    ),
+                                ],
                               ),
                       );
                     },
