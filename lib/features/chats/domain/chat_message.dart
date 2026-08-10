@@ -16,6 +16,7 @@ class ChatMessage {
     this.storyReplyContext,
     this.isDeleted = false,
     this.isEdited = false,
+    this.isStarred = false,
   });
 
   final String id;
@@ -46,6 +47,10 @@ class ChatMessage {
   /// shown as a small "Edited" label, matching WhatsApp.
   final bool isEdited;
 
+  /// Starred by the viewer -- per-user, like WhatsApp's own (starring a
+  /// message on one account doesn't star it for the other participants).
+  final bool isStarred;
+
   bool get hasText => text.trim().isNotEmpty;
   bool get hasAttachments => attachments.isNotEmpty;
   bool get hasReactions => reactions.isNotEmpty;
@@ -63,6 +68,7 @@ class ChatMessage {
     StoryReplyContext? storyReplyContext,
     bool? isDeleted,
     bool? isEdited,
+    bool? isStarred,
   }) {
     return ChatMessage(
       id: id ?? this.id,
@@ -76,6 +82,7 @@ class ChatMessage {
       storyReplyContext: storyReplyContext ?? this.storyReplyContext,
       isDeleted: isDeleted ?? this.isDeleted,
       isEdited: isEdited ?? this.isEdited,
+      isStarred: isStarred ?? this.isStarred,
     );
   }
 }

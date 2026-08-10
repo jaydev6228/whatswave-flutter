@@ -5,6 +5,11 @@ import '../../../core/controllers/app_preferences_controller.dart';
 import '../../../core/integrations/integration_hub_controller.dart';
 import '../../../core/models/app_user.dart';
 import '../../auth/application/auth_controller.dart';
+import '../../calls/application/calls_controller.dart';
+import '../../chats/application/chats_controller.dart';
+import '../../chats/presentation/starred_messages_screen.dart';
+import '../../communities/application/communities_controller.dart';
+import '../../updates/application/updates_controller.dart';
 import 'backend_sync_screen.dart';
 import 'privacy_settings_screen.dart';
 import 'profile_settings_screen.dart';
@@ -19,6 +24,10 @@ class SettingsScreen extends StatelessWidget {
     required this.currentUser,
     required this.preferencesController,
     required this.integrationController,
+    required this.chatsController,
+    required this.callsController,
+    required this.updatesController,
+    required this.communitiesController,
     super.key,
   });
 
@@ -26,6 +35,10 @@ class SettingsScreen extends StatelessWidget {
   final AppUser currentUser;
   final AppPreferencesController preferencesController;
   final IntegrationHubController integrationController;
+  final ChatsController chatsController;
+  final CallsController callsController;
+  final UpdatesController updatesController;
+  final CommunitiesController communitiesController;
 
   @override
   Widget build(BuildContext context) {
@@ -36,6 +49,7 @@ class SettingsScreen extends StatelessWidget {
         preferencesController,
         authController,
         integrationController,
+        chatsController,
       ]),
       builder: (context, _) {
         final activeUser = authController.currentUser ?? currentUser;
@@ -88,6 +102,25 @@ class SettingsScreen extends StatelessWidget {
                                   'Your current number is ${activeUser.phoneNumber}.',
                             ),
                           ],
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      const Padding(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: _kSettingsScreenHorizontalPadding,
+                        ),
+                        child: _SettingsSectionLabel(title: 'Chats'),
+                      ),
+                      const SizedBox(height: 8),
+                      _SettingsGroup(
+                        child: SettingsTile(
+                          key: const Key('settings_starred_messages_tile'),
+                          icon: Icons.star_border_rounded,
+                          title: 'Starred messages',
+                          subtitle: chatsController.starredMessages.isEmpty
+                              ? 'Tap and hold any message to star it.'
+                              : '${chatsController.starredMessages.length} starred.',
+                          onTap: () => _openStarredMessages(context),
                         ),
                       ),
                       const SizedBox(height: 18),
@@ -239,6 +272,19 @@ class SettingsScreen extends StatelessWidget {
         builder: (_) => ProfileSettingsScreen(
           authController: authController,
           currentUser: activeUser,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openStarredMessages(BuildContext context) async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => StarredMessagesScreen(
+          chatsController: chatsController,
+          callsController: callsController,
+          updatesController: updatesController,
+          communitiesController: communitiesController,
         ),
       ),
     );

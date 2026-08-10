@@ -500,6 +500,32 @@ class FakeChatRepository implements ChatRepository {
     return _deepCopyThreads(_threads);
   }
 
+  @override
+  Future<List<ChatThread>> toggleMessageStar({
+    required String threadId,
+    required String messageId,
+  }) async {
+    await _wait();
+    final thread = _threadForId(threadId);
+
+    _threads = _threads
+        .map(
+          (entry) => entry.id == thread.id
+              ? entry.copyWith(
+                  messages: entry.messages
+                      .map(
+                        (message) => message.id == messageId
+                            ? message.copyWith(isStarred: !message.isStarred)
+                            : message,
+                      )
+                      .toList(growable: false),
+                )
+              : entry,
+        )
+        .toList(growable: false);
+    return _deepCopyThreads(_threads);
+  }
+
   Map<String, String> _toggledReactions(
     Map<String, String> current,
     String emoji,

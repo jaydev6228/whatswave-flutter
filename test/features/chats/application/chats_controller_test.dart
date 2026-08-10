@@ -541,6 +541,14 @@ class _FailingChatRepository implements ChatRepository {
   }) {
     throw UnimplementedError();
   }
+
+  @override
+  Future<List<ChatThread>> toggleMessageStar({
+    required String threadId,
+    required String messageId,
+  }) {
+    throw UnimplementedError();
+  }
 }
 
 class _SendFailingChatRepository implements ChatRepository {
@@ -628,6 +636,13 @@ class _SendFailingChatRepository implements ChatRepository {
         messageId: messageId,
         emoji: emoji,
       );
+
+  @override
+  Future<List<ChatThread>> toggleMessageStar({
+    required String threadId,
+    required String messageId,
+  }) =>
+      _delegate.toggleMessageStar(threadId: threadId, messageId: messageId);
 
   @override
   Future<List<ChatThread>> sendTextMessage({

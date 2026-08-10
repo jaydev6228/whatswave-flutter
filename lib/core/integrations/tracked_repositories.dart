@@ -439,6 +439,14 @@ class TrackedChatRepository implements ChatRepository {
   }
 
   @override
+  Future<List<ChatThread>> toggleMessageStar({
+    required String threadId,
+    required String messageId,
+  }) {
+    return _delegate.toggleMessageStar(threadId: threadId, messageId: messageId);
+  }
+
+  @override
   Future<List<ChatThread>> editMessage({
     required String threadId,
     required String messageId,

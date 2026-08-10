@@ -9,8 +9,16 @@ import 'package:whatswave/core/models/app_user.dart';
 import 'package:whatswave/core/sample/demo_data.dart';
 import 'package:whatswave/features/auth/application/auth_controller.dart';
 import 'package:whatswave/features/auth/data/auth_repository.dart';
+import 'package:whatswave/features/calls/application/calls_controller.dart';
+import 'package:whatswave/features/calls/data/fake_calls_repository.dart';
+import 'package:whatswave/features/chats/application/chats_controller.dart';
+import 'package:whatswave/features/chats/data/fake_chat_repository.dart';
+import 'package:whatswave/features/communities/application/communities_controller.dart';
+import 'package:whatswave/features/communities/data/fake_communities_repository.dart';
 import 'package:whatswave/features/settings/domain/privacy_audience.dart';
 import 'package:whatswave/features/settings/presentation/settings_screen.dart';
+import 'package:whatswave/features/updates/application/updates_controller.dart';
+import 'package:whatswave/features/updates/data/fake_updates_repository.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -246,6 +254,59 @@ void main() {
     expect(authController.isAuthenticated, isFalse);
     expect(authController.step, AuthStep.phoneEntry);
   });
+
+  testWidgets(
+      'starred messages tile shows the count and opens the starred list',
+      (tester) async {
+    final authController = await _createAuthenticatedAuthController();
+    final preferencesController = AppPreferencesController();
+    await preferencesController.ensureLoaded();
+
+    final threads = DemoData.buildChatThreads().map((thread) {
+      if (thread.id != 'ava-patel') {
+        return thread;
+      }
+      return thread.copyWith(
+        messages: thread.messages
+            .map(
+              (message) => message.id == 'ava-3'
+                  ? message.copyWith(isStarred: true)
+                  : message,
+            )
+            .toList(growable: false),
+      );
+    }).toList(growable: false);
+    final chatsController = ChatsController(
+      repository: FakeChatRepository(
+        initialThreads: threads,
+        latency: Duration.zero,
+      ),
+    );
+    await chatsController.loadThreads();
+
+    await _pumpSettingsScreen(
+      tester,
+      authController: authController,
+      preferencesController: preferencesController,
+      chatsController: chatsController,
+    );
+
+    expect(find.text('1 starred.'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('settings_starred_messages_tile')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('starred_messages_screen')), findsOneWidget);
+    expect(
+      find.text('Want the final export tonight?'),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const Key('starred_message_ava-3')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Want the final export tonight?'), findsWidgets);
+  });
 }
 
 Future<AuthController> _createAuthenticatedAuthController() async {
@@ -263,6 +324,7 @@ Future<void> _pumpSettingsScreen(
   required AuthController authController,
   required AppPreferencesController preferencesController,
   IntegrationHubController? integrationController,
+  ChatsController? chatsController,
 }) async {
   final backendController = integrationController ?? IntegrationHubController();
   await backendController.ensureLoaded();
@@ -273,6 +335,19 @@ Future<void> _pumpSettingsScreen(
         currentUser: authController.currentUser ?? DemoData.currentUser,
         preferencesController: preferencesController,
         integrationController: backendController,
+        chatsController: chatsController ??
+            ChatsController(
+              repository: FakeChatRepository(latency: Duration.zero),
+            ),
+        callsController: CallsController(
+          repository: FakeCallsRepository(latency: Duration.zero),
+        ),
+        updatesController: UpdatesController(
+          repository: FakeUpdatesRepository(latency: Duration.zero),
+        ),
+        communitiesController: CommunitiesController(
+          repository: FakeCommunitiesRepository(latency: Duration.zero),
+        ),
       ),
     ),
   );

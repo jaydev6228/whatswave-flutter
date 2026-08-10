@@ -4,11 +4,9 @@ import '../../shared/widgets/avatar_badge.dart';
 import '../../shared/widgets/search_field.dart';
 import '../application/chats_controller.dart';
 
-/// A single-pick "Forward to" list -- taps a thread and pops with its id,
-/// same pattern as the rest of this app's picker screens (e.g.
-/// NewChatScreen). No multi-select yet -- forwarding to several chats at
-/// once is a real WhatsApp feature this doesn't cover, only forwarding to
-/// one chat at a time.
+/// A multi-select "Forward to" list -- pick any number of chats, then
+/// confirm with the FAB, matching WhatsApp's ability to forward one
+/// message to several chats in a single action.
 class ForwardMessageScreen extends StatefulWidget {
   const ForwardMessageScreen({
     required this.controller,
@@ -28,11 +26,27 @@ class ForwardMessageScreen extends StatefulWidget {
 
 class _ForwardMessageScreenState extends State<ForwardMessageScreen> {
   final _searchController = TextEditingController();
+  final Set<String> _selectedThreadIds = <String>{};
 
   @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  void _toggleThread(String threadId) {
+    setState(() {
+      if (_selectedThreadIds.contains(threadId)) {
+        _selectedThreadIds.remove(threadId);
+      } else {
+        _selectedThreadIds.add(threadId);
+      }
+    });
+  }
+
+  void _confirm() {
+    Navigator.of(context)
+        .pop<List<String>>(_selectedThreadIds.toList(growable: false));
   }
 
   @override
@@ -48,8 +62,10 @@ class _ForwardMessageScreenState extends State<ForwardMessageScreen> {
     return Scaffold(
       key: const Key('forward_message_screen'),
       appBar: AppBar(
-        title: const Text(
-          'Forward to',
+        title: Text(
+          _selectedThreadIds.isEmpty
+              ? 'Forward to'
+              : '${_selectedThreadIds.length} selected',
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
@@ -76,12 +92,20 @@ class _ForwardMessageScreenState extends State<ForwardMessageScreen> {
                       ),
                     )
                   : ListView.builder(
+                      padding: EdgeInsets.only(
+                        bottom: 96 + MediaQuery.paddingOf(context).bottom,
+                      ),
                       itemCount: threads.length,
                       itemBuilder: (context, index) {
                         final thread = threads[index];
-                        return ListTile(
+                        final isSelected =
+                            _selectedThreadIds.contains(thread.id);
+                        return CheckboxListTile(
                           key: Key('forward_target_${thread.id}'),
-                          leading: AvatarBadge(
+                          value: isSelected,
+                          onChanged: (_) => _toggleThread(thread.id),
+                          controlAffinity: ListTileControlAffinity.trailing,
+                          secondary: AvatarBadge(
                             label: thread.avatarLabel,
                             color: thread.accentColor,
                             avatarUrl: thread.avatarUrl,
@@ -92,8 +116,6 @@ class _ForwardMessageScreenState extends State<ForwardMessageScreen> {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
-                          onTap: () =>
-                              Navigator.of(context).pop<String>(thread.id),
                         );
                       },
                     ),
@@ -101,16 +123,26 @@ class _ForwardMessageScreenState extends State<ForwardMessageScreen> {
           ],
         ),
       ),
+      floatingActionButton: _selectedThreadIds.isEmpty
+          ? null
+          : FloatingActionButton.extended(
+              key: const Key('forward_message_send_button'),
+              onPressed: _confirm,
+              icon: const Icon(Icons.send_rounded),
+              label: Text(
+                _selectedThreadIds.length == 1 ? 'Send' : 'Send to all',
+              ),
+            ),
     );
   }
 }
 
-Future<String?> pickForwardTarget(
+Future<List<String>?> pickForwardTarget(
   BuildContext context, {
   required ChatsController controller,
   String? excludeThreadId,
 }) {
-  return Navigator.of(context).push<String>(
+  return Navigator.of(context).push<List<String>>(
     MaterialPageRoute(
       builder: (_) => ForwardMessageScreen(
         controller: controller,

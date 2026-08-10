@@ -8,6 +8,7 @@ import '../../../core/permissions/device_location_service.dart';
 import '../../calls/domain/call_permissions.dart';
 import '../data/chat_repository.dart';
 import '../domain/chat_attachment.dart';
+import '../domain/chat_message.dart';
 import '../domain/chat_thread.dart';
 import '../domain/story_reply_context.dart';
 
@@ -573,6 +574,36 @@ class ChatsController extends ChangeNotifier {
       fallbackError: 'We could not update that reaction right now.',
       clearSearch: false,
     );
+  }
+
+  Future<bool> toggleMessageStar({
+    required String threadId,
+    required String messageId,
+  }) {
+    return _runThreadMutation(
+      threadId,
+      () => _repository.toggleMessageStar(
+        threadId: threadId,
+        messageId: messageId,
+      ),
+      fallbackError: 'We could not update that message right now.',
+      clearSearch: false,
+    );
+  }
+
+  /// Every starred message across every thread (most recent first), paired
+  /// with the thread it lives in -- backs the "Starred messages" screen.
+  List<({ChatThread thread, ChatMessage message})> get starredMessages {
+    final entries = <({ChatThread thread, ChatMessage message})>[];
+    for (final thread in _threads) {
+      for (final message in thread.messages) {
+        if (message.isStarred) {
+          entries.add((thread: thread, message: message));
+        }
+      }
+    }
+    entries.sort((a, b) => b.message.sentAt.compareTo(a.message.sentAt));
+    return entries;
   }
 
   String? _locationFailureMessage;

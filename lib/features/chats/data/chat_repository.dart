@@ -154,6 +154,14 @@ abstract class ChatRepository {
     required String messageId,
     required String emoji,
   });
+
+  /// Stars/unstars [messageId] for the caller only -- per-viewer, like
+  /// WhatsApp's own starred messages (starring on one account doesn't star
+  /// it for the other participants). See [ChatMessage.isStarred].
+  Future<List<ChatThread>> toggleMessageStar({
+    required String threadId,
+    required String messageId,
+  });
 }
 
 class ChatRepositoryException implements Exception {

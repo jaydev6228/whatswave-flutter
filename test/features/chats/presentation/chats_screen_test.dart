@@ -443,6 +443,8 @@ void main() {
     expect(find.byKey(const Key('forward_message_screen')), findsOneWidget);
     await tester.tap(find.byKey(const Key('forward_target_design-sprint')));
     await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('forward_message_send_button')));
+    await tester.pumpAndSettle();
 
     expect(find.text('Message forwarded'), findsOneWidget);
 
@@ -451,6 +453,87 @@ void main() {
     await tester.tap(find.byKey(const Key('chat_tile_design-sprint')));
     await tester.pumpAndSettle();
 
+    expect(find.text(messageText), findsWidgets);
+  });
+
+  testWidgets(
+      'message long-press menu: starring shows a star icon, unstarring '
+      'removes it', (tester) async {
+    await _pumpChatsScreen(
+      tester,
+      device: iphoneProProfile,
+      controller: ChatsController(
+        repository: FakeChatRepository(latency: Duration.zero),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('chat_tile_ava-patel')));
+    await tester.pumpAndSettle();
+
+    const messageText = 'Want the final export tonight?';
+    await tester.longPress(find.text(messageText));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('message_action_star')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('message_action_star')));
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(Icons.star_rounded), findsOneWidget);
+
+    await tester.longPress(find.text(messageText));
+    await tester.pumpAndSettle();
+    expect(find.text('Unstar'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('message_action_star')));
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(Icons.star_rounded), findsNothing);
+  });
+
+  testWidgets(
+      'message long-press menu: forwarding to multiple chats sends to all '
+      'of them', (tester) async {
+    await _pumpChatsScreen(
+      tester,
+      device: iphoneProProfile,
+      controller: ChatsController(
+        repository: FakeChatRepository(latency: Duration.zero),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('chat_tile_ava-patel')));
+    await tester.pumpAndSettle();
+
+    const messageText = 'Want the final export tonight?';
+    await tester.longPress(find.text(messageText));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('message_action_forward')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('forward_message_screen')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('forward_target_design-sprint')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('forward_target_family')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('2 selected'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('forward_message_send_button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Forwarded to 2 chats'), findsOneWidget);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('chat_tile_design-sprint')));
+    await tester.pumpAndSettle();
+    expect(find.text(messageText), findsWidgets);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('chat_tile_family')));
+    await tester.pumpAndSettle();
     expect(find.text(messageText), findsWidgets);
   });
 
@@ -1432,6 +1515,14 @@ class _FailingChatRepository implements ChatRepository {
   }) {
     throw UnimplementedError();
   }
+
+  @override
+  Future<List<Never>> toggleMessageStar({
+    required String threadId,
+    required String messageId,
+  }) {
+    throw UnimplementedError();
+  }
 }
 
 class _FlakySendChatRepository implements ChatRepository {
@@ -1520,6 +1611,13 @@ class _FlakySendChatRepository implements ChatRepository {
         messageId: messageId,
         emoji: emoji,
       );
+
+  @override
+  Future<List<ChatThread>> toggleMessageStar({
+    required String threadId,
+    required String messageId,
+  }) =>
+      _delegate.toggleMessageStar(threadId: threadId, messageId: messageId);
 
   @override
   Future<List<ChatThread>> sendTextMessage({

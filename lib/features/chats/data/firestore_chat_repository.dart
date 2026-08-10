@@ -553,6 +553,35 @@ class FirestoreChatRepository implements ChatRepository {
     return fetchThreads();
   }
 
+  @override
+  Future<List<ChatThread>> toggleMessageStar({
+    required String threadId,
+    required String messageId,
+  }) async {
+    final uid = _requireCurrentUid;
+    final messageRef =
+        _threadsRef.doc(threadId).collection('messages').doc(messageId);
+
+    try {
+      await _firestore.runTransaction((transaction) async {
+        final snapshot = await transaction.get(messageRef);
+        final starredBy =
+            (snapshot.data()?['starredBy'] as List<dynamic>?)?.cast<String>() ??
+                const <String>[];
+        transaction.update(messageRef, {
+          'starredBy': starredBy.contains(uid)
+              ? FieldValue.arrayRemove([uid])
+              : FieldValue.arrayUnion([uid]),
+        });
+      });
+    } on FirebaseException catch (e) {
+      throw ChatRepositoryException(
+        e.message ?? 'We could not update that message right now.',
+      );
+    }
+    return fetchThreads();
+  }
+
   Future<void> _sendMessage({
     required String threadId,
     required String text,
@@ -764,6 +793,8 @@ class FirestoreChatRepository implements ChatRepository {
           StoryReplyContext.fromJson(data['storyReplyContext']),
       isDeleted: (data['isDeleted'] as bool?) ?? false,
       isEdited: (data['isEdited'] as bool?) ?? false,
+      isStarred: ((data['starredBy'] as List<dynamic>?) ?? const [])
+          .contains(currentUid),
     );
   }
 

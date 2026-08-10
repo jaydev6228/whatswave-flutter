@@ -917,6 +917,11 @@ class _ConversationScreenState extends State<ConversationScreen> {
         }
       case MessageAction.forward:
         await _forwardMessage(thread, message);
+      case MessageAction.star:
+        await widget.controller.toggleMessageStar(
+          threadId: thread.id,
+          messageId: message.id,
+        );
       case MessageAction.edit:
         await _editMessage(thread, message);
       case MessageAction.deleteForMe:
@@ -929,37 +934,41 @@ class _ConversationScreenState extends State<ConversationScreen> {
   }
 
   Future<void> _forwardMessage(ChatThread thread, ChatMessage message) async {
-    final targetThreadId = await pickForwardTarget(
+    final targetThreadIds = await pickForwardTarget(
       context,
       controller: widget.controller,
       excludeThreadId: thread.id,
     );
-    if (targetThreadId == null || !mounted) {
+    if (targetThreadIds == null || targetThreadIds.isEmpty || !mounted) {
       return;
     }
 
-    final didSend = message.hasAttachments
-        ? await widget.controller.sendAttachmentMessage(
-            threadId: targetThreadId,
-            attachments: message.attachments,
-            caption: message.hasText ? message.text : null,
-          )
-        : await widget.controller.sendTextMessage(
-            threadId: targetThreadId,
-            text: message.text,
-          );
+    var successCount = 0;
+    for (final targetThreadId in targetThreadIds) {
+      final didSend = message.hasAttachments
+          ? await widget.controller.sendAttachmentMessage(
+              threadId: targetThreadId,
+              attachments: message.attachments,
+              caption: message.hasText ? message.text : null,
+            )
+          : await widget.controller.sendTextMessage(
+              threadId: targetThreadId,
+              text: message.text,
+            );
+      if (didSend) {
+        successCount++;
+      }
+    }
     if (!mounted) {
       return;
     }
+
+    final total = targetThreadIds.length;
+    final summary = successCount == total
+        ? (total == 1 ? 'Message forwarded' : 'Forwarded to $total chats')
+        : 'Forwarded to $successCount of $total chats';
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          didSend
-              ? 'Message forwarded'
-              : widget.controller.errorMessage ??
-                  'We could not forward that message right now.',
-        ),
-      ),
+      SnackBar(content: Text(summary)),
     );
   }
 
@@ -1742,7 +1751,15 @@ class _AnimatedMessageEntryState extends State<_AnimatedMessageEntry>
 /// Actions available from a message's long-press menu (see
 /// _MessageBubble._showReactionTray, which shows this alongside the
 /// reaction tray) -- WhatsApp's own delete/forward/copy/edit/save set.
-enum MessageAction { copy, forward, edit, deleteForMe, deleteForEveryone, save }
+enum MessageAction {
+  copy,
+  forward,
+  star,
+  edit,
+  deleteForMe,
+  deleteForEveryone,
+  save,
+}
 
 class _MessageBubble extends StatelessWidget {
   const _MessageBubble({
@@ -1888,6 +1905,14 @@ class _MessageBubble extends StatelessWidget {
                                 ),
                               ),
                               const SizedBox(width: 6),
+                            ],
+                            if (message.isStarred && !message.isDeleted) ...[
+                              Icon(
+                                Icons.star_rounded,
+                                size: 13,
+                                color: contentColor.withValues(alpha: 0.75),
+                              ),
+                              const SizedBox(width: 4),
                             ],
                             Text(
                               _timeLabelFor(message.sentAt),
@@ -2056,6 +2081,7 @@ class _MessageBubble extends StatelessWidget {
               _MessageActionMenu(
                 width: trayWidth,
                 actions: actions,
+                isStarred: message.isStarred,
                 onSelected: (action) {
                   selectedAction = action;
                   close();
@@ -2095,6 +2121,7 @@ class _MessageBubble extends StatelessWidget {
     return [
       if (message.hasText && !message.isDeleted) MessageAction.copy,
       if (!message.isDeleted) MessageAction.forward,
+      if (!message.isDeleted) MessageAction.star,
       if (isMine && message.hasText && !message.isDeleted) MessageAction.edit,
       if (_hasSavableMedia) MessageAction.save,
       MessageAction.deleteForMe,
@@ -2418,11 +2445,17 @@ class _MessageActionMenu extends StatelessWidget {
   const _MessageActionMenu({
     required this.width,
     required this.actions,
+    required this.isStarred,
     required this.onSelected,
   });
 
   final double width;
   final List<MessageAction> actions;
+
+  /// Whether the message this menu is for is already starred -- the
+  /// [MessageAction.star] row's icon/label flips between "Star"/"Unstar"
+  /// based on this, so it isn't part of the static [_presentation] map.
+  final bool isStarred;
   final ValueChanged<MessageAction> onSelected;
 
   static const Map<MessageAction, (IconData, String)> _presentation = {
@@ -2437,9 +2470,17 @@ class _MessageActionMenu extends StatelessWidget {
     ),
   };
 
+  (IconData, String) _presentationFor(MessageAction action) {
+    if (action == MessageAction.star) {
+      return isStarred
+          ? (Icons.star_rounded, 'Unstar')
+          : (Icons.star_border_rounded, 'Star');
+    }
+    return _presentation[action]!;
+  }
+
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return SizedBox(
       width: width,
       child: LiquidGlassSurface(
@@ -2448,47 +2489,51 @@ class _MessageActionMenu extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            for (final action in actions)
-              Material(
-                key: Key('message_action_${action.name}'),
-                color: Colors.transparent,
-                child: InkWell(
-                  onTap: () => onSelected(action),
-                  child: SizedBox(
-                    height: 44,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: Row(
-                        children: [
-                          Icon(
-                            _presentation[action]!.$1,
-                            size: 20,
-                            color: _isDestructive(action)
-                                ? theme.colorScheme.error
-                                : theme.colorScheme.onSurface
-                                    .withValues(alpha: 0.78),
-                          ),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: Text(
-                              _presentation[action]!.$2,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: _isDestructive(action)
-                                    ? theme.colorScheme.error
-                                    : null,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
+            for (final action in actions) _buildActionRow(context, action),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildActionRow(BuildContext context, MessageAction action) {
+    final theme = Theme.of(context);
+    final (icon, label) = _presentationFor(action);
+    return Material(
+      key: Key('message_action_${action.name}'),
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => onSelected(action),
+        child: SizedBox(
+          height: 44,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                Icon(
+                  icon,
+                  size: 20,
+                  color: _isDestructive(action)
+                      ? theme.colorScheme.error
+                      : theme.colorScheme.onSurface.withValues(alpha: 0.78),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: _isDestructive(action)
+                          ? theme.colorScheme.error
+                          : null,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ),
-              ),
-          ],
+              ],
+            ),
+          ),
         ),
       ),
     );
