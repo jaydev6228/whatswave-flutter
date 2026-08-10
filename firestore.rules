@@ -180,6 +180,12 @@ service cloud.firestore {
         // who viewed, so exposing viewerUids here to the owner isn't a
         // narrower privacy bar than the feature this is building toward.
         allow list: if request.auth != null && request.auth.uid == ownerUid;
+        // The owner may delete stale view docs once their content is fully
+        // gone (every segment expired, or they cleared/deleted it) -- see
+        // FirestoreUpdatesRepository._clearViews, called from createStatus/
+        // deleteStatusSegment/clearStory so the next post doesn't inherit
+        // views recorded against content that no longer exists.
+        allow delete: if request.auth != null && request.auth.uid == ownerUid;
       }
     }
 

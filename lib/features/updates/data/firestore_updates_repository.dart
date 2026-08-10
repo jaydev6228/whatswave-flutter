@@ -224,11 +224,24 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
               _freshMyStatus(uid))
           : _freshMyStatus(uid);
 
+      final priorLiveSegments = _segmentsFor(currentStory);
+      // Every prior segment has already expired (or this is the first-ever
+      // post) -- this is a fresh story cycle, so any views/likes recorded
+      // against the old, now-gone content shouldn't carry over and inflate
+      // the new post's viewer count. The `segments` field itself already
+      // self-heals this way (an expired segment silently drops out of the
+      // array the next time it's rewritten -- see _storyFromDoc's
+      // liveSegments filter), but the `views` subcollection is separate and
+      // was never being cleaned up alongside it.
+      if (priorLiveSegments.isEmpty) {
+        await _clearViews(docRef);
+      }
+
       final storedMediaPath =
           await _maybeImportMedia(type: type, localMediaPath: localMediaPath);
       final postedAt = DateTime.now();
       final nextSegments = List<StatusStorySegment>.unmodifiable([
-        ..._segmentsFor(currentStory),
+        ...priorLiveSegments,
         StatusStorySegment(
           id: 'status-${postedAt.microsecondsSinceEpoch}',
           type: type,
@@ -355,6 +368,13 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
         remainingSegments: remainingSegments,
       );
 
+      // That was the last item -- the next post starts a fresh story
+      // cycle, so stale views of this now-gone content shouldn't count
+      // toward it (see the matching comment in createStatus).
+      if (remainingSegments.isEmpty) {
+        await _clearViews(_storiesRef.doc(uid));
+      }
+
       await _storiesRef.doc(uid).set(nextStory.toJson());
     } on FirebaseException catch (e) {
       throw UpdatesRepositoryException(
@@ -388,6 +408,11 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
         removedSegments: currentSegments,
         remainingSegments: const <StatusStorySegment>[],
       );
+
+      // Clearing always empties the story -- the next post starts fresh,
+      // so stale views of this now-gone content shouldn't count toward it
+      // (see the matching comment in createStatus).
+      await _clearViews(_storiesRef.doc(uid));
 
       final nextStory =
           _storyAfterSegmentRemoval(story, const <StatusStorySegment>[]);
@@ -552,6 +577,23 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
         previewText: story.previewText,
       ),
     ];
+  }
+
+  /// Deletes every doc in [storyRef]'s `views` subcollection -- called
+  /// whenever a story's content is fully gone (either every segment aged
+  /// out past 24h, or the owner explicitly deleted/cleared it), so the
+  /// next thing posted starts with a clean viewer count instead of
+  /// inheriting views recorded against content that no longer exists.
+  Future<void> _clearViews(DocumentReference<Map<String, dynamic>> storyRef) async {
+    final viewsSnapshot = await storyRef.collection('views').get();
+    if (viewsSnapshot.docs.isEmpty) {
+      return;
+    }
+    final batch = _firestore.batch();
+    for (final doc in viewsSnapshot.docs) {
+      batch.delete(doc.reference);
+    }
+    await batch.commit();
   }
 
   StatusStory _storyAfterSegmentRemoval(
