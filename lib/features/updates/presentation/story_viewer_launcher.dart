@@ -24,6 +24,9 @@ Future<void> openStatusStoryViewer(
             seenSegments: viewedStory.seenSegments,
           );
         },
+        onFetchViewers: story.isMine
+            ? (activeStory) => controller.fetchStoryViewers(activeStory.id)
+            : null,
         onDeleteSegment: story.isMine
             ? (activeStory, segment) async {
                 final didDelete = await controller.deleteMyStatusSegment(

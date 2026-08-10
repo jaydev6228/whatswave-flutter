@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../../app/theme/app_palette.dart';
 import '../../../core/models/channel_preview.dart';
 import '../../../core/models/status_story.dart';
+import '../../../core/models/story_viewer.dart';
 import '../../../core/sample/demo_data.dart';
 import 'status_media_store.dart';
 import 'updates_repository.dart';
@@ -343,6 +344,16 @@ class FakeUpdatesRepository implements UpdatesRepository {
     ]);
     await _persistCurrentState();
     return _cloneStories(_stories);
+  }
+
+  @override
+  Future<List<StoryViewer>> fetchStoryViewers(String storyId) async {
+    await _wait();
+    // The fake repository never simulates other accounts actually viewing
+    // a story (viewerCount stays 0 for the fake "My Status" entry -- see
+    // DemoData.stories), so there's nothing real to list here. Matches
+    // ChatsController.groupThreadsSharedWith's fake/demo fallback.
+    return const <StoryViewer>[];
   }
 
   Future<String?> _maybeImportMedia({

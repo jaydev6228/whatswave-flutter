@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import '../../../app/theme/app_palette.dart';
 import '../../../core/models/channel_preview.dart';
 import '../../../core/models/status_story.dart';
+import '../../../core/models/story_viewer.dart';
 import '../../../core/utils/user_profile_lookup.dart';
 import 'status_media_store.dart';
 import 'updates_repository.dart';
@@ -297,11 +298,13 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
       // itself -- security rules only let the owner write that (see
       // firestore.rules), so a shared seenSegments field on the story doc
       // could never actually persist another viewer's progress.
-      await _storiesRef
-          .doc(storyId)
-          .collection('views')
-          .doc(uid)
-          .set({'seenSegments': normalizedSeenSegments});
+      await _storiesRef.doc(storyId).collection('views').doc(uid).set(
+        {
+          'seenSegments': normalizedSeenSegments,
+          'viewedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
     } on FirebaseException catch (e) {
       throw UpdatesRepositoryException(
         e.message ?? 'We could not update that story right now.',
@@ -396,6 +399,46 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
     }
 
     return (await fetchUpdates()).stories;
+  }
+
+  @override
+  Future<List<StoryViewer>> fetchStoryViewers(String storyId) async {
+    final uid = _requireCurrentUid;
+    if (storyId != uid) {
+      // Only the owner may list the views subcollection at all (see
+      // firestore.rules) -- mirrors the interface's documented contract of
+      // an empty list for anyone else's story.
+      return const <StoryViewer>[];
+    }
+
+    try {
+      final snapshot = await _storiesRef
+          .doc(storyId)
+          .collection('views')
+          .orderBy('viewedAt', descending: true)
+          .get();
+      final lookup = UserProfileLookup(firestore: _firestore);
+      return await Future.wait(
+        snapshot.docs.map((doc) async {
+          final data = doc.data();
+          final profile = await lookup.fetch(doc.id);
+          final viewedAt = data['viewedAt'];
+          return StoryViewer(
+            uid: doc.id,
+            name: profile?.name ?? 'WhatsWave user',
+            avatarLabel: profile?.avatarLabel ?? '?',
+            accentColor:
+                Color(profile?.accentColorArgb ?? AppPalette.slate.toARGB32()),
+            avatarUrl: profile?.avatarUrl,
+            viewedAt: viewedAt is Timestamp ? viewedAt.toDate() : null,
+          );
+        }),
+      );
+    } on FirebaseException catch (e) {
+      throw UpdatesRepositoryException(
+        e.message ?? 'Could not load viewers right now.',
+      );
+    }
   }
 
   StatusStory _freshMyStatus(String uid) {

@@ -6,6 +6,7 @@ import 'package:video_player/video_player.dart';
 
 import '../../../app/theme/app_palette.dart';
 import '../../../core/models/status_story.dart';
+import '../../../core/models/story_viewer.dart';
 import '../../chats/application/chats_controller.dart';
 import '../../chats/domain/story_reply_context.dart';
 import '../../shared/widgets/avatar_badge.dart';
@@ -36,6 +37,7 @@ class StatusStoryViewerScreen extends StatefulWidget {
     this.initialSegmentIndex,
     this.onDeleteSegment,
     this.chatsController,
+    this.onFetchViewers,
     super.key,
   });
 
@@ -47,6 +49,11 @@ class StatusStoryViewerScreen extends StatefulWidget {
     StatusStory story,
     StatusStorySegment segment,
   )? onDeleteSegment;
+
+  /// Fetches who has viewed this story -- only ever passed for a story you
+  /// own (see story_viewer_launcher.dart), which is also when the "N
+  /// views" label becomes tappable. Null hides that affordance entirely.
+  final Future<List<StoryViewer>> Function(StatusStory story)? onFetchViewers;
 
   /// Lets the viewer reply to (or heart-react to) someone else's story --
   /// sent as a real direct message to them, the same as WhatsApp's own
@@ -727,6 +734,33 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
     });
   }
 
+  Future<void> _showViewersSheet() async {
+    final onFetchViewers = widget.onFetchViewers;
+    if (onFetchViewers == null || _isClosing) {
+      return;
+    }
+
+    final shouldResumeAfterSheet = !_isPausedByHold;
+    _pausePlaybackForHold();
+    if (!mounted) {
+      return;
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _StoryViewersSheet(
+        viewersFuture: onFetchViewers(_story),
+      ),
+    );
+
+    if (!mounted) {
+      return;
+    }
+    _resumePlaybackIfNeeded(shouldResume: shouldResumeAfterSheet);
+  }
+
   Future<void> _advanceToNextSegment() async {
     if (_isTransitioning || _isClosing || !mounted) {
       return;
@@ -922,18 +956,31 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
                                 ),
                               ),
                               const SizedBox(height: 2),
-                              Text(
-                                story.isMine
-                                    ? '${story.relativeTimeLabel} • ${story.viewerCount} '
-                                        '${story.viewerCount == 1 ? 'view' : 'views'}'
-                                    : story.relativeTimeLabel,
-                                key: story.isMine
-                                    ? const Key('updates_story_viewer_count')
+                              GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: story.isMine &&
+                                        widget.onFetchViewers != null
+                                    ? _showViewersSheet
                                     : null,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: Colors.white.withValues(alpha: 0.72),
+                                child: Text(
+                                  story.isMine
+                                      ? '${story.relativeTimeLabel} • ${story.viewerCount} '
+                                          '${story.viewerCount == 1 ? 'view' : 'views'}'
+                                      : story.relativeTimeLabel,
+                                  key: story.isMine
+                                      ? const Key('updates_story_viewer_count')
+                                      : null,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: Colors.white.withValues(alpha: 0.72),
+                                    decoration: story.isMine &&
+                                            widget.onFetchViewers != null
+                                        ? TextDecoration.underline
+                                        : null,
+                                    decorationColor:
+                                        Colors.white.withValues(alpha: 0.5),
+                                  ),
                                 ),
                               ),
                             ],
@@ -1423,6 +1470,134 @@ class _StoryReplyActionButton extends StatelessWidget {
     }
     return Tooltip(message: tooltip, child: button);
   }
+}
+
+/// "Viewed by" bottom sheet for your own story -- WhatsApp shows exactly
+/// who viewed a status you posted, not just a bare count.
+class _StoryViewersSheet extends StatelessWidget {
+  const _StoryViewersSheet({required this.viewersFuture});
+
+  final Future<List<StoryViewer>> viewersFuture;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final bottomInset = MediaQuery.paddingOf(context).bottom;
+    return SafeArea(
+      top: false,
+      child: Container(
+        key: const Key('story_viewers_sheet'),
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * 0.7,
+        ),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surface,
+          borderRadius: const BorderRadius.vertical(
+            top: Radius.circular(20),
+          ),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 10),
+            Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(999),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+              child: Row(
+                children: [
+                  Text(
+                    'Viewed by',
+                    style: theme.textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w800),
+                  ),
+                ],
+              ),
+            ),
+            Flexible(
+              child: FutureBuilder<List<StoryViewer>>(
+                future: viewersFuture,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState != ConnectionState.done) {
+                    return const Padding(
+                      padding: EdgeInsets.all(32),
+                      child: Center(
+                        child: SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(strokeWidth: 2.5),
+                        ),
+                      ),
+                    );
+                  }
+
+                  final viewers = snapshot.data ?? const <StoryViewer>[];
+                  if (viewers.isEmpty) {
+                    return Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+                      child: Text(
+                        'No views yet.',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color:
+                              theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                        ),
+                      ),
+                    );
+                  }
+
+                  return ListView.builder(
+                    shrinkWrap: true,
+                    padding: EdgeInsets.only(bottom: 12 + bottomInset),
+                    itemCount: viewers.length,
+                    itemBuilder: (context, index) {
+                      final viewer = viewers[index];
+                      return ListTile(
+                        key: Key('story_viewer_${viewer.uid}'),
+                        leading: AvatarBadge(
+                          label: viewer.avatarLabel,
+                          color: viewer.accentColor,
+                          avatarUrl: viewer.avatarUrl,
+                          size: 40,
+                        ),
+                        title: Text(
+                          viewer.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        trailing: viewer.viewedAt == null
+                            ? null
+                            : Text(
+                                _relativeViewLabel(viewer.viewedAt!),
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: theme.colorScheme.onSurface
+                                      .withValues(alpha: 0.6),
+                                ),
+                              ),
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String _relativeViewLabel(DateTime dateTime) {
+  final elapsed = DateTime.now().difference(dateTime);
+  if (elapsed.inMinutes < 1) return 'Just now';
+  if (elapsed.inMinutes < 60) return '${elapsed.inMinutes}m ago';
+  if (elapsed.inHours < 24) return '${elapsed.inHours}h ago';
+  return '${elapsed.inDays}d ago';
 }
 
 class _StoryIconButton extends StatelessWidget {

@@ -1,5 +1,6 @@
 import '../../../core/models/channel_preview.dart';
 import '../../../core/models/status_story.dart';
+import '../../../core/models/story_viewer.dart';
 
 class UpdatesFeed {
   const UpdatesFeed({
@@ -47,6 +48,11 @@ abstract class UpdatesRepository {
   Future<List<StatusStory>> clearStory({
     required String storyId,
   });
+
+  /// Everyone who has viewed [storyId] -- only meaningful for a story you
+  /// own; implementations may return an empty list otherwise. See
+  /// [StoryViewer].
+  Future<List<StoryViewer>> fetchStoryViewers(String storyId);
 }
 
 class UpdatesRepositoryException implements Exception {

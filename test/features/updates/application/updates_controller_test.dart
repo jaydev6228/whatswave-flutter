@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:whatswave/core/models/status_story.dart';
+import 'package:whatswave/core/models/story_viewer.dart';
 import 'package:whatswave/features/updates/application/updates_controller.dart';
 import 'package:whatswave/features/updates/data/fake_updates_repository.dart';
 import 'package:whatswave/features/updates/data/status_media_store.dart';
@@ -243,6 +244,11 @@ class _FailingUpdatesRepository implements UpdatesRepository {
   Future<List<StatusStory>> clearStory({
     required String storyId,
   }) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<List<StoryViewer>> fetchStoryViewers(String storyId) {
     throw UnimplementedError();
   }
 }

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/models/channel_preview.dart';
 import '../../../core/models/status_story.dart';
+import '../../../core/models/story_viewer.dart';
 import '../data/updates_repository.dart';
 
 class UpdatesController extends ChangeNotifier {
@@ -366,5 +367,20 @@ class UpdatesController extends ChangeNotifier {
     _isComposingStatus = false;
     notifyListeners();
     return didSucceed;
+  }
+
+  /// Everyone who has viewed [storyId] -- backs the "N views" screen on
+  /// your own story. Empty on failure (or for a fake/demo backend, which
+  /// never simulates other accounts viewing a story) rather than throwing,
+  /// matching [groupThreadsSharedWith]'s equivalent fallback in
+  /// ChatsController.
+  Future<List<StoryViewer>> fetchStoryViewers(String storyId) async {
+    try {
+      return await _repository.fetchStoryViewers(storyId);
+    } on UpdatesRepositoryException {
+      return const <StoryViewer>[];
+    } catch (_) {
+      return const <StoryViewer>[];
+    }
   }
 }

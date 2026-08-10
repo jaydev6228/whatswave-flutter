@@ -1132,6 +1132,16 @@ void main() {
       find.byKey(const Key('updates_story_reply_field')),
       findsNothing,
     );
+
+    await tester.tap(find.byKey(const Key('updates_story_viewer_count')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('story_viewers_sheet')), findsOneWidget);
+    expect(find.text('Viewed by'), findsOneWidget);
+    // The fake repository never simulates other accounts viewing a story
+    // (see FakeUpdatesRepository.fetchStoryViewers) -- this just confirms
+    // the tap-to-open wiring and the sheet's empty state render correctly.
+    expect(find.text('No views yet.'), findsOneWidget);
   });
 
   testWidgets(

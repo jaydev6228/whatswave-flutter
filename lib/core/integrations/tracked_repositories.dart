@@ -18,6 +18,7 @@ import '../../features/updates/data/updates_repository.dart';
 import '../../features/updates/data/updates_repository.dart' as updates_data;
 import '../../core/models/app_user.dart';
 import '../../core/models/status_story.dart';
+import '../../core/models/story_viewer.dart';
 import 'integration_hub_controller.dart';
 
 class TrackedAuthRepository implements AuthRepository {
@@ -674,6 +675,11 @@ class TrackedUpdatesRepository implements UpdatesRepository {
     required String storyId,
   }) {
     return _delegate.clearStory(storyId: storyId);
+  }
+
+  @override
+  Future<List<StoryViewer>> fetchStoryViewers(String storyId) {
+    return _delegate.fetchStoryViewers(storyId);
   }
 }
 
