@@ -23,6 +23,7 @@ class CommunityContact {
     this.memberCommunityIds = const <String>[],
     this.pendingCommunityInviteIds = const <String>[],
     this.matchedUid,
+    this.username,
   });
 
   final String id;
@@ -31,6 +32,10 @@ class CommunityContact {
   final String avatarLabel;
   final Color accentColor;
   final String about;
+
+  /// Optional WhatsWave handle (without "@") for search, when published on
+  /// the matched user's `userProfiles` document.
+  final String? username;
   final bool isOnWhatsWave;
   final bool appInviteSent;
   final List<String> memberCommunityIds;
@@ -63,6 +68,7 @@ class CommunityContact {
     List<String>? memberCommunityIds,
     List<String>? pendingCommunityInviteIds,
     String? matchedUid,
+    String? username,
   }) {
     return CommunityContact(
       id: id ?? this.id,
@@ -71,6 +77,7 @@ class CommunityContact {
       avatarLabel: avatarLabel ?? this.avatarLabel,
       accentColor: accentColor ?? this.accentColor,
       about: about ?? this.about,
+      username: username ?? this.username,
       isOnWhatsWave: isOnWhatsWave ?? this.isOnWhatsWave,
       appInviteSent: appInviteSent ?? this.appInviteSent,
       memberCommunityIds: memberCommunityIds ?? this.memberCommunityIds,

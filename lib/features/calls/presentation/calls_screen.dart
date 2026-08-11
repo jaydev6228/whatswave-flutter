@@ -1,14 +1,18 @@
 import 'package:flutter/material.dart';
 
-import '../../chats/application/chats_controller.dart';
-import '../../chats/domain/chat_thread.dart';
+import '../../communities/application/communities_controller.dart';
+import '../../communities/domain/community_contact.dart';
+import '../../communities/domain/contact_access_status.dart';
 import '../../shared/widgets/avatar_badge.dart';
+import '../../shared/widgets/call_history_avatar.dart';
 import '../../shared/widgets/empty_state_card.dart';
+import '../../shared/widgets/search_field.dart';
 import '../../shared/widgets/swipe_action_background.dart';
 import '../application/calls_controller.dart';
 import '../domain/call_contact.dart';
 import '../domain/call_history_entry.dart';
 import 'call_flow.dart';
+import 'calls_contact_search.dart';
 
 const double _kCallsScreenHorizontalPadding = 16;
 const double _kCallsRowHorizontalPadding = 18;
@@ -16,42 +20,58 @@ const double _kCallsRowHorizontalPadding = 18;
 class CallsScreen extends StatefulWidget {
   const CallsScreen({
     required this.controller,
-    this.chatsController,
+    this.communitiesController,
     super.key,
   });
 
   final CallsController controller;
 
-  /// Optional -- when provided, the "Your contacts" section is derived from
-  /// this controller's real, already-live-synced chat threads instead of
-  /// [CallsController.favorites]'s repository-sourced (demo, in Fake mode)
-  /// list. Mirrors CommunitiesScreen's chatsController pattern.
-  final ChatsController? chatsController;
+  /// When provided, the search field finds WhatsWave users from the device
+  /// address book (matched via phoneDirectory), even if you've never chatted.
+  final CommunitiesController? communitiesController;
 
   @override
   State<CallsScreen> createState() => _CallsScreenState();
 }
 
 class _CallsScreenState extends State<CallsScreen> {
+  late final TextEditingController _searchController;
+
   @override
   void initState() {
     super.initState();
+    _searchController = TextEditingController();
     widget.controller.ensureLoaded();
-    widget.chatsController?.ensureLoaded();
+    widget.communitiesController?.ensureLoaded();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final chatsController = widget.chatsController;
+    final communitiesController = widget.communitiesController;
+    final listenables = <Listenable>[widget.controller];
+    if (communitiesController != null) {
+      listenables.add(communitiesController);
+    }
+
     return AnimatedBuilder(
-      animation: chatsController == null
-          ? widget.controller
-          : Listenable.merge([widget.controller, chatsController]),
+      animation: Listenable.merge(listenables),
       builder: (context, _) {
         final theme = Theme.of(context);
-        final contacts = chatsController == null
-            ? widget.controller.favorites
-            : _contactsFromThreads(chatsController.threads);
+        final searchQuery = _searchController.text.trim();
+        final isSearching = searchQuery.isNotEmpty;
+        final searchResults = communitiesController == null ||
+                !communitiesController.contactAccessStatus.hasAnyAccess
+            ? const <CommunityContact>[]
+            : searchWhatsWaveContacts(
+                communitiesController.contacts,
+                searchQuery,
+              );
 
         if (!widget.controller.hasLoaded && widget.controller.isLoading) {
           return const SafeArea(
@@ -84,20 +104,13 @@ class _CallsScreenState extends State<CallsScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    'Calls',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: theme.textTheme.headlineMedium
-                                        ?.copyWith(
-                                      fontWeight: FontWeight.w900,
-                                    ),
-                                  ),
-                                ),
-                              ],
+                            Text(
+                              'Calls',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.headlineMedium?.copyWith(
+                                fontWeight: FontWeight.w900,
+                              ),
                             ),
                             if (widget.controller.errorMessage != null &&
                                 !widget.controller.hasLoaded) ...[
@@ -114,122 +127,119 @@ class _CallsScreenState extends State<CallsScreen> {
                               ),
                             ],
                             const SizedBox(height: 12),
-                          ],
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: _kCallsScreenHorizontalPadding,
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const _CallsSectionLabel(title: 'Your contacts'),
-                            const SizedBox(height: 10),
-                            if (contacts.isEmpty)
-                              const EmptyStateCard(
-                                dense: true,
-                                margin: EdgeInsets.zero,
-                                icon: Icons.favorite_border_rounded,
-                                title: 'No contacts yet',
-                                message:
-                                    'People you message will appear here for one-tap calling.',
-                              )
-                            else
-                              // Fixed-height horizontal list (a ListView
-                              // needs a bounded cross axis from its
-                              // ancestor) -- clamp text scale so the tile's
-                              // name label can't push its Column past this
-                              // budget, and keep real headroom above the
-                              // clamped worst case rather than the exact
-                              // minimum. See docs/ui_layout_guidelines.md
-                              // rules 1 and 4 -- this exact box previously
-                              // overflowed by a few px at a real device's
-                              // font scale.
-                              MediaQuery.withClampedTextScaling(
-                                maxScaleFactor: 1.3,
-                                child: SizedBox(
-                                  height: 140,
-                                  child: ListView.separated(
-                                    scrollDirection: Axis.horizontal,
-                                    itemBuilder: (context, index) {
-                                      final contact = contacts[index];
-                                      return _FavoriteCallTile(
-                                        contact: contact,
-                                        onAudioPressed: () {
-                                          startCallFlow(
-                                            context,
-                                            controller: widget.controller,
-                                            contact: contact,
-                                            type: CallType.audio,
-                                          );
-                                        },
-                                        onVideoPressed: () {
-                                          startCallFlow(
-                                            context,
-                                            controller: widget.controller,
-                                            contact: contact,
-                                            type: CallType.video,
-                                          );
-                                        },
-                                      );
-                                    },
-                                    separatorBuilder: (_, __) =>
-                                        const SizedBox(width: 12),
-                                    itemCount: contacts.length,
-                                  ),
-                                ),
-                              ),
-                            const SizedBox(height: 20),
-                            Row(
-                              children: [
-                                const Expanded(
-                                  child: _CallsSectionLabel(
-                                    title: 'Recent calls',
-                                  ),
-                                ),
-                                if (widget.controller.history.isNotEmpty)
-                                  TextButton(
-                                    key: const Key(
-                                      'calls_clear_history_button',
-                                    ),
-                                    onPressed:
-                                        widget.controller.isClearingHistory
-                                            ? null
-                                            : _confirmClearHistory,
-                                    child: Text(
-                                      widget.controller.isClearingHistory
-                                          ? 'Clearing...'
-                                          : 'Clear',
-                                    ),
-                                  ),
-                              ],
+                            SearchField(
+                              fieldKey: const Key('calls_search_field'),
+                              controller: _searchController,
+                              hintText: 'Search name, number, or username',
+                              onChanged: (_) => setState(() {}),
                             ),
-                            const SizedBox(height: 10),
-                            if (widget.controller.history.isEmpty)
-                              const EmptyStateCard(
-                                dense: true,
-                                margin: EdgeInsets.zero,
-                                icon: Icons.call_missed_outgoing_outlined,
-                                title: 'No recent calls',
-                                message:
-                                    'Start an audio or video call and it will appear here.',
-                              ),
                           ],
                         ),
                       ),
-                      if (widget.controller.history.isNotEmpty)
-                        ...widget.controller.history.map((entry) {
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 10),
-                            child: Dismissible(
+                      if (isSearching) ...[
+                        const SizedBox(height: 8),
+                        if (communitiesController == null)
+                          const Padding(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: _kCallsScreenHorizontalPadding,
+                            ),
+                            child: EmptyStateCard(
+                              dense: true,
+                              margin: EdgeInsets.zero,
+                              icon: Icons.person_search_outlined,
+                              title: 'Contact search unavailable',
+                              message:
+                                  'Sign in with contacts access to find people on WhatsWave.',
+                            ),
+                          )
+                        else if (!communitiesController
+                            .contactAccessStatus.hasAnyAccess)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: _kCallsScreenHorizontalPadding,
+                            ),
+                            child: EmptyStateCard(
+                              dense: true,
+                              margin: EdgeInsets.zero,
+                              icon: Icons.contact_phone_outlined,
+                              title: 'Allow contact access',
+                              message:
+                                  'Grant contact access to search people on WhatsWave by name, number, or username.',
+                              onRetry:
+                                  communitiesController.requestContactsAccess,
+                              retryKey: const Key('calls_request_contacts'),
+                            ),
+                          )
+                        else if (searchResults.isEmpty)
+                          const Padding(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: _kCallsScreenHorizontalPadding,
+                            ),
+                            child: EmptyStateCard(
+                              dense: true,
+                              margin: EdgeInsets.zero,
+                              icon: Icons.person_search_outlined,
+                              title: 'No matching contacts',
+                              message:
+                                  'Try another name, phone number, or WhatsWave username.',
+                            ),
+                          )
+                        else
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Padding(
+                                padding: EdgeInsets.fromLTRB(
+                                  _kCallsScreenHorizontalPadding,
+                                  4,
+                                  _kCallsScreenHorizontalPadding,
+                                  0,
+                                ),
+                                child: _CallsSectionLabel(
+                                  title: 'On WhatsWave',
+                                ),
+                              ),
+                              ...searchResults.map(
+                                (contact) => _SearchContactRow(
+                                  contact: contact,
+                                  isBusy: communitiesController
+                                      .isContactBusy(contact.id),
+                                  onCall: (type) => _startCallFromContact(
+                                    contact,
+                                    type,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                      ],
+                      if (!isSearching) ...[
+                        if (widget.controller.history.isEmpty)
+                          const Padding(
+                            padding: EdgeInsets.fromLTRB(
+                              _kCallsScreenHorizontalPadding,
+                              12,
+                              _kCallsScreenHorizontalPadding,
+                              0,
+                            ),
+                            child: EmptyStateCard(
+                              dense: true,
+                              margin: EdgeInsets.zero,
+                              icon: Icons.call_missed_outgoing_outlined,
+                              title: 'No recent calls',
+                              message:
+                                  'Start an audio or video call and it will appear here.',
+                            ),
+                          )
+                        else ...[
+                          const SizedBox(height: 16),
+                          ...widget.controller.history.map((entry) {
+                            return Dismissible(
                               key: Key('call_swipe_${entry.id}'),
-                              direction:
-                                  widget.controller.isDeletingHistoryEntry(
-                                entry.id,
-                              )
-                                      ? DismissDirection.none
-                                      : DismissDirection.endToStart,
+                              direction: widget.controller
+                                      .isDeletingHistoryEntry(entry.id)
+                                  ? DismissDirection.none
+                                  : DismissDirection.endToStart,
                               background: SwipeActionBackground(
                                 alignment: Alignment.centerRight,
                                 icon: Icons.delete_outline_rounded,
@@ -264,9 +274,10 @@ class _CallsScreenState extends State<CallsScreen> {
                                   );
                                 },
                               ),
-                            ),
-                          );
-                        }),
+                            );
+                          }),
+                        ],
+                      ],
                     ],
                   ),
                 ),
@@ -278,32 +289,19 @@ class _CallsScreenState extends State<CallsScreen> {
     );
   }
 
-  Future<void> _confirmClearHistory() async {
-    final shouldClear = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Clear recent calls?'),
-          content: const Text(
-            'This removes recent call history from this device.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('Clear'),
-            ),
-          ],
-        );
-      },
+  void _startCallFromContact(CommunityContact contact, CallType type) {
+    startCallFlow(
+      context,
+      controller: widget.controller,
+      contact: CallContact(
+        id: contact.id,
+        name: contact.name,
+        avatarLabel: contact.avatarLabel,
+        accentColor: contact.accentColor,
+        uid: contact.matchedUid,
+      ),
+      type: type,
     );
-
-    if (shouldClear == true) {
-      await widget.controller.clearHistory();
-    }
   }
 
   Future<bool> _confirmDeleteCall(CallHistoryEntry entry) async {
@@ -312,7 +310,9 @@ class _CallsScreenState extends State<CallsScreen> {
       builder: (dialogContext) {
         return AlertDialog(
           title: const Text('Delete this call?'),
-          content: Text('This removes the call with ${entry.name} from your recent calls.'),
+          content: Text(
+            'This removes the call with ${entry.name} from your recent calls.',
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(false),
@@ -333,106 +333,84 @@ class _CallsScreenState extends State<CallsScreen> {
     );
     return result ?? false;
   }
-
-  /// Only threads with a real other-participant uid can actually be called
-  /// (see ChatThread.participantUid) -- a demo/local thread has none and is
-  /// filtered out rather than shown as a contact nothing can call for real.
-  List<CallContact> _contactsFromThreads(List<ChatThread> threads) {
-    return threads
-        .where((thread) => thread.participantUid != null && !thread.isGroup)
-        .map(
-          (thread) => CallContact(
-            id: thread.id,
-            name: thread.name,
-            avatarLabel: thread.avatarLabel,
-            accentColor: thread.accentColor,
-            uid: thread.participantUid,
-            avatarUrl: thread.avatarUrl,
-          ),
-        )
-        .toList(growable: false);
-  }
 }
 
-class _FavoriteCallTile extends StatelessWidget {
-  const _FavoriteCallTile({
+class _SearchContactRow extends StatelessWidget {
+  const _SearchContactRow({
     required this.contact,
-    required this.onAudioPressed,
-    required this.onVideoPressed,
+    required this.isBusy,
+    required this.onCall,
   });
 
-  final CallContact contact;
-  final VoidCallback onAudioPressed;
-  final VoidCallback onVideoPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 94,
-      child: Column(
-        children: [
-          AvatarBadge(
-            label: contact.avatarLabel,
-            color: contact.accentColor,
-            size: 60,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            contact.name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  fontWeight: FontWeight.w800,
-                ),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              _FavoriteActionButton(
-                buttonKey: Key('calls_favorite_audio_${contact.id}'),
-                icon: Icons.call_rounded,
-                onPressed: onAudioPressed,
-              ),
-              const SizedBox(width: 8),
-              _FavoriteActionButton(
-                buttonKey: Key('calls_favorite_video_${contact.id}'),
-                icon: Icons.videocam_rounded,
-                onPressed: onVideoPressed,
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _FavoriteActionButton extends StatelessWidget {
-  const _FavoriteActionButton({
-    required this.icon,
-    required this.onPressed,
-    this.buttonKey,
-  });
-
-  final Key? buttonKey;
-  final IconData icon;
-  final VoidCallback onPressed;
+  final CommunityContact contact;
+  final bool isBusy;
+  final void Function(CallType type) onCall;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return InkWell(
-      key: buttonKey,
-      onTap: onPressed,
-      child: SizedBox(
-        width: 28,
-        height: 28,
-        child: Icon(
-          icon,
-          size: 18,
-          color: theme.colorScheme.primary,
+    final subtitle = contact.username == null || contact.username!.isEmpty
+        ? contact.phoneNumber
+        : '@${contact.username}';
+
+    return Material(
+      color: Colors.transparent,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(
+          _kCallsRowHorizontalPadding,
+          6,
+          8,
+          6,
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            AvatarBadge(
+              label: contact.avatarLabel,
+              color: contact.accentColor,
+              size: 48,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    contact.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurface.withValues(
+                        alpha: 0.66,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            IconButton(
+              key: Key('calls_search_audio_${contact.id}'),
+              tooltip: 'Voice call',
+              onPressed: isBusy ? null : () => onCall(CallType.audio),
+              icon: const Icon(Icons.call_outlined),
+            ),
+            IconButton(
+              key: Key('calls_search_video_${contact.id}'),
+              tooltip: 'Video call',
+              onPressed: isBusy ? null : () => onCall(CallType.video),
+              icon: const Icon(Icons.videocam_outlined),
+            ),
+          ],
         ),
       ),
     );
@@ -451,9 +429,13 @@ class _RecentCallCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final accentColor = entry.status.isAttentionWorthy
+    final isMissed = entry.logDisplayKind == CallLogDisplayKind.missed;
+    final arrowColor = isMissed
         ? theme.colorScheme.error
         : theme.colorScheme.primary;
+    final subtitle = entry.durationSeconds > 0
+        ? '${_formatRelativeTime(entry.startedAt)} • ${_formatDuration(entry.durationSeconds)}'
+        : _formatRelativeTime(entry.startedAt);
 
     return Material(
       color: Colors.transparent,
@@ -463,18 +445,14 @@ class _RecentCallCard extends StatelessWidget {
         child: Column(
           children: [
             Padding(
-              padding: const EdgeInsets.fromLTRB(
-                _kCallsRowHorizontalPadding,
-                10,
-                _kCallsRowHorizontalPadding,
-                10,
+              padding: const EdgeInsets.symmetric(
+                horizontal: _kCallsRowHorizontalPadding,
+                vertical: 8,
               ),
               child: Row(
                 children: [
-                  AvatarBadge(
-                    label: entry.avatarLabel,
-                    color: entry.accentColor,
-                    avatarUrl: entry.avatarUrl,
+                  CallHistoryAvatar(
+                    entry: entry,
                     size: 52,
                   ),
                   const SizedBox(width: 12),
@@ -483,47 +461,53 @@ class _RecentCallCard extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text(
-                          entry.name,
-                          style: theme.textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w800,
-                          ),
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                entry.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.titleSmall?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                  color: isMissed
+                                      ? theme.colorScheme.error
+                                      : null,
+                                ),
+                              ),
+                            ),
+                            if (entry.isGroup) ...[
+                              const SizedBox(width: 6),
+                              Icon(
+                                Icons.group_rounded,
+                                size: 15,
+                                color: theme.colorScheme.onSurface
+                                    .withValues(alpha: 0.46),
+                              ),
+                            ],
+                          ],
                         ),
                         const SizedBox(height: 4),
                         Row(
                           children: [
                             Icon(
-                              entry.direction == CallDirection.outgoing
-                                  ? Icons.north_east_rounded
-                                  : Icons.south_west_rounded,
+                              entry.logDirectionIcon,
                               size: 15,
-                              color: accentColor,
+                              color: arrowColor,
                             ),
                             const SizedBox(width: 6),
                             Expanded(
                               child: Text(
-                                '${entry.status.label} ${entry.type.label.toLowerCase()}',
+                                subtitle,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: theme.textTheme.bodySmall?.copyWith(
-                                  color: accentColor,
-                                  fontWeight: FontWeight.w700,
+                                  color: theme.colorScheme.onSurface
+                                      .withValues(alpha: 0.66),
                                 ),
                               ),
                             ),
                           ],
-                        ),
-                        const SizedBox(height: 3),
-                        Text(
-                          entry.durationSeconds > 0
-                              ? '${_formatRelativeTime(entry.startedAt)} • ${_formatDuration(entry.durationSeconds)}'
-                              : _formatRelativeTime(entry.startedAt),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.labelMedium?.copyWith(
-                            color: theme.colorScheme.onSurface
-                                .withValues(alpha: 0.66),
-                          ),
                         ),
                       ],
                     ),

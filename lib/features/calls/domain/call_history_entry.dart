@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../chats/domain/group_participant.dart';
+
 enum CallType { audio, video }
 
 extension CallTypeX on CallType {
@@ -17,6 +19,28 @@ extension CallTypeX on CallType {
 enum CallDirection { incoming, outgoing }
 
 enum CallHistoryStatus { completed, missed, declined, canceled, failed }
+
+/// WhatsApp-style call log row: incoming, outgoing, or missed only.
+enum CallLogDisplayKind { incoming, outgoing, missed }
+
+extension CallHistoryEntryLogDisplay on CallHistoryEntry {
+  CallLogDisplayKind get logDisplayKind {
+    if (direction == CallDirection.incoming) {
+      return switch (status) {
+        CallHistoryStatus.missed || CallHistoryStatus.failed =>
+          CallLogDisplayKind.missed,
+        _ => CallLogDisplayKind.incoming,
+      };
+    }
+    return CallLogDisplayKind.outgoing;
+  }
+
+  IconData get logDirectionIcon => switch (logDisplayKind) {
+        CallLogDisplayKind.outgoing => Icons.north_east_rounded,
+        CallLogDisplayKind.incoming => Icons.south_west_rounded,
+        CallLogDisplayKind.missed => Icons.call_missed_outgoing_rounded,
+      };
+}
 
 extension CallHistoryStatusX on CallHistoryStatus {
   String get label => switch (this) {
@@ -49,6 +73,7 @@ class CallHistoryEntry {
     this.isGroup = false,
     this.uid,
     this.avatarUrl,
+    this.participants,
   });
 
   final String id;
@@ -73,6 +98,10 @@ class CallHistoryEntry {
   /// instead of silently falling back to the local simulated flow.
   final String? uid;
 
+  /// Member snapshots for group calls, used to render the same mosaic avatar
+  /// as group threads on the chat list.
+  final List<GroupParticipant>? participants;
+
   CallHistoryEntry copyWith({
     String? id,
     String? contactId,
@@ -87,6 +116,7 @@ class CallHistoryEntry {
     bool? isGroup,
     String? uid,
     String? avatarUrl,
+    List<GroupParticipant>? participants,
   }) {
     return CallHistoryEntry(
       id: id ?? this.id,
@@ -102,6 +132,7 @@ class CallHistoryEntry {
       isGroup: isGroup ?? this.isGroup,
       uid: uid ?? this.uid,
       avatarUrl: avatarUrl ?? this.avatarUrl,
+      participants: participants ?? this.participants,
     );
   }
 }

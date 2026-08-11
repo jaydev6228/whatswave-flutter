@@ -1,17 +1,45 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:whatswave/app/theme/app_palette.dart';
 import 'package:whatswave/app/theme/app_theme.dart';
 import 'package:whatswave/core/permissions/app_permission_service.dart';
 import 'package:whatswave/features/calls/application/calls_controller.dart';
 import 'package:whatswave/features/calls/data/fake_calls_repository.dart';
 import 'package:whatswave/features/calls/domain/call_history_entry.dart';
 import 'package:whatswave/features/calls/presentation/calls_screen.dart';
-import 'package:whatswave/features/chats/application/chats_controller.dart';
-import 'package:whatswave/features/chats/data/fake_chat_repository.dart';
-import 'package:whatswave/features/chats/domain/chat_thread.dart';
+import 'package:whatswave/features/communities/application/communities_controller.dart';
+import 'package:whatswave/features/communities/data/fake_communities_repository.dart';
+import 'package:whatswave/features/communities/domain/community_contact.dart';
+import 'package:whatswave/features/communities/domain/contact_access_status.dart';
 
 import '../../../support/device_matrix.dart';
+
+CommunitiesController _defaultCommunitiesController({
+  List<CommunityContact>? initialContacts,
+}) {
+  return CommunitiesController(
+    repository: FakeCommunitiesRepository(
+      latency: Duration.zero,
+      initialContacts: initialContacts,
+    ),
+    permissionService: MemoryAppPermissionService(
+      contactsStatus: ContactAccessStatus.granted,
+    ),
+  );
+}
+
+Future<void> _searchAndStartCall(
+  WidgetTester tester, {
+  required String query,
+  required Key callButtonKey,
+}) async {
+  await tester.enterText(
+    find.byKey(const Key('calls_search_field')),
+    query,
+  );
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(callButtonKey));
+  await tester.pumpAndSettle();
+}
 
 void main() {
   testWidgets(
@@ -31,15 +59,11 @@ void main() {
       controller: controller,
     );
 
-    final videoCallButton =
-        find.byKey(const Key('calls_favorite_video_ava-patel'));
-    await tester.drag(
-      find.byKey(const Key('calls_screen')),
-      const Offset(0, -520),
+    await _searchAndStartCall(
+      tester,
+      query: 'Ava',
+      callButtonKey: const Key('calls_search_video_ava-patel'),
     );
-    await tester.pumpAndSettle();
-    await tester.tap(videoCallButton);
-    await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('call_experience_screen')), findsOneWidget);
     expect(controller.currentSession?.phase.name, 'connected');
@@ -54,7 +78,7 @@ void main() {
   });
 
   testWidgets(
-      'derives "Your contacts" from real chat threads when a chatsController is provided',
+      'finds WhatsWave contacts via search and places a call using their uid',
       (tester) async {
     final controller = CallsController(
       repository: FakeCallsRepository(latency: Duration.zero),
@@ -63,47 +87,22 @@ void main() {
       outgoingConnectingDuration: Duration.zero,
       durationTickInterval: Duration.zero,
     );
-    final chatsController = ChatsController(
-      repository: FakeChatRepository(
-        initialThreads: const <ChatThread>[
-          ChatThread(
-            id: 'real-thread',
-            name: 'Priya Shah',
-            avatarLabel: 'PS',
-            accentColor: AppPalette.sky,
-            messages: [],
-            participantUid: 'priya-uid',
-          ),
-        ],
-        latency: Duration.zero,
-      ),
-    );
+    final communitiesController = _defaultCommunitiesController();
 
     await _pumpCallsScreen(
       tester,
       device: iphoneSeProfile,
       controller: controller,
-      chatsController: chatsController,
+      communitiesController: communitiesController,
     );
 
-    expect(find.text('Your contacts'), findsOneWidget);
-    expect(find.text('Priya Shah'), findsOneWidget);
-    // The fake calls repository's own demo favorites (e.g. its
-    // "ava-patel" contact, see the first test above) must not show once a
-    // real chatsController is wired -- it should fully replace them. Recent
-    // call history is a separate, untouched data source, so this checks
-    // the contacts-row button specifically rather than any text on screen.
-    expect(
-      find.byKey(const Key('calls_favorite_audio_ava-patel')),
-      findsNothing,
+    await _searchAndStartCall(
+      tester,
+      query: '@priya.rai',
+      callButtonKey: const Key('calls_search_audio_priya-rai'),
     );
 
-    await tester.tap(
-      find.byKey(const Key('calls_favorite_audio_real-thread')),
-    );
-    await tester.pumpAndSettle();
-
-    expect(controller.currentSession?.contact.uid, 'priya-uid');
+    expect(controller.currentSession?.contact.uid, 'uid-priya-rai');
   });
 
   testWidgets('shows a permission error when microphone access is denied',
@@ -122,15 +121,11 @@ void main() {
       controller: controller,
     );
 
-    final audioCallButton =
-        find.byKey(const Key('calls_favorite_audio_ava-patel'));
-    await tester.drag(
-      find.byKey(const Key('calls_screen')),
-      const Offset(0, -520),
+    await _searchAndStartCall(
+      tester,
+      query: 'Ava',
+      callButtonKey: const Key('calls_search_audio_ava-patel'),
     );
-    await tester.pumpAndSettle();
-    await tester.tap(audioCallButton);
-    await tester.pumpAndSettle();
 
     expect(find.text('Microphone access is required for audio calls.'),
         findsOneWidget);
@@ -165,6 +160,27 @@ void main() {
     expect(find.byKey(const Key('call_experience_screen')), findsOneWidget);
     expect(controller.currentSession?.phase.name, 'connected');
     expect(controller.currentSession?.type, recentEntry.type);
+  });
+
+  testWidgets('does not show raw call status labels in recent call rows',
+      (tester) async {
+    final controller = CallsController(
+      repository: FakeCallsRepository(latency: Duration.zero),
+      permissionService: MemoryAppPermissionService(),
+      durationTickInterval: Duration.zero,
+    );
+
+    await _pumpCallsScreen(
+      tester,
+      device: iphoneProProfile,
+      controller: controller,
+    );
+
+    expect(find.text('Completed video'), findsNothing);
+    expect(find.text('Missed audio'), findsNothing);
+    expect(find.text('Your contacts'), findsNothing);
+    expect(find.text('Noah Kim'), findsOneWidget);
+    expect(find.byIcon(Icons.group_rounded), findsOneWidget);
   });
 
   testWidgets('swipe-deletes a call from recent history', (tester) async {
@@ -226,13 +242,11 @@ void main() {
       controller: controller,
     );
 
-    await tester.drag(
-      find.byKey(const Key('calls_screen')),
-      const Offset(0, -520),
+    await _searchAndStartCall(
+      tester,
+      query: 'Ava',
+      callButtonKey: const Key('calls_search_video_ava-patel'),
     );
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('calls_favorite_video_ava-patel')));
-    await tester.pumpAndSettle();
 
     final statusRect =
         tester.getRect(find.byKey(const Key('call_video_status_text')));
@@ -293,12 +307,6 @@ void main() {
         tester.getRect(find.byKey(const Key('call_local_video_status_label')));
 
     expect(find.text('Cam off'), findsNothing);
-    // No fixed inset padding around the preview's content anymore (the
-    // video/fallback content now touches the card's own edges by design,
-    // per docs/ui_layout_guidelines.md-style "no wasted chrome" -- only
-    // the switch-camera button keeps its own small margin) -- this now
-    // just checks the label stays inside the card at all, not clipped
-    // past its edge, rather than asserting a specific inset.
     expect(
       disabledLabelRect.left,
       greaterThanOrEqualTo(disabledPreviewRect.left),
@@ -334,13 +342,11 @@ void main() {
       themeMode: ThemeMode.light,
     );
 
-    await tester.drag(
-      find.byKey(const Key('calls_screen')),
-      const Offset(0, -520),
+    await _searchAndStartCall(
+      tester,
+      query: 'Ava',
+      callButtonKey: const Key('calls_search_video_ava-patel'),
     );
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('calls_favorite_video_ava-patel')));
-    await tester.pumpAndSettle();
 
     final switchIcon = tester.widget<Icon>(
       find.descendant(
@@ -387,13 +393,11 @@ void main() {
       themeMode: ThemeMode.dark,
     );
 
-    await tester.drag(
-      find.byKey(const Key('calls_screen')),
-      const Offset(0, -520),
+    await _searchAndStartCall(
+      tester,
+      query: 'Ava',
+      callButtonKey: const Key('calls_search_audio_ava-patel'),
     );
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('calls_favorite_audio_ava-patel')));
-    await tester.pumpAndSettle();
 
     final speakerActionFinder =
         find.byKey(const Key('call_audio_route_button'));
@@ -459,13 +463,11 @@ void main() {
       themeMode: ThemeMode.dark,
     );
 
-    await tester.drag(
-      find.byKey(const Key('calls_screen')),
-      const Offset(0, -520),
+    await _searchAndStartCall(
+      tester,
+      query: 'Ava',
+      callButtonKey: const Key('calls_search_audio_ava-patel'),
     );
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('calls_favorite_audio_ava-patel')));
-    await tester.pumpAndSettle();
 
     final muteActionFinder = find.byKey(const Key('call_mute_button'));
     final muteContainerFinder = find.ancestor(
@@ -527,13 +529,11 @@ void main() {
       themeMode: ThemeMode.dark,
     );
 
-    await tester.drag(
-      find.byKey(const Key('calls_screen')),
-      const Offset(0, -520),
+    await _searchAndStartCall(
+      tester,
+      query: 'Ava',
+      callButtonKey: const Key('calls_search_video_ava-patel'),
     );
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('calls_favorite_video_ava-patel')));
-    await tester.pumpAndSettle();
 
     final muteActionFinder = find.byKey(const Key('call_mute_button'));
     final muteContainerFinder = find.ancestor(
@@ -612,13 +612,11 @@ void main() {
       themeMode: ThemeMode.light,
     );
 
-    await tester.drag(
-      find.byKey(const Key('calls_screen')),
-      const Offset(0, -520),
+    await _searchAndStartCall(
+      tester,
+      query: 'Ava',
+      callButtonKey: const Key('calls_search_audio_ava-patel'),
     );
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('calls_favorite_audio_ava-patel')));
-    await tester.pumpAndSettle();
 
     final speakerActionFinder =
         find.byKey(const Key('call_audio_route_button'));
@@ -689,13 +687,11 @@ void main() {
       themeMode: ThemeMode.dark,
     );
 
-    await tester.drag(
-      find.byKey(const Key('calls_screen')),
-      const Offset(0, -520),
+    await _searchAndStartCall(
+      tester,
+      query: 'Ava',
+      callButtonKey: const Key('calls_search_audio_ava-patel'),
     );
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('calls_favorite_audio_ava-patel')));
-    await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('call_audio_backdrop')), findsOneWidget);
     expect(
@@ -745,8 +741,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('calls_error_card')), findsNothing);
-    expect(find.text('Your contacts'), findsOneWidget);
-    expect(controller.favorites, isNotEmpty);
+    expect(find.byKey(const Key('calls_search_field')), findsOneWidget);
+    expect(find.text('Recent calls'), findsNothing);
+    expect(controller.history, isNotEmpty);
   });
 }
 
@@ -754,11 +751,15 @@ Future<void> _pumpCallsScreen(
   WidgetTester tester, {
   required TestDeviceProfile device,
   required CallsController controller,
-  ChatsController? chatsController,
+  CommunitiesController? communitiesController,
   ThemeMode themeMode = ThemeMode.light,
 }) async {
   await tester.binding.setSurfaceSize(device.size);
   addTearDown(() => tester.binding.setSurfaceSize(null));
+
+  final resolvedCommunitiesController =
+      communitiesController ?? _defaultCommunitiesController();
+  await resolvedCommunitiesController.ensureLoaded();
 
   await tester.pumpWidget(
     MaterialApp(
@@ -769,7 +770,7 @@ Future<void> _pumpCallsScreen(
       home: Scaffold(
         body: CallsScreen(
           controller: controller,
-          chatsController: chatsController,
+          communitiesController: resolvedCommunitiesController,
         ),
       ),
     ),

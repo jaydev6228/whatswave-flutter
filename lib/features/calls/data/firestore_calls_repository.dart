@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../app/theme/app_palette.dart';
 import '../../../core/utils/user_profile_lookup.dart';
+import '../../chats/domain/group_participant.dart';
 import '../domain/call_contact.dart';
 import '../domain/call_history_entry.dart';
 import 'calls_overview.dart';
@@ -96,6 +97,20 @@ class FirestoreCallsRepository implements CallsRepository {
         'durationSeconds': entry.durationSeconds,
         'isGroup': entry.isGroup,
         'uid': entry.uid,
+        if (entry.avatarUrl != null) 'avatarUrl': entry.avatarUrl,
+        if (entry.participants != null && entry.participants!.isNotEmpty)
+          'participants': entry.participants!
+              .map(
+                (participant) => <String, Object?>{
+                  'uid': participant.uid,
+                  'name': participant.name,
+                  'avatarLabel': participant.avatarLabel,
+                  'accentColorArgb': participant.accentColor.toARGB32(),
+                  'avatarUrl': participant.avatarUrl,
+                  'isSelf': participant.isSelf,
+                },
+              )
+              .toList(growable: false),
       });
     } on FirebaseException catch (e) {
       throw CallsRepositoryException(
@@ -167,8 +182,38 @@ class FirestoreCallsRepository implements CallsRepository {
       status: CallHistoryStatus.values.byName(data['status'] as String),
       durationSeconds: (data['durationSeconds'] as int?) ?? 0,
       isGroup: (data['isGroup'] as bool?) ?? false,
-      avatarUrl: profile?.avatarUrl,
+      avatarUrl: profile?.avatarUrl ?? (data['avatarUrl'] as String?),
       uid: uid,
+      participants: _participantsFromData(data['participants']),
     );
+  }
+
+  List<GroupParticipant>? _participantsFromData(Object? raw) {
+    if (raw is! List<dynamic> || raw.isEmpty) {
+      return null;
+    }
+    final participants = raw.map((item) {
+      if (item is! Map<String, dynamic>) {
+        return null;
+      }
+      final name = item['name'] as String?;
+      final avatarLabel = item['avatarLabel'] as String?;
+      final uid = item['uid'] as String?;
+      if (name == null || avatarLabel == null || uid == null) {
+        return null;
+      }
+      return GroupParticipant(
+        uid: uid,
+        name: name,
+        avatarLabel: avatarLabel,
+        accentColor: Color(
+          (item['accentColorArgb'] as int?) ?? AppPalette.slate.toARGB32(),
+        ),
+        avatarUrl: item['avatarUrl'] as String?,
+        isSelf: (item['isSelf'] as bool?) ?? false,
+      );
+    }).whereType<GroupParticipant>();
+    final list = participants.toList(growable: false);
+    return list.isEmpty ? null : list;
   }
 }

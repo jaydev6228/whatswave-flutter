@@ -3,8 +3,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:livekit_client/livekit_client.dart' as lk;
 
+import '../../../app/theme/app_palette.dart';
 import '../../../core/observability/app_telemetry.dart';
 import '../../../core/permissions/app_permission_service.dart';
+import '../../chats/domain/group_participant.dart';
 import '../data/call_signaling_service.dart';
 import '../data/calls_repository.dart';
 import '../data/livekit_token_service.dart';
@@ -1368,6 +1370,10 @@ class CallsController extends ChangeNotifier {
           : 0,
       isGroup: session.contact.isGroup,
       uid: session.contact.uid,
+      avatarUrl: session.contact.avatarUrl,
+      participants: session.contact.isGroup
+          ? _groupParticipantsForHistory(session)
+          : null,
     );
     final durationSeconds = historyEntry.durationSeconds;
 
@@ -1579,6 +1585,33 @@ class CallsController extends ChangeNotifier {
       return '${permissions.first.label} access is required for ${type.label.toLowerCase()} calls.';
     }
     return '${labels.first[0].toUpperCase()}${labels.first.substring(1)} and ${labels.last} access are required for ${type.label.toLowerCase()} calls.';
+  }
+
+  List<GroupParticipant> _groupParticipantsForHistory(CallSession session) {
+    return groupCallParticipants
+        .map(
+          (participant) => GroupParticipant(
+            uid: participant.uid,
+            name: participant.displayName,
+            avatarLabel: participant.avatarLabel,
+            accentColor: _accentColorForParticipantName(participant.displayName),
+            avatarUrl: participant.avatarUrl,
+            isSelf: participant.isSelf,
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  Color _accentColorForParticipantName(String name) {
+    const palette = <Color>[
+      AppPalette.emerald,
+      AppPalette.green,
+      AppPalette.sky,
+      AppPalette.purple,
+      AppPalette.amber,
+    ];
+    final hash = name.codeUnits.fold<int>(0, (value, unit) => value + unit);
+    return palette[hash % palette.length];
   }
 
   @override

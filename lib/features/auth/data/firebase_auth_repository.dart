@@ -249,6 +249,7 @@ class FirebaseAuthRepository implements AuthRepository {
         'about': about,
         'avatarLabel': _avatarLabelForName(name),
         'accentColorArgb': _accentColorForName(name).toARGB32(),
+        'username': _usernameForName(name),
       }, SetOptions(merge: true));
     } on FirebaseException {
       // Best-effort -- see doc comment above.
@@ -370,5 +371,16 @@ class FirebaseAuthRepository implements AuthRepository {
     ];
     final hash = name.codeUnits.fold<int>(0, (value, unit) => value + unit);
     return palette[hash % palette.length];
+  }
+
+  /// A deterministic lowercase handle derived from the display name until
+  /// a dedicated username picker exists in profile settings.
+  String _usernameForName(String name) {
+    final slug = name
+        .trim()
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '.')
+        .replaceAll(RegExp(r'^\.+|\.+$'), '');
+    return slug.isEmpty ? 'user' : slug;
   }
 }

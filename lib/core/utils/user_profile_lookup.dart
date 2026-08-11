@@ -33,6 +33,7 @@ class UserProfileLookup {
         avatarLabel: data?['avatarLabel'] as String?,
         accentColorArgb: data?['accentColorArgb'] as int?,
         avatarUrl: data?['avatarUrl'] as String?,
+        username: data?['username'] as String?,
       );
     } on FirebaseException {
       return null;
@@ -46,6 +47,7 @@ class UserProfileSnapshot {
     this.avatarLabel,
     this.accentColorArgb,
     this.avatarUrl,
+    this.username,
   });
 
   final String name;
@@ -55,4 +57,7 @@ class UserProfileSnapshot {
   /// A Firebase Storage download URL for this user's uploaded profile
   /// photo, if they've set one -- see FirebaseAuthRepository.updateAvatar.
   final String? avatarUrl;
+
+  /// Lowercase WhatsWave username (without "@"), when set on the profile.
+  final String? username;
 }

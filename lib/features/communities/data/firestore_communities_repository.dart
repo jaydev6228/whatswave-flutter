@@ -149,6 +149,7 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
             accentColor: profile?.accentColorArgb == null
                 ? null
                 : Color(profile!.accentColorArgb!),
+            username: profile?.username,
           );
         } on FirebaseException {
           return contact;

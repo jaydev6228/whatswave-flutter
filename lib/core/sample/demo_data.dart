@@ -720,6 +720,8 @@ abstract final class DemoData {
         avatarLabel: 'AP',
         accentColor: AppPalette.green,
         about: 'Shipping launch polish and keeping reviews calm.',
+        username: 'ava.patel',
+        matchedUid: 'uid-ava-patel',
         memberCommunityIds: <String>['studio-community'],
       ),
       CommunityContact(
@@ -729,6 +731,8 @@ abstract final class DemoData {
         avatarLabel: 'NK',
         accentColor: AppPalette.sky,
         about: 'Travel boards, photos, and last-mile planning.',
+        username: 'noah.kim',
+        matchedUid: 'uid-noah-kim',
         memberCommunityIds: <String>['friends-trip-2026'],
       ),
       CommunityContact(
@@ -738,6 +742,8 @@ abstract final class DemoData {
         avatarLabel: 'PR',
         accentColor: AppPalette.purple,
         about: 'Ready to join new groups and keep things organized.',
+        username: 'priya.rai',
+        matchedUid: 'uid-priya-rai',
       ),
       CommunityContact(
         id: 'marco-silva',
@@ -746,6 +752,8 @@ abstract final class DemoData {
         avatarLabel: 'MS',
         accentColor: AppPalette.amber,
         about: 'Typing dots, release reviews, and steady launch help.',
+        username: 'marco.silva',
+        matchedUid: 'uid-marco-silva',
         memberCommunityIds: <String>['studio-community'],
       ),
       CommunityContact(
@@ -837,6 +845,27 @@ abstract final class DemoData {
         status: CallHistoryStatus.completed,
         durationSeconds: 26 * 60 + 5,
         isGroup: true,
+        participants: const [
+          GroupParticipant(
+            uid: 'me',
+            name: 'You',
+            avatarLabel: 'ME',
+            accentColor: AppPalette.slate,
+            isSelf: true,
+          ),
+          GroupParticipant(
+            uid: 'priya',
+            name: 'Priya',
+            avatarLabel: 'PR',
+            accentColor: AppPalette.purple,
+          ),
+          GroupParticipant(
+            uid: 'marco',
+            name: 'Marco',
+            avatarLabel: 'MA',
+            accentColor: AppPalette.sky,
+          ),
+        ],
       ),
       CallHistoryEntry(
         id: 'call-priya-audio-canceled',
