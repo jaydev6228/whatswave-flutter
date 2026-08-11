@@ -1,10 +1,12 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 
+import '../../../core/media/avatar_photo_picker.dart';
 import '../../communities/application/communities_controller.dart';
 import '../../shared/widgets/avatar_badge.dart';
+import '../../shared/widgets/error_dialog.dart';
+import '../../shared/widgets/thread_avatar.dart';
 import '../application/chats_controller.dart';
 import '../domain/chat_attachment.dart';
 import '../domain/chat_thread.dart';
@@ -36,6 +38,18 @@ class ContactInfoScreen extends StatefulWidget {
 class _ContactInfoScreenState extends State<ContactInfoScreen> {
   List<ChatThread> _commonGroups = const <ChatThread>[];
   bool _hasLoadedCommonGroups = false;
+  bool _isEditingGroup = false;
+  TextEditingController? _groupNameController;
+  TextEditingController? _groupDescriptionController;
+  File? _pendingGroupIconPhoto;
+  bool _pendingRemoveGroupIcon = false;
+
+  @override
+  void dispose() {
+    _groupNameController?.dispose();
+    _groupDescriptionController?.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -87,9 +101,44 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
             )
             .toList(growable: false);
 
+        final canEditGroup =
+            thread.isGroup && thread.currentUserIsGroupAdmin;
+        final isGroupIconBusy =
+            widget.controller.isThreadBusy(thread.id);
+
         return Scaffold(
           appBar: AppBar(
             title: Text(thread.isGroup ? 'Group info' : 'Contact info'),
+            actions: [
+              if (canEditGroup && !_isEditingGroup)
+                TextButton(
+                  key: const Key('contact_info_edit_button'),
+                  onPressed: isGroupIconBusy
+                      ? null
+                      : () => _startGroupEdit(thread),
+                  child: const Text('Edit'),
+                ),
+              if (_isEditingGroup) ...[
+                TextButton(
+                  key: const Key('contact_info_cancel_edit_button'),
+                  onPressed: isGroupIconBusy ? null : _cancelGroupEdit,
+                  child: const Text('Cancel'),
+                ),
+                TextButton(
+                  key: const Key('contact_info_save_button'),
+                  onPressed: isGroupIconBusy
+                      ? null
+                      : () => _saveGroupEdit(thread),
+                  child: isGroupIconBusy
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Done'),
+                ),
+              ],
+            ],
           ),
           body: SafeArea(
             bottom: false,
@@ -109,87 +158,41 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                         Center(
                           child: Column(
                             children: [
-                              if (thread.isGroup &&
-                                  thread.currentUserIsGroupAdmin)
-                                GestureDetector(
-                                  key: const Key(
-                                    'contact_info_change_group_icon_button',
+                              _buildGroupAvatarHeader(
+                                thread: thread,
+                                theme: theme,
+                                isBusy: isGroupIconBusy,
+                              ),
+                              const SizedBox(height: 14),
+                              if (_isEditingGroup && canEditGroup)
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
                                   ),
-                                  onTap: () => _pickAndUpdateGroupAvatar(
-                                    thread,
-                                  ),
-                                  child: Stack(
-                                    clipBehavior: Clip.none,
-                                    children: [
-                                      AvatarBadge(
-                                        label: thread.avatarLabel,
-                                        color: thread.accentColor,
-                                        avatarUrl: thread.avatarUrl,
-                                        size: 84,
-                                      ),
-                                      Positioned(
-                                        right: -2,
-                                        bottom: -2,
-                                        child: Container(
-                                          padding: const EdgeInsets.all(6),
-                                          decoration: BoxDecoration(
-                                            color: theme.colorScheme.primary,
-                                            shape: BoxShape.circle,
-                                            border: Border.all(
-                                              color: theme.colorScheme.surface,
-                                              width: 2,
-                                            ),
-                                          ),
-                                          child: Icon(
-                                            Icons.camera_alt_rounded,
-                                            size: 16,
-                                            color: theme.colorScheme.onPrimary,
-                                          ),
-                                        ),
-                                      ),
-                                    ],
+                                  child: TextField(
+                                    key: const Key('rename_group_field'),
+                                    controller: _groupNameController,
+                                    textAlign: TextAlign.center,
+                                    maxLength: 60,
+                                    textCapitalization:
+                                        TextCapitalization.words,
+                                    decoration: const InputDecoration(
+                                      hintText: 'Group name',
+                                      counterText: '',
+                                    ),
+                                    style: theme.textTheme.headlineSmall
+                                        ?.copyWith(fontWeight: FontWeight.w800),
                                   ),
                                 )
                               else
-                                AvatarBadge(
-                                  label: thread.avatarLabel,
-                                  color: thread.accentColor,
-                                  avatarUrl: thread.avatarUrl,
-                                  size: 84,
+                                Text(
+                                  thread.name,
+                                  textAlign: TextAlign.center,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.headlineSmall
+                                      ?.copyWith(fontWeight: FontWeight.w800),
                                 ),
-                              const SizedBox(height: 14),
-                              Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Flexible(
-                                    child: Text(
-                                      thread.name,
-                                      textAlign: TextAlign.center,
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: theme.textTheme.headlineSmall
-                                          ?.copyWith(
-                                              fontWeight: FontWeight.w800),
-                                    ),
-                                  ),
-                                  if (thread.isGroup &&
-                                      thread.currentUserIsGroupAdmin) ...[
-                                    const SizedBox(width: 6),
-                                    IconButton(
-                                      key: const Key(
-                                        'contact_info_rename_group_button',
-                                      ),
-                                      visualDensity: VisualDensity.compact,
-                                      icon: const Icon(
-                                        Icons.edit_outlined,
-                                        size: 20,
-                                      ),
-                                      onPressed: () =>
-                                          _confirmRenameGroup(thread),
-                                    ),
-                                  ],
-                                ],
-                              ),
                               const SizedBox(height: 4),
                               Text(
                                 thread.isGroup
@@ -227,43 +230,33 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                         ),
                         const SizedBox(height: 28),
                         if (thread.isGroup) ...[
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  (thread.groupDescription?.isNotEmpty ?? false)
-                                      ? thread.groupDescription!
-                                      : 'Add a group description',
-                                  style: theme.textTheme.bodyMedium?.copyWith(
-                                    color:
-                                        theme.colorScheme.onSurface.withValues(
-                                      alpha: (thread.groupDescription
-                                                  ?.isNotEmpty ??
-                                              false)
-                                          ? 0.8
-                                          : 0.5,
-                                    ),
-                                  ),
+                          if (_isEditingGroup && canEditGroup)
+                            TextField(
+                              key: const Key('edit_group_description_field'),
+                              controller: _groupDescriptionController,
+                              minLines: 2,
+                              maxLines: 4,
+                              maxLength: 200,
+                              textCapitalization: TextCapitalization.sentences,
+                              decoration: const InputDecoration(
+                                labelText: 'Group description',
+                                hintText: 'What is this group about?',
+                              ),
+                            )
+                          else
+                            Text(
+                              (thread.groupDescription?.isNotEmpty ?? false)
+                                  ? thread.groupDescription!
+                                  : 'Add a group description',
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: theme.colorScheme.onSurface.withValues(
+                                  alpha: (thread.groupDescription?.isNotEmpty ??
+                                          false)
+                                      ? 0.8
+                                      : 0.5,
                                 ),
                               ),
-                              if (thread.currentUserIsGroupAdmin) ...[
-                                const SizedBox(width: 8),
-                                IconButton(
-                                  key: const Key(
-                                    'contact_info_edit_description_button',
-                                  ),
-                                  visualDensity: VisualDensity.compact,
-                                  icon: const Icon(
-                                    Icons.edit_outlined,
-                                    size: 18,
-                                  ),
-                                  onPressed: () =>
-                                      _confirmEditDescription(thread),
-                                ),
-                              ],
-                            ],
-                          ),
+                            ),
                           const SizedBox(height: 28),
                         ],
                         if (mediaAttachments.isNotEmpty) ...[
@@ -500,109 +493,165 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
     }
   }
 
-  Future<void> _confirmRenameGroup(ChatThread thread) async {
-    // Uncontrolled TextFormField, not a caller-owned TextEditingController
-    // -- see _editMessage's doc comment in conversation_screen.dart for why
-    // disposing a controller right after showDialog resolves is unsafe.
-    var currentName = thread.name;
-    final newName = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Group name'),
-          content: TextFormField(
-            key: const Key('rename_group_field'),
-            initialValue: thread.name,
-            autofocus: true,
-            maxLength: 60,
-            textCapitalization: TextCapitalization.words,
-            onChanged: (value) => currentName = value,
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Cancel'),
+  Widget _buildGroupAvatarHeader({
+    required ChatThread thread,
+    required ThemeData theme,
+    required bool isBusy,
+  }) {
+    final canEdit = thread.isGroup && thread.currentUserIsGroupAdmin;
+    final avatar = _pendingGroupIconPhoto != null
+        ? ClipOval(
+            child: Image.file(
+              _pendingGroupIconPhoto!,
+              width: 84,
+              height: 84,
+              fit: BoxFit.cover,
             ),
-            FilledButton(
-              key: const Key('confirm_rename_group_button'),
-              onPressed: () => Navigator.of(dialogContext).pop(currentName),
-              child: const Text('Save'),
-            ),
-          ],
-        );
-      },
-    );
+          )
+        : _pendingRemoveGroupIcon
+            ? ThreadAvatar(
+                thread: thread.copyWith(clearAvatarUrl: true),
+                size: 84,
+              )
+            : ThreadAvatar(thread: thread, size: 84);
 
-    final trimmed = newName?.trim();
-    if (trimmed == null || trimmed.isEmpty || trimmed == thread.name) {
-      return;
+    if (!_isEditingGroup || !canEdit) {
+      return avatar;
     }
-    if (!mounted) {
-      return;
-    }
-    await widget.controller.renameGroup(threadId: thread.id, name: trimmed);
-  }
 
-  Future<void> _confirmEditDescription(ChatThread thread) async {
-    var currentDescription = thread.groupDescription ?? '';
-    final newDescription = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Group description'),
-          content: TextFormField(
-            key: const Key('edit_group_description_field'),
-            initialValue: thread.groupDescription ?? '',
-            autofocus: true,
-            minLines: 1,
-            maxLines: 4,
-            maxLength: 200,
-            textCapitalization: TextCapitalization.sentences,
-            onChanged: (value) => currentDescription = value,
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              key: const Key('confirm_edit_group_description_button'),
-              onPressed: () =>
-                  Navigator.of(dialogContext).pop(currentDescription),
-              child: const Text('Save'),
-            ),
-          ],
-        );
-      },
-    );
-
-    final trimmed = newDescription?.trim();
-    if (trimmed == null || trimmed == (thread.groupDescription ?? '')) {
-      return;
-    }
-    if (!mounted) {
-      return;
-    }
-    await widget.controller.updateGroupDescription(
-      threadId: thread.id,
-      description: trimmed,
+    return GestureDetector(
+      key: const Key('contact_info_change_group_icon_button'),
+      onTap: isBusy ? null : () => _showGroupPhotoOptions(thread),
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          avatar,
+          AvatarCameraBadge(isBusy: isBusy),
+        ],
+      ),
     );
   }
 
-  Future<void> _pickAndUpdateGroupAvatar(ChatThread thread) async {
-    final picked = await ImagePicker().pickImage(
-      source: ImageSource.gallery,
-      maxWidth: 1024,
-      maxHeight: 1024,
-      imageQuality: 85,
-    );
-    if (picked == null || !mounted) {
+  void _startGroupEdit(ChatThread thread) {
+    _groupNameController?.dispose();
+    _groupDescriptionController?.dispose();
+    setState(() {
+      _isEditingGroup = true;
+      _pendingGroupIconPhoto = null;
+      _pendingRemoveGroupIcon = false;
+      _groupNameController = TextEditingController(text: thread.name);
+      _groupDescriptionController = TextEditingController(
+        text: thread.groupDescription ?? '',
+      );
+    });
+  }
+
+  void _cancelGroupEdit() {
+    _groupNameController?.dispose();
+    _groupDescriptionController?.dispose();
+    setState(() {
+      _isEditingGroup = false;
+      _pendingGroupIconPhoto = null;
+      _pendingRemoveGroupIcon = false;
+      _groupNameController = null;
+      _groupDescriptionController = null;
+    });
+  }
+
+  Future<void> _saveGroupEdit(ChatThread thread) async {
+    final name = _groupNameController?.text.trim() ?? thread.name;
+    final description = _groupDescriptionController?.text.trim() ?? '';
+
+    if (name.isEmpty) {
+      await showErrorDialog(context, 'Give the group a name.');
       return;
     }
-    await widget.controller.updateGroupAvatar(
-      threadId: thread.id,
-      photo: File(picked.path),
+
+    if (name != thread.name) {
+      final didRename = await widget.controller.renameGroup(
+        threadId: thread.id,
+        name: name,
+      );
+      if (!didRename && mounted) {
+        final message = widget.controller.errorMessage ??
+            'We could not rename that group right now.';
+        widget.controller.clearError();
+        await showErrorDialog(context, message);
+        return;
+      }
+    }
+
+    if (description != (thread.groupDescription ?? '')) {
+      final didUpdateDescription =
+          await widget.controller.updateGroupDescription(
+        threadId: thread.id,
+        description: description,
+      );
+      if (!didUpdateDescription && mounted) {
+        final message = widget.controller.errorMessage ??
+            'We could not update that group right now.';
+        widget.controller.clearError();
+        await showErrorDialog(context, message);
+        return;
+      }
+    }
+
+    if (_pendingRemoveGroupIcon) {
+      final didDelete = await widget.controller.deleteGroupAvatar(thread.id);
+      if (!didDelete && mounted) {
+        final message = widget.controller.errorMessage ??
+            'We could not remove that group photo right now.';
+        widget.controller.clearError();
+        await showErrorDialog(context, message);
+        return;
+      }
+    } else if (_pendingGroupIconPhoto != null) {
+      final didUpdate = await widget.controller.updateGroupAvatar(
+        threadId: thread.id,
+        photo: _pendingGroupIconPhoto!,
+      );
+      if (!didUpdate && mounted) {
+        final message = widget.controller.errorMessage ??
+            'We could not update that group photo right now.';
+        widget.controller.clearError();
+        await showErrorDialog(context, message);
+        return;
+      }
+    }
+
+    if (!mounted) {
+      return;
+    }
+    _cancelGroupEdit();
+  }
+
+  Future<void> _showGroupPhotoOptions(ChatThread thread) async {
+    final canRemove = _pendingGroupIconPhoto != null ||
+        (!_pendingRemoveGroupIcon && thread.avatarUrl?.isNotEmpty == true);
+    final action = await showAvatarPhotoOptionsSheet(
+      context,
+      canRemove: canRemove,
     );
+    if (!mounted || action == null) {
+      return;
+    }
+
+    switch (action) {
+      case AvatarPhotoSheetAction.choose:
+        final cropped = await pickAndCropAvatarPhoto(context);
+        if (!mounted || cropped == null) {
+          return;
+        }
+        setState(() {
+          _pendingGroupIconPhoto = cropped;
+          _pendingRemoveGroupIcon = false;
+        });
+      case AvatarPhotoSheetAction.remove:
+        setState(() {
+          _pendingGroupIconPhoto = null;
+          _pendingRemoveGroupIcon = true;
+        });
+    }
   }
 
   Future<void> _addParticipants(ChatThread thread) async {

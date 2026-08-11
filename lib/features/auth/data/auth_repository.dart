@@ -27,6 +27,9 @@ abstract class AuthRepository {
   /// [AppUser] with [AppUser.avatarUrl] pointing at it.
   Future<AppUser> updateAvatar(File photo);
 
+  /// Clears the caller's uploaded profile photo.
+  Future<AppUser> deleteAvatar();
+
   Future<void> signOut();
 }
 

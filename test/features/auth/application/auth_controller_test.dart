@@ -529,6 +529,18 @@ class _TestAuthRepository implements AuthRepository {
   }
 
   @override
+  Future<AppUser> deleteAvatar() async {
+    final currentUser = restoredUser ?? AppUser(
+      name: 'JD',
+      phoneNumber: '+819012345678',
+      about: '',
+      avatarLabel: 'JD',
+      accentColor: Colors.green,
+    );
+    return currentUser.copyWith(clearAvatarUrl: true);
+  }
+
+  @override
   Future<void> signOut() async {
     if (signOutError != null) {
       throw signOutError!;

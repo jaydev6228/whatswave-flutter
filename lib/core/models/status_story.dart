@@ -399,6 +399,21 @@ class StatusMediaOverlayItem {
   }
 }
 
+/// WhatsApp-style relative label for a status segment's [postedAt].
+String statusRelativeTimeLabel(DateTime? postedAt, {String fallback = ''}) {
+  if (postedAt == null) {
+    return fallback;
+  }
+  final elapsed = DateTime.now().difference(postedAt);
+  if (elapsed.inMinutes < 1) {
+    return 'Just now';
+  }
+  if (elapsed.inMinutes < 60) {
+    return '${elapsed.inMinutes}m ago';
+  }
+  return '${elapsed.inHours}h ago';
+}
+
 class StatusStorySegment {
   const StatusStorySegment({
     required this.id,
@@ -430,6 +445,10 @@ class StatusStorySegment {
 
   bool get hasLocalMedia => localMediaPath?.trim().isNotEmpty == true;
   bool get hasRichOverlays => overlayItems.isNotEmpty;
+
+  /// Live relative time for this segment alone -- each status item keeps
+  /// its own postedAt so older items expire and show their own age.
+  String get relativeTimeLabel => statusRelativeTimeLabel(postedAt);
 
   StatusStorySegment copyWith({
     String? id,
@@ -598,16 +617,8 @@ class StatusStory {
   /// Computed live from the latest segment's postedAt, not the stored
   /// timeLabel snapshot -- that only ever reflected the moment it was
   /// written, so it never advanced past "Just now"/"Add now".
-  String get relativeTimeLabel {
-    final postedAt = latestSegment?.postedAt;
-    if (postedAt == null) {
-      return timeLabel; // legacy story with no timestamp -- fall back
-    }
-    final elapsed = DateTime.now().difference(postedAt);
-    if (elapsed.inMinutes < 1) return 'Just now';
-    if (elapsed.inMinutes < 60) return '${elapsed.inMinutes}m ago';
-    return '${elapsed.inHours}h ago';
-  }
+  String get relativeTimeLabel =>
+      statusRelativeTimeLabel(latestSegment?.postedAt, fallback: timeLabel);
 
   StatusStorySegment? segmentAt(int index) {
     if (index < 0 || index >= totalSegments) {

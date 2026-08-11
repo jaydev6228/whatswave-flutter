@@ -417,6 +417,34 @@ class AuthController extends ChangeNotifier {
     return didSucceed;
   }
 
+  Future<bool> deleteAvatar() async {
+    if (_currentUser == null) {
+      _errorMessage = 'Sign in again before editing your profile.';
+      notifyListeners();
+      return false;
+    }
+
+    _setBusy(true);
+    _clearFeedback(notify: false);
+    notifyListeners();
+
+    var didSucceed = false;
+    try {
+      final user = await _repository.deleteAvatar();
+      _currentUser = user;
+      _statusMessage = 'Profile photo removed.';
+      didSucceed = true;
+    } on AuthException catch (error) {
+      _errorMessage = error.message;
+    } catch (_) {
+      _errorMessage = 'We could not remove your profile photo. Please try again.';
+    }
+
+    _setBusy(false);
+    notifyListeners();
+    return didSucceed;
+  }
+
   Future<void> signOut() async {
     _setBusy(true);
     _clearFeedback(notify: false);

@@ -246,6 +246,11 @@ class TrackedAuthRepository implements AuthRepository {
   }
 
   @override
+  Future<AppUser> deleteAvatar() {
+    return _delegate.deleteAvatar();
+  }
+
+  @override
   Future<void> signOut() async {
     try {
       await _delegate.signOut();
@@ -376,6 +381,11 @@ class TrackedChatRepository implements ChatRepository {
     required File photo,
   }) {
     return _delegate.updateGroupAvatar(threadId: threadId, photo: photo);
+  }
+
+  @override
+  Future<List<ChatThread>> deleteGroupAvatar(String threadId) {
+    return _delegate.deleteGroupAvatar(threadId);
   }
 
   @override

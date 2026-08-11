@@ -19,7 +19,7 @@ import '../../calls/domain/call_contact.dart';
 import '../../calls/domain/call_history_entry.dart';
 import '../../calls/presentation/call_flow.dart';
 import '../../communities/application/communities_controller.dart';
-import '../../shared/widgets/avatar_badge.dart';
+import '../../shared/widgets/thread_avatar.dart';
 import '../../shared/widgets/floating_glass_popup.dart';
 import '../../shared/widgets/liquid_glass.dart';
 import '../../updates/application/updates_controller.dart';
@@ -268,10 +268,8 @@ class _ConversationScreenState extends State<ConversationScreen> {
                                   seenSegments: story?.clampedSeenSegments ?? 0,
                                   size: 44,
                                 )
-                              : AvatarBadge(
-                                  label: thread.avatarLabel,
-                                  color: thread.accentColor,
-                                  avatarUrl: thread.avatarUrl,
+                              : ThreadAvatar(
+                                  thread: thread,
                                   size: 44,
                                 ),
                         ),

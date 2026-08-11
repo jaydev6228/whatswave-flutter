@@ -1,8 +1,8 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 
+import '../../../core/media/avatar_photo_picker.dart';
 import '../../../core/models/app_user.dart';
 import '../../../features/auth/application/auth_controller.dart';
 import '../../shared/widgets/avatar_badge.dart';
@@ -31,6 +31,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
   /// their own TextEditingControllers rather than writing on every
   /// keystroke.
   File? _pendingAvatarFile;
+  bool _pendingRemoveAvatar = false;
   bool _isSavingAvatar = false;
 
   @override
@@ -50,6 +51,19 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
   bool get _isBusy => widget.authController.isBusy || _isSavingAvatar;
 
   Future<void> _saveProfile() async {
+    if (_pendingRemoveAvatar) {
+      setState(() => _isSavingAvatar = true);
+      final didRemove = await widget.authController.deleteAvatar();
+      if (!mounted) {
+        return;
+      }
+      setState(() => _isSavingAvatar = false);
+      if (!didRemove) {
+        return;
+      }
+      _pendingRemoveAvatar = false;
+    }
+
     final pendingAvatar = _pendingAvatarFile;
     if (pendingAvatar != null) {
       setState(() => _isSavingAvatar = true);
@@ -79,17 +93,60 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
     Navigator.of(context).pop(true);
   }
 
-  Future<void> _changeAvatar() async {
-    final picked = await ImagePicker().pickImage(
-      source: ImageSource.gallery,
-      maxWidth: 1024,
-      maxHeight: 1024,
-      imageQuality: 85,
+  Future<void> _showAvatarPhotoOptions(AppUser currentUser) async {
+    final canRemove = _pendingAvatarFile != null ||
+        _pendingRemoveAvatar ||
+        currentUser.avatarUrl?.isNotEmpty == true;
+    final action = await showAvatarPhotoOptionsSheet(
+      context,
+      canRemove: canRemove,
     );
-    if (picked == null || !mounted) {
+    if (!mounted || action == null) {
       return;
     }
-    setState(() => _pendingAvatarFile = File(picked.path));
+
+    switch (action) {
+      case AvatarPhotoSheetAction.choose:
+        final cropped = await pickAndCropAvatarPhoto(context);
+        if (!mounted || cropped == null) {
+          return;
+        }
+        setState(() {
+          _pendingAvatarFile = cropped;
+          _pendingRemoveAvatar = false;
+        });
+      case AvatarPhotoSheetAction.remove:
+        setState(() {
+          _pendingAvatarFile = null;
+          _pendingRemoveAvatar = true;
+        });
+    }
+  }
+
+  Widget _buildAvatarPreview(AppUser currentUser) {
+    if (_pendingAvatarFile != null) {
+      return ClipOval(
+        child: Image.file(
+          _pendingAvatarFile!,
+          width: 70,
+          height: 70,
+          fit: BoxFit.cover,
+        ),
+      );
+    }
+    if (_pendingRemoveAvatar) {
+      return AvatarBadge(
+        label: currentUser.avatarLabel,
+        color: currentUser.accentColor,
+        size: 70,
+      );
+    }
+    return AvatarBadge(
+      label: currentUser.avatarLabel,
+      color: currentUser.accentColor,
+      avatarUrl: currentUser.avatarUrl,
+      size: 70,
+    );
   }
 
   @override
@@ -139,46 +196,14 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                           children: [
                             GestureDetector(
                               key: const Key('profile_avatar_change_button'),
-                              onTap: _isBusy ? null : _changeAvatar,
+                              onTap: _isBusy
+                                  ? null
+                                  : () => _showAvatarPhotoOptions(currentUser),
                               child: Stack(
                                 clipBehavior: Clip.none,
                                 children: [
-                                  if (_pendingAvatarFile != null)
-                                    ClipOval(
-                                      child: Image.file(
-                                        _pendingAvatarFile!,
-                                        width: 70,
-                                        height: 70,
-                                        fit: BoxFit.cover,
-                                      ),
-                                    )
-                                  else
-                                    AvatarBadge(
-                                      label: currentUser.avatarLabel,
-                                      color: currentUser.accentColor,
-                                      avatarUrl: currentUser.avatarUrl,
-                                      size: 70,
-                                    ),
-                                  Positioned(
-                                    right: -2,
-                                    bottom: -2,
-                                    child: Container(
-                                      padding: const EdgeInsets.all(5),
-                                      decoration: BoxDecoration(
-                                        color: theme.colorScheme.primary,
-                                        shape: BoxShape.circle,
-                                        border: Border.all(
-                                          color: theme.colorScheme.surface,
-                                          width: 2,
-                                        ),
-                                      ),
-                                      child: Icon(
-                                        Icons.camera_alt_rounded,
-                                        size: 14,
-                                        color: theme.colorScheme.onPrimary,
-                                      ),
-                                    ),
-                                  ),
+                                  _buildAvatarPreview(currentUser),
+                                  AvatarCameraBadge(isBusy: _isSavingAvatar),
                                 ],
                               ),
                             ),

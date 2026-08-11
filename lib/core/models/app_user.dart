@@ -28,6 +28,7 @@ class AppUser {
     String? avatarLabel,
     Color? accentColor,
     String? avatarUrl,
+    bool clearAvatarUrl = false,
   }) {
     return AppUser(
       name: name ?? this.name,
@@ -35,7 +36,7 @@ class AppUser {
       about: about ?? this.about,
       avatarLabel: avatarLabel ?? this.avatarLabel,
       accentColor: accentColor ?? this.accentColor,
-      avatarUrl: avatarUrl ?? this.avatarUrl,
+      avatarUrl: clearAvatarUrl ? null : (avatarUrl ?? this.avatarUrl),
     );
   }
 }

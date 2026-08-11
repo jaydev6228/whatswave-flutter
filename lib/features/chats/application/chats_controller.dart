@@ -483,6 +483,14 @@ class ChatsController extends ChangeNotifier {
     );
   }
 
+  Future<bool> deleteGroupAvatar(String threadId) async {
+    return _runThreadMutation(
+      threadId,
+      () => _repository.deleteGroupAvatar(threadId),
+      fallbackError: 'We could not remove that group photo right now.',
+    );
+  }
+
   Future<void> openThread(String threadId) async {
     final thread = threadById(threadId);
     if (thread == null || thread.unreadCount == 0) {

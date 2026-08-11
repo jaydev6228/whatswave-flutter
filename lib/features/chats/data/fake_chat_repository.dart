@@ -262,6 +262,20 @@ class FakeChatRepository implements ChatRepository {
   }
 
   @override
+  Future<List<ChatThread>> deleteGroupAvatar(String threadId) async {
+    await _wait();
+    final thread = _threadForId(threadId);
+    _threads = _threads
+        .map(
+          (entry) => entry.id == thread.id
+              ? entry.copyWith(clearAvatarUrl: true)
+              : entry,
+        )
+        .toList(growable: false);
+    return _deepCopyThreads(_threads);
+  }
+
+  @override
   Future<List<ChatThread>> setThreadArchived({
     required String threadId,
     required bool isArchived,

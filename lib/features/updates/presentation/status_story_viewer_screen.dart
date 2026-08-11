@@ -110,6 +110,10 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
   /// reopened, same as most of this viewer's other transient UI state.
   bool _hasHearted = false;
 
+  /// Loaded once for your own story so each segment can show its own view
+  /// count (WhatsApp counts views per status item, not for the whole ring).
+  List<StoryViewer>? _cachedViewers;
+
   StatusStory get _story => _storyData;
   int get _segmentCount => math.max(_story.totalSegments, 1);
   StatusStorySegment? get _currentSegment =>
@@ -129,6 +133,41 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
       _currentSegmentHasMusic ||
       (_currentSegmentType == StatusStoryType.video &&
           _currentSegment?.hasLocalMedia == true);
+
+  String get _currentSegmentTimeLabel {
+    final segment = _currentSegment;
+    if (segment?.postedAt != null) {
+      return segment!.relativeTimeLabel;
+    }
+    return _story.relativeTimeLabel;
+  }
+
+  int get _currentSegmentViewerCount {
+    final requiredSeen = _currentSegmentIndex + 1;
+    final cachedViewers = _cachedViewers;
+    if (cachedViewers != null) {
+      return cachedViewers
+          .where((viewer) => viewer.seenSegments >= requiredSeen)
+          .length;
+    }
+    // Before the viewer list resolves, only trust the preloaded count on
+    // the latest segment -- older items start at 0 until we know better.
+    if (_currentSegmentIndex >= _story.totalSegments - 1) {
+      return _story.viewerCount;
+    }
+    return 0;
+  }
+
+  List<StoryViewer> _viewersForSegment(int segmentIndex) {
+    final requiredSeen = segmentIndex + 1;
+    final cachedViewers = _cachedViewers;
+    if (cachedViewers == null) {
+      return const <StoryViewer>[];
+    }
+    return cachedViewers
+        .where((viewer) => viewer.seenSegments >= requiredSeen)
+        .toList(growable: false);
+  }
 
   void _toggleMute() {
     setState(() => _isMuted = !_isMuted);
@@ -179,6 +218,27 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
       }
       _reportCurrentSegmentViewed();
     });
+
+    if (_story.isMine && widget.onFetchViewers != null) {
+      unawaited(_loadViewers());
+    }
+  }
+
+  Future<void> _loadViewers() async {
+    final onFetchViewers = widget.onFetchViewers;
+    if (onFetchViewers == null) {
+      return;
+    }
+    try {
+      final viewers = await onFetchViewers(_story);
+      if (!mounted) {
+        return;
+      }
+      setState(() => _cachedViewers = viewers);
+    } catch (_) {
+      // View count falls back to the preloaded story.viewerCount on the
+      // latest segment; the sheet still loads on demand below.
+    }
   }
 
   @override
@@ -776,12 +836,23 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
       return;
     }
 
+    // Viewers are prefetched in initState, but tap can beat that future --
+    // wait here so the sheet opens once at its final height instead of
+    // growing from a spinner (which reads as a jerk after the slide-up).
+    if (_cachedViewers == null) {
+      await _loadViewers();
+    }
+    if (!mounted) {
+      return;
+    }
+
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
+      showDragHandle: false,
       builder: (_) => _StoryViewersSheet(
-        viewersFuture: onFetchViewers(_story),
+        viewers: _viewersForSegment(_currentSegmentIndex),
       ),
     );
 
@@ -994,9 +1065,9 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
                                     : null,
                                 child: Text(
                                   story.isMine
-                                      ? '${story.relativeTimeLabel} • ${story.viewerCount} '
-                                          '${story.viewerCount == 1 ? 'view' : 'views'}'
-                                      : story.relativeTimeLabel,
+                                      ? '${_currentSegmentTimeLabel} • $_currentSegmentViewerCount '
+                                          '${_currentSegmentViewerCount == 1 ? 'view' : 'views'}'
+                                      : _currentSegmentTimeLabel,
                                   key: story.isMine
                                       ? const Key('updates_story_viewer_count')
                                       : null,
@@ -1517,40 +1588,27 @@ class _StoryReplyActionButton extends StatelessWidget {
 /// "Viewed by" bottom sheet for your own story -- WhatsApp shows exactly
 /// who viewed a status you posted, not just a bare count.
 class _StoryViewersSheet extends StatelessWidget {
-  const _StoryViewersSheet({required this.viewersFuture});
+  const _StoryViewersSheet({required this.viewers});
 
-  final Future<List<StoryViewer>> viewersFuture;
+  final List<StoryViewer> viewers;
+
+  static const Color _sheetFill = Color(0xBF000000);
+  static const Color _handleFill = Color(0x59FFFFFF);
+  static const Color _primaryText = Colors.white;
+  static const Color _secondaryText = Color(0xB3FFFFFF);
+  static const Color _emptyText = Color(0x8FFFFFFF);
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final bottomInset = MediaQuery.paddingOf(context).bottom;
-    // Deliberately NOT wrapped in SafeArea -- that would pad *outside* this
-    // Container, leaving a gap of transparent barrier between the sheet's
-    // rounded surface and the actual screen edge instead of the surface
-    // extending flush to it (the same seam this codebase already avoids
-    // for _BlockedContactBanner/_ComposerBar). The safe-area inset is
-    // instead added as padding on the content itself, below.
-    return Container(
-      key: const Key('story_viewers_sheet'),
-      constraints: BoxConstraints(
-        maxHeight: MediaQuery.sizeOf(context).height * 0.7,
-      ),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: const BorderRadius.vertical(
-          top: Radius.circular(20),
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
+      child: Container(
+        key: const Key('story_viewers_sheet'),
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(context).height * 0.7,
         ),
-      ),
-      // The sheet opens showing a small loading spinner, then the viewer
-      // future resolves to either a short "No views yet" line or a full
-      // list -- without animating that height change, the sheet visibly
-      // snaps taller/shorter right after its open transition finishes,
-      // which reads as a jerk. AnimatedSize smooths that resize instead.
-      child: AnimatedSize(
-        duration: const Duration(milliseconds: 220),
-        curve: Curves.easeOutCubic,
-        alignment: Alignment.topCenter,
+        color: _sheetFill,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -1559,105 +1617,114 @@ class _StoryViewersSheet extends StatelessWidget {
               width: 36,
               height: 4,
               decoration: BoxDecoration(
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.2),
+                color: _handleFill,
                 borderRadius: BorderRadius.circular(999),
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-              child: Row(
-                children: [
-                  Text(
-                    'Viewed by',
-                    style: theme.textTheme.titleMedium
-                        ?.copyWith(fontWeight: FontWeight.w800),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 18, 20, 10),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Viewed by',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: _primaryText,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                    height: 1.1,
                   ),
-                ],
+                ),
               ),
             ),
-            Flexible(
-              child: FutureBuilder<List<StoryViewer>>(
-                future: viewersFuture,
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState != ConnectionState.done) {
-                    return const Padding(
-                      padding: EdgeInsets.all(32),
-                      child: Center(
-                        child: SizedBox(
-                          width: 24,
-                          height: 24,
-                          child: CircularProgressIndicator(strokeWidth: 2.5),
-                        ),
-                      ),
-                    );
-                  }
-
-                  final viewers = snapshot.data ?? const <StoryViewer>[];
-                  if (viewers.isEmpty) {
-                    return Padding(
-                      padding: EdgeInsets.fromLTRB(20, 8, 20, 32 + bottomInset),
-                      child: Text(
-                        'No views yet.',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: theme.colorScheme.onSurface
-                              .withValues(alpha: 0.6),
-                        ),
-                      ),
-                    );
-                  }
-
-                  return ListView.builder(
-                    shrinkWrap: true,
-                    padding: EdgeInsets.only(bottom: 12 + bottomInset),
-                    itemCount: viewers.length,
-                    itemBuilder: (context, index) {
-                      final viewer = viewers[index];
-                      return ListTile(
-                        key: Key('story_viewer_${viewer.uid}'),
-                        leading: AvatarBadge(
-                          label: viewer.avatarLabel,
-                          color: viewer.accentColor,
-                          avatarUrl: viewer.avatarUrl,
-                          size: 40,
-                        ),
-                        title: Text(
-                          viewer.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        trailing: !viewer.liked && viewer.viewedAt == null
-                            ? null
-                            : Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  if (viewer.liked) ...[
-                                    Icon(
-                                      Icons.favorite_rounded,
-                                      size: 16,
-                                      color: viewer.accentColor,
-                                    ),
-                                    if (viewer.viewedAt != null)
-                                      const SizedBox(width: 6),
-                                  ],
-                                  if (viewer.viewedAt != null)
-                                    Text(
-                                      _relativeViewLabel(viewer.viewedAt!),
-                                      style:
-                                          theme.textTheme.bodySmall?.copyWith(
-                                        color: theme.colorScheme.onSurface
-                                            .withValues(alpha: 0.6),
-                                      ),
-                                    ),
-                                ],
-                              ),
-                      );
-                    },
-                  );
-                },
+            if (viewers.isEmpty)
+              Padding(
+                padding: EdgeInsets.fromLTRB(20, 4, 20, 28 + bottomInset),
+                child: const Text(
+                  'No views yet.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: _emptyText,
+                    fontSize: 15,
+                    height: 1.35,
+                  ),
+                ),
+              )
+            else
+              Flexible(
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  padding: EdgeInsets.fromLTRB(12, 0, 12, 16 + bottomInset),
+                  itemCount: viewers.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 2),
+                  itemBuilder: (context, index) {
+                    return _StoryViewerRow(viewer: viewers[index]);
+                  },
+                ),
               ),
-            ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _StoryViewerRow extends StatelessWidget {
+  const _StoryViewerRow({required this.viewer});
+
+  final StoryViewer viewer;
+
+  @override
+  Widget build(BuildContext context) {
+    final viewedAtLabel =
+        viewer.viewedAt == null ? null : _relativeViewLabel(viewer.viewedAt!);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+      child: Row(
+        children: [
+          AvatarBadge(
+            label: viewer.avatarLabel,
+            color: viewer.accentColor,
+            avatarUrl: viewer.avatarUrl,
+            size: 44,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              viewer.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: _StoryViewersSheet._primaryText,
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                height: 1.2,
+              ),
+            ),
+          ),
+          if (viewer.liked) ...[
+            Icon(
+              Icons.favorite_rounded,
+              size: 18,
+              color: viewer.accentColor.withValues(alpha: 0.95),
+            ),
+            if (viewedAtLabel != null) const SizedBox(width: 8),
+          ],
+          if (viewedAtLabel != null)
+            Text(
+              viewedAtLabel,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: _StoryViewersSheet._secondaryText,
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                height: 1.1,
+              ),
+            ),
+        ],
       ),
     );
   }

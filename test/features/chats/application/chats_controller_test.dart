@@ -577,6 +577,11 @@ class _FailingChatRepository implements ChatRepository {
   }
 
   @override
+  Future<List<ChatThread>> deleteGroupAvatar(String threadId) {
+    throw UnimplementedError();
+  }
+
+  @override
   Future<List<ChatThread>> toggleMessageStar({
     required String threadId,
     required String messageId,
@@ -773,4 +778,8 @@ class _SendFailingChatRepository implements ChatRepository {
     required File photo,
   }) =>
       _delegate.updateGroupAvatar(threadId: threadId, photo: photo);
+
+  @override
+  Future<List<ChatThread>> deleteGroupAvatar(String threadId) =>
+      _delegate.deleteGroupAvatar(threadId);
 }

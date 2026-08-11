@@ -25,6 +25,7 @@ import 'package:whatswave/features/chats/domain/chat_message.dart';
 import 'package:whatswave/features/chats/domain/chat_thread.dart';
 import 'package:whatswave/features/chats/domain/message_reply_preview.dart';
 import 'package:whatswave/features/chats/domain/story_reply_context.dart';
+import 'package:whatswave/core/media/avatar_photo_picker.dart';
 import 'package:whatswave/features/chats/presentation/chats_screen.dart';
 import 'package:whatswave/features/chats/presentation/widgets/location_map_preview.dart';
 import 'package:whatswave/features/updates/presentation/widgets/status_ring_avatar.dart';
@@ -35,6 +36,7 @@ import '../../../support/fake_image_picker_platform.dart';
 void main() {
   setUp(() {
     ImagePickerPlatform.instance = FakeImagePickerPlatform();
+    avatarCropOverride = (_, source) async => source;
     // The full-screen emoji picker (EmojiReactionPickerScreen) persists
     // recent emoji via shared_preferences -- without mock initial values,
     // that read throws in the test environment and the picker never leaves
@@ -59,6 +61,10 @@ void main() {
           return null;
       }
     });
+  });
+
+  tearDown(() {
+    avatarCropOverride = null;
   });
 
   for (final device in compactDeviceMatrix) {
@@ -855,14 +861,14 @@ void main() {
     );
     expect(find.text('Admin'), findsOneWidget);
 
-    // Rename the group.
-    await tester.tap(find.byKey(const Key('contact_info_rename_group_button')));
+    // Rename the group via Edit -> inline fields -> Done.
+    await tester.tap(find.byKey(const Key('contact_info_edit_button')));
     await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const Key('rename_group_field')),
       'Design Sprint 2.0',
     );
-    await tester.tap(find.byKey(const Key('confirm_rename_group_button')));
+    await tester.tap(find.byKey(const Key('contact_info_save_button')));
     await tester.pumpAndSettle();
 
     expect(find.text('Design Sprint 2.0'), findsWidgets);
@@ -912,13 +918,19 @@ void main() {
     expect(find.text('Group info'), findsOneWidget);
     expect(controller.threadById('design-sprint')?.avatarUrl, isNull);
 
-    // Only an admin sees the camera-badge affordance on the group avatar
-    // (the current user is an admin of design-sprint -- see DemoData).
+    await tester.tap(find.byKey(const Key('contact_info_edit_button')));
+    await tester.pumpAndSettle();
+
     final iconButtonFinder =
         find.byKey(const Key('contact_info_change_group_icon_button'));
     expect(iconButtonFinder, findsOneWidget);
 
     await tester.tap(iconButtonFinder);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('avatar_photo_choose_button')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('contact_info_save_button')));
     await tester.pumpAndSettle();
 
     // FakeImagePickerPlatform (see setUp above) always resolves a single
@@ -1761,6 +1773,11 @@ class _FailingChatRepository implements ChatRepository {
   }
 
   @override
+  Future<List<Never>> deleteGroupAvatar(String threadId) {
+    throw UnimplementedError();
+  }
+
+  @override
   Future<List<Never>> toggleMessageStar({
     required String threadId,
     required String messageId,
@@ -1968,6 +1985,10 @@ class _FlakySendChatRepository implements ChatRepository {
     required File photo,
   }) =>
       _delegate.updateGroupAvatar(threadId: threadId, photo: photo);
+
+  @override
+  Future<List<ChatThread>> deleteGroupAvatar(String threadId) =>
+      _delegate.deleteGroupAvatar(threadId);
 }
 
 class _FakeDeviceLocationService implements DeviceLocationService {

@@ -376,6 +376,20 @@ class FirestoreChatRepository implements ChatRepository {
   }
 
   @override
+  Future<List<ChatThread>> deleteGroupAvatar(String threadId) async {
+    try {
+      await _threadsRef.doc(threadId).update({
+        'groupAvatarUrl': FieldValue.delete(),
+      });
+    } on FirebaseException catch (e) {
+      throw ChatRepositoryException(
+        e.message ?? 'Could not remove that group photo right now.',
+      );
+    }
+    return fetchThreads();
+  }
+
+  @override
   Future<List<ChatThread>> setThreadArchived({
     required String threadId,
     required bool isArchived,

@@ -38,6 +38,17 @@ service firebase.storage {
       allow write, delete: if request.auth != null && request.auth.uid == uid;
     }
 
+    // Group icons at groupPhotos/{threadId}/{fileName} -- uploaded by
+    // FirestoreChatRepository.updateGroupAvatar. Readable by any signed-in
+    // user (same unguessable-URL model as chatMedia); writable only by a
+    // group admin, checked against chatThreads/{threadId}.groupAdminUids in
+    // Firestore (mirrors firestore.rules' groupAvatarUrl update rule).
+    match /groupPhotos/{threadId}/{fileName} {
+      allow read: if request.auth != null;
+      allow write, delete: if request.auth != null
+        && request.auth.uid in firestore.get(/databases/(default)/documents/chatThreads/$(threadId)).data.get('groupAdminUids', []);
+    }
+
     // Deny everything else by default.
     match /{allPaths=**} {
       allow read, write: if false;

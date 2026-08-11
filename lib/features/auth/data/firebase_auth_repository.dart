@@ -183,6 +183,25 @@ class FirebaseAuthRepository implements AuthRepository {
   }
 
   @override
+  Future<AppUser> deleteAvatar() async {
+    final user = _firebaseAuth.currentUser;
+    if (user == null) {
+      throw const AuthException('Sign in again before editing your profile.');
+    }
+
+    try {
+      await _firestore.collection('userProfiles').doc(user.uid).set(
+        {'avatarUrl': FieldValue.delete()},
+        SetOptions(merge: true),
+      );
+    } on FirebaseException catch (e) {
+      throw AuthException(e.message ?? 'Could not remove that photo.');
+    }
+
+    return _appUserFromFirebaseUser(user);
+  }
+
+  @override
   Future<void> signOut() => _firebaseAuth.signOut();
 
   Future<AppUser> _saveProfile({

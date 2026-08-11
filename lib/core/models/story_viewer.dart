@@ -12,6 +12,7 @@ class StoryViewer {
     this.avatarUrl,
     this.viewedAt,
     this.liked = false,
+    this.seenSegments = 0,
   });
 
   final String uid;
@@ -28,4 +29,9 @@ class StoryViewer {
   /// viewers are listed first, ahead of everyone sorted by [viewedAt], the
   /// same as WhatsApp's own "Viewed by" list.
   final bool liked;
+
+  /// How many segments this viewer has watched through -- used to decide
+  /// whether they count toward a specific segment's view total (WhatsApp
+  /// tracks views per status item, not once for the whole story ring).
+  final int seenSegments;
 }

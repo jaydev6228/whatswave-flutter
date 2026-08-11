@@ -70,21 +70,39 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
     return uid;
   }
 
-  /// The uids of everyone the caller has an existing chat thread with --
+  /// The uids of everyone the caller has an existing 1:1 chat thread with --
   /// i.e. everyone whose story is visible to them, besides themself. See
-  /// FirestoreChatRepository.startThread for how a thread's participants
-  /// are stored.
+  /// firestore.rules (statusStories read rule) and
+  /// FirestoreChatRepository.startThread for why group members are excluded:
+  /// visibility is checked via exists() on the deterministic sorted-uid
+  /// chatThreads id, which only 1:1 threads use.
   Future<Set<String>> _chatPartnerUids(String uid) async {
     final snapshot =
         await _threadsRef.where('participantUids', arrayContains: uid).get();
     final partners = <String>{};
     for (final doc in snapshot.docs) {
-      final participantUids =
-          (doc.data()['participantUids'] as List<dynamic>?)?.cast<String>() ??
-              const <String>[];
-      partners.addAll(participantUids.where((entry) => entry != uid));
+      partners.addAll(_directMessagePartnerUids(doc.data(), uid));
     }
     return partners;
+  }
+
+  /// Partner uids from a single thread doc, or empty when the thread is a
+  /// group (or otherwise not a 1:1 DM). Group membership alone does not
+  /// grant statusStories read access in firestore.rules.
+  Iterable<String> _directMessagePartnerUids(
+    Map<String, dynamic> threadData,
+    String uid,
+  ) {
+    if (threadData['isGroup'] == true) {
+      return const <String>[];
+    }
+    final participantUids =
+        (threadData['participantUids'] as List<dynamic>?)?.cast<String>() ??
+            const <String>[];
+    if (participantUids.length != 2) {
+      return const <String>[];
+    }
+    return participantUids.where((entry) => entry != uid);
   }
 
   @override
@@ -129,13 +147,8 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
         .snapshots()
         .listen((snapshot) {
       for (final doc in snapshot.docs) {
-        final participantUids =
-            (doc.data()['participantUids'] as List<dynamic>?)?.cast<String>() ??
-                const <String>[];
-        for (final participantUid in participantUids) {
-          if (participantUid != uid) {
-            watchStoryFor(participantUid);
-          }
+        for (final participantUid in _directMessagePartnerUids(doc.data(), uid)) {
+          watchStoryFor(participantUid);
         }
       }
     });
@@ -456,6 +469,7 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
             avatarUrl: profile?.avatarUrl,
             viewedAt: viewedAt is Timestamp ? viewedAt.toDate() : null,
             liked: data['liked'] == true,
+            seenSegments: (data['seenSegments'] as num?)?.toInt() ?? 0,
           );
         }),
       );
@@ -554,15 +568,18 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
       seenSegments = (viewDoc.data()?['seenSegments'] as num?)?.toInt() ?? 0;
     }
 
-    // How many distinct people have viewed -- only meaningful (and only
-    // readable, see firestore.rules) for the owner's own story. An
-    // aggregate count() query reads a single number, not every viewer's
-    // document, so this stays cheap even with a large audience.
+    // Views are tracked per status item via each viewer's seenSegments --
+    // only count someone toward the latest segment once they've actually
+    // watched through to it (WhatsApp-style), not just because they viewed
+    // an earlier item in the same story ring.
     var viewerCount = 0;
     if (isMine && liveSegments.isNotEmpty) {
-      final countSnapshot =
-          await doc.reference.collection('views').count().get();
-      viewerCount = countSnapshot.count ?? 0;
+      final viewsSnapshot = await doc.reference.collection('views').get();
+      final requiredSeen = liveSegments.length;
+      viewerCount = viewsSnapshot.docs.where((viewDoc) {
+        final seen = (viewDoc.data()['seenSegments'] as num?)?.toInt() ?? 0;
+        return seen >= requiredSeen;
+      }).length;
     }
 
     final freshStory = story.copyWith(

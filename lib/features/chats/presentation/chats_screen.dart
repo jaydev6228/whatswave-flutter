@@ -9,6 +9,7 @@ import '../../auth/application/auth_controller.dart';
 import '../../calls/application/calls_controller.dart';
 import '../../communities/application/communities_controller.dart';
 import '../../shared/widgets/avatar_badge.dart';
+import '../../shared/widgets/thread_avatar.dart';
 import '../../shared/widgets/empty_state_card.dart';
 import '../../shared/widgets/error_dialog.dart';
 import '../../shared/widgets/liquid_glass.dart';
@@ -990,10 +991,8 @@ class _ChatAvatar extends StatelessWidget {
             seenSegments: story?.clampedSeenSegments ?? 0,
             size: size,
           )
-        : AvatarBadge(
-            label: thread.avatarLabel,
-            color: thread.accentColor,
-            avatarUrl: thread.avatarUrl,
+        : ThreadAvatar(
+            thread: thread,
             size: size,
           );
 
@@ -1353,9 +1352,12 @@ class _MyStatusStripItem extends StatelessWidget {
             children: [
               if (status != null)
                 StatusRingAvatar(
+                  key: ValueKey<String>(
+                    'my-status-${currentUser?.avatarUrl ?? status!.avatarUrl}',
+                  ),
                   label: status!.avatarLabel,
                   color: status!.accentColor,
-                  avatarUrl: status!.avatarUrl ?? currentUser?.avatarUrl,
+                  avatarUrl: currentUser?.avatarUrl ?? status!.avatarUrl,
                   totalSegments: status!.totalSegments,
                   seenSegments: status!.seenSegments,
                   // A few points bigger than the ring-less AvatarBadge
@@ -1365,6 +1367,7 @@ class _MyStatusStripItem extends StatelessWidget {
                 )
               else
                 AvatarBadge(
+                  key: ValueKey<String>('my-status-${currentUser?.avatarUrl}'),
                   label: currentUser?.avatarLabel ?? 'WW',
                   color: currentUser?.accentColor ?? AppPalette.emerald,
                   avatarUrl: currentUser?.avatarUrl,

@@ -80,6 +80,7 @@ dependencies:
   # Saves a photo/video attachment to the device's own gallery -- "Save"
   # in a message's long-press menu.
   gal: ^2.3.1
+  crop_your_image: ^2.0.0
 
 dev_dependencies:
   flutter_test:

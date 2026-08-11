@@ -162,6 +162,7 @@ class ChatThread {
     String? participantUid,
     bool? isCommunityGroup,
     String? avatarUrl,
+    bool clearAvatarUrl = false,
     List<GroupParticipant>? participants,
     String? groupDescription,
   }) {
@@ -182,7 +183,7 @@ class ChatThread {
           clearTypingPreview ? null : typingPreview ?? this.typingPreview,
       participantUid: participantUid ?? this.participantUid,
       isCommunityGroup: isCommunityGroup ?? this.isCommunityGroup,
-      avatarUrl: avatarUrl ?? this.avatarUrl,
+      avatarUrl: clearAvatarUrl ? null : (avatarUrl ?? this.avatarUrl),
       participants: participants ?? this.participants,
       groupDescription: groupDescription ?? this.groupDescription,
     );

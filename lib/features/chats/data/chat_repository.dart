@@ -94,6 +94,9 @@ abstract class ChatRepository {
     required File photo,
   });
 
+  /// Removes a group's uploaded icon so it falls back to the member mosaic.
+  Future<List<ChatThread>> deleteGroupAvatar(String threadId);
+
   Future<List<ChatThread>> setThreadArchived({
     required String threadId,
     required bool isArchived,

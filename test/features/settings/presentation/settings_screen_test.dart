@@ -571,6 +571,14 @@ class _ImmediateAuthRepository implements AuthRepository {
     return updatedUser;
   }
 
+  @override
+  Future<AppUser> deleteAvatar() async {
+    final currentUser = restoredUser ?? DemoData.currentUser;
+    final updatedUser = currentUser.copyWith(clearAvatarUrl: true);
+    restoredUser = updatedUser;
+    return updatedUser;
+  }
+
   AppUser _buildUser({
     required String phoneNumber,
     required String name,

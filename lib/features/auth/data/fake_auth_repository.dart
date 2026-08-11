@@ -171,6 +171,25 @@ class FakeAuthRepository implements AuthRepository {
   }
 
   @override
+  Future<AppUser> deleteAvatar() async {
+    await _hydratePersistedState();
+    await _wait();
+
+    final currentUser = _currentUser;
+    if (currentUser == null) {
+      throw const AuthException(
+        'Sign in again before editing your profile.',
+      );
+    }
+
+    final updatedUser = currentUser.copyWith(clearAvatarUrl: true);
+    _currentUser = updatedUser;
+    _knownUsers[updatedUser.phoneNumber] = updatedUser;
+    await _persistCurrentState();
+    return updatedUser;
+  }
+
+  @override
   Future<void> signOut() async {
     await _hydratePersistedState();
     await _wait();

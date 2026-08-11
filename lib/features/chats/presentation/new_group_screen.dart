@@ -1,8 +1,8 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 
+import '../../../core/media/avatar_photo_picker.dart';
 import '../../communities/application/communities_controller.dart';
 import '../../communities/domain/community_contact.dart';
 import '../../shared/widgets/avatar_badge.dart';
@@ -40,6 +40,7 @@ class _NewGroupScreenState extends State<NewGroupScreen> {
   /// itself is created (see _createGroup), the same call an admin can make
   /// again later from group info to change it.
   File? _pendingIconPhoto;
+  bool _isUploadingIcon = false;
 
   @override
   void initState() {
@@ -90,17 +91,25 @@ class _NewGroupScreenState extends State<NewGroupScreen> {
     setState(() => _showNameStep = true);
   }
 
-  Future<void> _pickGroupIcon() async {
-    final picked = await ImagePicker().pickImage(
-      source: ImageSource.gallery,
-      maxWidth: 1024,
-      maxHeight: 1024,
-      imageQuality: 85,
+  Future<void> _showGroupIconOptions() async {
+    final action = await showAvatarPhotoOptionsSheet(
+      context,
+      canRemove: _pendingIconPhoto != null,
     );
-    if (picked == null || !mounted) {
+    if (!mounted || action == null) {
       return;
     }
-    setState(() => _pendingIconPhoto = File(picked.path));
+
+    switch (action) {
+      case AvatarPhotoSheetAction.choose:
+        final cropped = await pickAndCropAvatarPhoto(context);
+        if (!mounted || cropped == null) {
+          return;
+        }
+        setState(() => _pendingIconPhoto = cropped);
+      case AvatarPhotoSheetAction.remove:
+        setState(() => _pendingIconPhoto = null);
+    }
   }
 
   Future<void> _createGroup() async {
@@ -141,14 +150,15 @@ class _NewGroupScreenState extends State<NewGroupScreen> {
 
     final pendingIconPhoto = _pendingIconPhoto;
     if (pendingIconPhoto != null) {
-      // Best-effort -- the group itself is already created at this point,
-      // so a failed icon upload shouldn't block finishing/opening it (the
-      // icon can always be set again from group info, same as this call).
+      setState(() => _isUploadingIcon = true);
       await widget.chatsController.updateGroupAvatar(
         threadId: threadId,
         photo: pendingIconPhoto,
       );
       widget.chatsController.clearError();
+      if (mounted) {
+        setState(() => _isUploadingIcon = false);
+      }
       if (!mounted) {
         return;
       }
@@ -281,44 +291,28 @@ class _NewGroupScreenState extends State<NewGroupScreen> {
               Center(
                 child: GestureDetector(
                   key: const Key('new_group_icon_picker_button'),
-                  onTap: _isCreating ? null : _pickGroupIcon,
+                  onTap: _isCreating || _isUploadingIcon
+                      ? null
+                      : _showGroupIconOptions,
                   child: Stack(
                     clipBehavior: Clip.none,
                     children: [
-                      if (_pendingIconPhoto != null)
-                        ClipOval(
-                          child: Image.file(
-                            _pendingIconPhoto!,
-                            width: 72,
-                            height: 72,
-                            fit: BoxFit.cover,
-                          ),
-                        )
-                      else
-                        AvatarBadge(
-                          label: _previewAvatarLabel(),
-                          color: theme.colorScheme.primary,
-                          size: 72,
-                        ),
-                      Positioned(
-                        right: -2,
-                        bottom: -2,
-                        child: Container(
-                          padding: const EdgeInsets.all(5),
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.primary,
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: theme.colorScheme.surface,
-                              width: 2,
+                      _pendingIconPhoto != null
+                          ? ClipOval(
+                              child: Image.file(
+                                _pendingIconPhoto!,
+                                width: 72,
+                                height: 72,
+                                fit: BoxFit.cover,
+                              ),
+                            )
+                          : AvatarBadge(
+                              label: _previewAvatarLabel(),
+                              color: theme.colorScheme.primary,
+                              size: 72,
                             ),
-                          ),
-                          child: Icon(
-                            Icons.camera_alt_rounded,
-                            size: 14,
-                            color: theme.colorScheme.onPrimary,
-                          ),
-                        ),
+                      AvatarCameraBadge(
+                        isBusy: _isCreating || _isUploadingIcon,
                       ),
                     ],
                   ),

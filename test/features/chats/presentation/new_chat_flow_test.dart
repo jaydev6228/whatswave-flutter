@@ -6,6 +6,7 @@ import 'package:whatswave/app/theme/app_theme.dart';
 import 'package:whatswave/core/permissions/app_permission_service.dart';
 import 'package:whatswave/features/calls/application/calls_controller.dart';
 import 'package:whatswave/features/calls/data/fake_calls_repository.dart';
+import 'package:whatswave/core/media/avatar_photo_picker.dart';
 import 'package:whatswave/features/chats/application/chats_controller.dart';
 import 'package:whatswave/features/chats/data/fake_chat_repository.dart';
 import 'package:whatswave/features/chats/presentation/new_chat_screen.dart';
@@ -48,6 +49,14 @@ const _reachableContacts = <CommunityContact>[
 ];
 
 void main() {
+  setUp(() {
+    avatarCropOverride = (_, source) async => source;
+  });
+
+  tearDown(() {
+    avatarCropOverride = null;
+  });
+
   testWidgets('messages an on-WhatsWave contact and pops with the thread id',
       (tester) async {
     final communitiesController = CommunitiesController(
@@ -362,6 +371,8 @@ void main() {
     expect(find.byType(Image), findsNothing);
 
     await tester.tap(find.byKey(const Key('new_group_icon_picker_button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('avatar_photo_choose_button')));
     await tester.pumpAndSettle();
 
     // The picked photo previews locally right away, before the group even
