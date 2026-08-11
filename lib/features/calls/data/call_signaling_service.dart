@@ -20,6 +20,7 @@ abstract class CallSignalingService {
     required List<String> participantUids,
     required CallType type,
     Map<String, String>? participantDisplayNames,
+    Map<String, String>? participantAvatarUrls,
   });
 
   /// The most recent ringing call addressed to [myUid], or null. Matches
@@ -77,6 +78,7 @@ class MemoryCallSignalingService implements CallSignalingService {
     required List<String> participantUids,
     required CallType type,
     Map<String, String>? participantDisplayNames,
+    Map<String, String>? participantAvatarUrls,
   }) async {
     final now = DateTime.now();
     final id = 'local-group-call-${_sequence++}';

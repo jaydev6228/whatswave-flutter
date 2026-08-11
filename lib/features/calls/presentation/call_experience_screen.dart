@@ -10,6 +10,7 @@ import '../application/calls_controller.dart';
 import '../domain/call_contact.dart';
 import '../domain/call_session.dart';
 import '../domain/group_call_participant.dart';
+import 'call_participant_avatar.dart';
 import 'group_call_presence_bubbles.dart';
 
 const Alignment _audioFallbackStageAlignment = Alignment(0, -0.08);
@@ -46,10 +47,15 @@ class _CallExperienceScreenState extends State<CallExperienceScreen> {
   void _handleControllerChanged() {
     final session = widget.controller.currentSession;
     if (session != null) {
+      final previous = _lastKnownSession;
       _lastKnownSession = session;
-      if (mounted) {
-        setState(() {});
+      if (!mounted) {
+        return;
       }
+      if (previous != null && identical(previous, session)) {
+        return;
+      }
+      setState(() {});
       return;
     }
 
@@ -97,20 +103,34 @@ class _CallExperienceScreenState extends State<CallExperienceScreen> {
             // video layer; _AudioCallLayout's own backdrop covers that
             // case entirely within the padded content.
             if (session.isVideo)
-              _VideoAmbientStage(
-                key: const Key('call_video_ambient_stage'),
-                controller: widget.controller,
-                session: session,
-                compact: _isCompactLayout(context),
-                scheme: _callVisualScheme(context, session),
+              ListenableBuilder(
+                listenable: widget.controller,
+                builder: (context, _) {
+                  final liveSession =
+                      widget.controller.currentSession ?? session;
+                  return _VideoAmbientStage(
+                    key: const Key('call_video_ambient_stage'),
+                    controller: widget.controller,
+                    session: liveSession,
+                    compact: _isCompactLayout(context),
+                    scheme: _callVisualScheme(context, liveSession),
+                  );
+                },
               ),
             SafeArea(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
                 child: session.isVideo
-                    ? _VideoCallLayout(
-                        controller: widget.controller,
-                        session: session,
+                    ? ListenableBuilder(
+                        listenable: widget.controller,
+                        builder: (context, _) {
+                          final liveSession =
+                              widget.controller.currentSession ?? session;
+                          return _VideoCallLayout(
+                            controller: widget.controller,
+                            session: liveSession,
+                          );
+                        },
                       )
                     : _AudioCallLayout(
                         controller: widget.controller,
@@ -933,17 +953,6 @@ class _CallIdentityAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final fallback = Center(
-      child: Text(
-        _displayAvatarLabel(contact.avatarLabel),
-        style: theme.textTheme.titleMedium?.copyWith(
-          fontWeight: FontWeight.w800,
-          color: foregroundColor ?? theme.colorScheme.onSurface,
-        ),
-      ),
-    );
-
     return Container(
       width: size,
       height: size,
@@ -958,16 +967,13 @@ class _CallIdentityAvatar extends StatelessWidget {
               ),
       ),
       child: ClipOval(
-        child: SizedBox(
-          width: size,
-          height: size,
-          child: contact.photoAssetPath == null
-              ? fallback
-              : Image.asset(
-                  contact.photoAssetPath!,
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) => fallback,
-                ),
+        child: CallParticipantAvatar(
+          label: contact.avatarLabel,
+          size: size,
+          avatarUrl: contact.avatarUrl,
+          photoAssetPath: contact.photoAssetPath,
+          backgroundColor: backgroundColor ?? contact.accentColor.withValues(alpha: 0.18),
+          foregroundColor: foregroundColor,
         ),
       ),
     );
@@ -1862,16 +1868,13 @@ class _GroupCallVideoIdentity extends StatelessWidget {
               child: SizedBox(
                 width: avatarSize,
                 height: avatarSize,
-                child: Center(
-                  child: Text(
-                    participant.avatarLabel,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.headlineSmall?.copyWith(
-                      color: scheme.primaryText,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: -0.4,
-                    ),
+                child: ClipOval(
+                  child: CallParticipantAvatar(
+                    label: participant.avatarLabel,
+                    size: avatarSize,
+                    avatarUrl: participant.avatarUrl,
+                    backgroundColor: scheme.identitySurfaceColor,
+                    foregroundColor: scheme.primaryText,
                   ),
                 ),
               ),

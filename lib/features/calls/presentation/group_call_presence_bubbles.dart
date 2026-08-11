@@ -6,6 +6,7 @@ import 'package:flutter/scheduler.dart';
 import '../../../app/theme/app_palette.dart';
 import '../application/calls_controller.dart';
 import '../domain/group_call_participant.dart';
+import 'call_participant_avatar.dart';
 
 /// Static profile anchor at the center of the call backdrop — always the viewer.
 class GroupCallCenterAnchor extends StatelessWidget {
@@ -304,7 +305,7 @@ String groupCallParticipantsSignature(
   return participants
       .map(
         (participant) =>
-            '${participant.uid}:${participant.state.index}:${participant.avatarLabel}:${participant.isHost}',
+            '${participant.uid}:${participant.state.index}:${participant.isHost}',
       )
       .join('|');
 }
@@ -385,6 +386,7 @@ class _GroupCallFloatingFieldHostState extends State<GroupCallFloatingFieldHost>
     }
 
     return GroupCallFloatingField(
+      key: const ValueKey('group_call_floating_field'),
       participants: participants,
       centerParticipant: groupCallCenterParticipant(participants),
       compact: widget.compact,
@@ -453,7 +455,7 @@ class _GroupCallCenterAnchorHostState extends State<GroupCallCenterAnchorHost> {
       (entry) => entry.isSelf,
       orElse: () => groupCallCenterParticipant(participants),
     );
-    return '${self.uid}:${self.state.index}:${self.avatarLabel}';
+    return '${self.uid}:${self.state.index}';
   }
 
   void _handleControllerChanged() {
@@ -858,16 +860,13 @@ class _PresenceBubbleFace extends StatelessWidget {
                       ]
                     : null,
               ),
-              child: Center(
-                child: Text(
-                  participant.avatarLabel,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        color: primaryText,
-                        fontWeight: FontWeight.w800,
-                        fontSize: size * 0.32,
-                      ),
+              child: ClipOval(
+                child: CallParticipantAvatar(
+                  label: participant.avatarLabel,
+                  size: size,
+                  avatarUrl: participant.avatarUrl,
+                  backgroundColor: surfaceColor,
+                  foregroundColor: primaryText,
                 ),
               ),
             ),

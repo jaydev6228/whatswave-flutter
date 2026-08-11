@@ -14,6 +14,7 @@ void main() {
           'ava': 'Ava Patel',
           'noah': 'Noah Kim',
         },
+        avatarUrls: const <String, String>{},
         inviteStatuses: const <String, CallSignalStatus>{
           'ava': CallSignalStatus.ringing,
           'noah': CallSignalStatus.declined,
@@ -47,6 +48,7 @@ void main() {
         hostUid: 'host',
         memberUids: const <String>['ava'],
         displayNames: const <String, String>{'host': 'Jay', 'ava': 'Ava'},
+        avatarUrls: const <String, String>{},
         inviteStatuses: const <String, CallSignalStatus>{
           'ava': CallSignalStatus.accepted,
         },
@@ -74,6 +76,9 @@ void main() {
           'host': 'Jay Patel',
           'ava': 'Ava Patel',
         },
+        avatarUrls: const <String, String>{
+          'ava': 'https://example.com/ava.jpg',
+        },
         inviteStatuses: const <String, CallSignalStatus>{
           'ava': CallSignalStatus.ringing,
         },
@@ -89,6 +94,10 @@ void main() {
       expect(
         participants.firstWhere((entry) => entry.uid == 'ava').avatarLabel,
         'AP',
+      );
+      expect(
+        participants.firstWhere((entry) => entry.uid == 'ava').avatarUrl,
+        'https://example.com/ava.jpg',
       );
     });
   });

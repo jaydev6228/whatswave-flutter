@@ -1528,6 +1528,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
       accentColor: thread.accentColor,
       isGroup: thread.isGroup,
       uid: thread.participantUid,
+      avatarUrl: thread.isGroup ? null : thread.avatarUrl,
       memberUids: thread.isGroup
           ? thread.otherMemberUids(currentUid)
           : null,
@@ -1535,6 +1536,13 @@ class _ConversationScreenState extends State<ConversationScreen> {
           ? <String, String>{
               for (final participant in thread.participants ?? const [])
                 participant.uid: participant.name,
+            }
+          : null,
+      memberAvatarUrls: thread.isGroup
+          ? <String, String>{
+              for (final participant in thread.participants ?? const [])
+                if (participant.avatarUrl?.trim().isNotEmpty ?? false)
+                  participant.uid: participant.avatarUrl!.trim(),
             }
           : null,
     );

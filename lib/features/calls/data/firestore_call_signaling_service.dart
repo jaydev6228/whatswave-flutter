@@ -53,6 +53,7 @@ class FirestoreCallSignalingService implements CallSignalingService {
       'updatedAt': Timestamp.fromDate(now),
       'callerName': identity.name,
       'callerAvatarLabel': identity.avatarLabel,
+      if (identity.avatarUrl != null) 'callerAvatarUrl': identity.avatarUrl,
       'callerAccentColorArgb': identity.accentColorArgb,
       'calleeRinging': false,
       'isGroup': false,
@@ -69,6 +70,7 @@ class FirestoreCallSignalingService implements CallSignalingService {
       updatedAt: now,
       callerName: identity.name,
       callerAvatarLabel: identity.avatarLabel,
+      callerAvatarUrl: identity.avatarUrl,
       callerAccentColorArgb: identity.accentColorArgb,
     );
   }
@@ -80,6 +82,7 @@ class FirestoreCallSignalingService implements CallSignalingService {
     required List<String> participantUids,
     required CallType type,
     Map<String, String>? participantDisplayNames,
+    Map<String, String>? participantAvatarUrls,
   }) async {
     final callerUid = _requireCallerUid;
     if (participantUids.isEmpty) {
@@ -90,9 +93,16 @@ class FirestoreCallSignalingService implements CallSignalingService {
     final resolvedDisplayNames = <String, String>{
       ...?participantDisplayNames,
     };
+    final resolvedAvatarUrls = <String, String>{
+      ...?participantAvatarUrls,
+    };
     final hostName = identity.name?.trim();
     if (hostName != null && hostName.isNotEmpty) {
       resolvedDisplayNames[callerUid] = hostName;
+    }
+    final hostAvatar = identity.avatarUrl?.trim();
+    if (hostAvatar != null && hostAvatar.isNotEmpty) {
+      resolvedAvatarUrls[callerUid] = hostAvatar;
     }
     final hostRef = _calls.doc();
     final roomName = hostRef.id;
@@ -105,6 +115,7 @@ class FirestoreCallSignalingService implements CallSignalingService {
       'updatedAt': Timestamp.fromDate(now),
       'callerName': identity.name,
       'callerAvatarLabel': identity.avatarLabel,
+      if (identity.avatarUrl != null) 'callerAvatarUrl': identity.avatarUrl,
       'callerAccentColorArgb': identity.accentColorArgb,
       'calleeRinging': false,
       'isGroup': true,
@@ -113,6 +124,8 @@ class FirestoreCallSignalingService implements CallSignalingService {
       'participantUids': participantUids,
       if (resolvedDisplayNames.isNotEmpty)
         'participantDisplayNames': resolvedDisplayNames,
+      if (resolvedAvatarUrls.isNotEmpty)
+        'participantAvatarUrls': resolvedAvatarUrls,
     };
 
     // Host session doc -- watched by the caller for end/cancel.
@@ -147,12 +160,14 @@ class FirestoreCallSignalingService implements CallSignalingService {
       updatedAt: now,
       callerName: identity.name,
       callerAvatarLabel: identity.avatarLabel,
+      callerAvatarUrl: identity.avatarUrl,
       callerAccentColorArgb: identity.accentColorArgb,
       isGroup: true,
       threadId: threadId,
       threadName: threadName,
       participantUids: participantUids,
       participantDisplayNames: resolvedDisplayNames,
+      participantAvatarUrls: resolvedAvatarUrls,
     );
   }
 
@@ -171,6 +186,7 @@ class FirestoreCallSignalingService implements CallSignalingService {
       return _CallerIdentity(
         name: profile.name,
         avatarLabel: profile.avatarLabel,
+        avatarUrl: profile.avatarUrl,
         accentColorArgb: profile.accentColorArgb,
       );
     }
@@ -351,6 +367,11 @@ class FirestoreCallSignalingService implements CallSignalingService {
               (key, value) => MapEntry(key, value.toString()),
             ) ??
             const <String, String>{};
+    final participantAvatarUrls =
+        (data['participantAvatarUrls'] as Map<String, dynamic>?)?.map(
+              (key, value) => MapEntry(key, value.toString()),
+            ) ??
+            const <String, String>{};
     return CallSignal(
       id: doc.id,
       callerUid: data['callerUid'] as String,
@@ -362,6 +383,7 @@ class FirestoreCallSignalingService implements CallSignalingService {
       updatedAt: (data['updatedAt'] as Timestamp).toDate(),
       callerName: data['callerName'] as String?,
       callerAvatarLabel: data['callerAvatarLabel'] as String?,
+      callerAvatarUrl: data['callerAvatarUrl'] as String?,
       callerAccentColorArgb: data['callerAccentColorArgb'] as int?,
       calleeRinging: data['calleeRinging'] as bool? ?? false,
       isGroup: data['isGroup'] as bool? ?? false,
@@ -369,6 +391,7 @@ class FirestoreCallSignalingService implements CallSignalingService {
       threadName: data['threadName'] as String?,
       participantUids: participantUids,
       participantDisplayNames: participantDisplayNames,
+      participantAvatarUrls: participantAvatarUrls,
     );
   }
 }
@@ -377,10 +400,12 @@ class _CallerIdentity {
   const _CallerIdentity({
     this.name,
     this.avatarLabel,
+    this.avatarUrl,
     this.accentColorArgb,
   });
 
   final String? name;
   final String? avatarLabel;
+  final String? avatarUrl;
   final int? accentColorArgb;
 }

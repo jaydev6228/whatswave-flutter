@@ -16,6 +16,7 @@ class GroupCallParticipantView {
     required this.state,
     required this.isSelf,
     required this.isHost,
+    this.avatarUrl,
   });
 
   final String uid;
@@ -24,6 +25,7 @@ class GroupCallParticipantView {
   final GroupCallParticipantState state;
   final bool isSelf;
   final bool isHost;
+  final String? avatarUrl;
 }
 
 GroupCallParticipantState groupCallParticipantStateForInvite({
@@ -56,6 +58,7 @@ List<GroupCallParticipantView> buildGroupCallParticipants({
   required String hostUid,
   required List<String> memberUids,
   required Map<String, String> displayNames,
+  required Map<String, String> avatarUrls,
   required Map<String, CallSignalStatus> inviteStatuses,
   required Set<String> connectedUids,
   required String? viewerUid,
@@ -135,6 +138,7 @@ List<GroupCallParticipantView> buildGroupCallParticipants({
       uid: uid,
       displayName: displayName,
       avatarLabel: avatarLabelFor(uid, isHost: isHost),
+      avatarUrl: avatarUrls[uid],
       state: state,
       isSelf: isSelf,
       isHost: isHost,

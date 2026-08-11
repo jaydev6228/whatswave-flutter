@@ -153,6 +153,7 @@ class CallsController extends ChangeNotifier {
       hostUid: hostUid,
       memberUids: memberUids,
       displayNames: session.contact.memberDisplayNames ?? const <String, String>{},
+      avatarUrls: session.contact.memberAvatarUrls ?? const <String, String>{},
       inviteStatuses: _groupInviteStatuses,
       connectedUids: connected,
       viewerUid: _myUid,
@@ -537,6 +538,7 @@ class CallsController extends ChangeNotifier {
         participantUids: memberUids,
         type: type,
         participantDisplayNames: contact.memberDisplayNames,
+        participantAvatarUrls: contact.memberAvatarUrls,
       );
       final session = _currentSession;
       if (session == null || session.id != sessionId) {
@@ -972,9 +974,16 @@ class CallsController extends ChangeNotifier {
       final displayNames = Map<String, String>.from(
         signal.participantDisplayNames,
       );
+      final avatarUrls = Map<String, String>.from(
+        signal.participantAvatarUrls,
+      );
       final callerName = signal.callerName?.trim();
       if (callerName != null && callerName.isNotEmpty) {
         displayNames.putIfAbsent(signal.callerUid, () => callerName);
+      }
+      final callerAvatar = signal.callerAvatarUrl?.trim();
+      if (callerAvatar != null && callerAvatar.isNotEmpty) {
+        avatarUrls.putIfAbsent(signal.callerUid, () => callerAvatar);
       }
       contact = CallContact(
         id: signal.threadId ?? signal.id,
@@ -987,6 +996,7 @@ class CallsController extends ChangeNotifier {
         uid: signal.callerUid,
         memberUids: signal.participantUids,
         memberDisplayNames: displayNames.isEmpty ? null : displayNames,
+        memberAvatarUrls: avatarUrls.isEmpty ? null : avatarUrls,
       );
     } else if (callerName != null && callerName.isNotEmpty) {
       contact = CallContact(
@@ -998,6 +1008,7 @@ class CallsController extends ChangeNotifier {
             ? Color(signal.callerAccentColorArgb!)
             : Colors.teal,
         uid: signal.callerUid,
+        avatarUrl: signal.callerAvatarUrl,
       );
     } else {
       contact = CallContact(

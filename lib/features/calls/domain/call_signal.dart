@@ -25,6 +25,8 @@ class CallSignal {
     this.threadName,
     this.participantUids = const <String>[],
     this.participantDisplayNames = const <String, String>{},
+    this.participantAvatarUrls = const <String, String>{},
+    this.callerAvatarUrl,
   });
 
   final String id;
@@ -41,6 +43,7 @@ class CallSignal {
   final bool calleeRinging;
   final String? callerName;
   final String? callerAvatarLabel;
+  final String? callerAvatarUrl;
   final int? callerAccentColorArgb;
 
   /// True when this is a group call -- [participantUids] lists every
@@ -50,6 +53,7 @@ class CallSignal {
   final String? threadName;
   final List<String> participantUids;
   final Map<String, String> participantDisplayNames;
+  final Map<String, String> participantAvatarUrls;
 
   CallSignal copyWith({
     CallSignalStatus? status,
@@ -67,6 +71,7 @@ class CallSignal {
       updatedAt: updatedAt ?? this.updatedAt,
       callerName: callerName,
       callerAvatarLabel: callerAvatarLabel,
+      callerAvatarUrl: callerAvatarUrl,
       callerAccentColorArgb: callerAccentColorArgb,
       calleeRinging: calleeRinging ?? this.calleeRinging,
       isGroup: isGroup,
@@ -74,6 +79,7 @@ class CallSignal {
       threadName: threadName,
       participantUids: participantUids,
       participantDisplayNames: participantDisplayNames,
+      participantAvatarUrls: participantAvatarUrls,
     );
   }
 }

@@ -842,6 +842,7 @@ class FakeCallSignalingService implements CallSignalingService {
     required List<String> participantUids,
     required CallType type,
     Map<String, String>? participantDisplayNames,
+    Map<String, String>? participantAvatarUrls,
   }) async {
     placedCalleeUid = participantUids.isEmpty ? null : participantUids.first;
     placedType = type;
@@ -851,6 +852,9 @@ class FakeCallSignalingService implements CallSignalingService {
     final resolvedDisplayNames = <String, String>{
       ...?participantDisplayNames,
       'test-caller-uid': 'Test Host',
+    };
+    final resolvedAvatarUrls = <String, String>{
+      ...?participantAvatarUrls,
     };
     final signal = CallSignal(
       id: id,
@@ -866,6 +870,7 @@ class FakeCallSignalingService implements CallSignalingService {
       threadName: threadName,
       participantUids: participantUids,
       participantDisplayNames: resolvedDisplayNames,
+      participantAvatarUrls: resolvedAvatarUrls,
     );
     _calls[id] = signal;
     _groupInviteStatuses[id] = <String, CallSignalStatus>{
@@ -1021,6 +1026,7 @@ class DelayedFakeCallSignalingService extends FakeCallSignalingService {
     required List<String> participantUids,
     required CallType type,
     Map<String, String>? participantDisplayNames,
+    Map<String, String>? participantAvatarUrls,
   }) async {
     placeGroupCallStarted = true;
     await releasePlaceGroupCall.future;
@@ -1030,6 +1036,7 @@ class DelayedFakeCallSignalingService extends FakeCallSignalingService {
       participantUids: participantUids,
       type: type,
       participantDisplayNames: participantDisplayNames,
+      participantAvatarUrls: participantAvatarUrls,
     );
   }
 }

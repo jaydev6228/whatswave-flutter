@@ -258,6 +258,7 @@ class _CallsScreenState extends State<CallsScreen> {
                                       accentColor: entry.accentColor,
                                       isGroup: entry.isGroup,
                                       uid: entry.uid,
+                                      avatarUrl: entry.avatarUrl,
                                     ),
                                     type: entry.type,
                                   );
@@ -346,6 +347,7 @@ class _CallsScreenState extends State<CallsScreen> {
             avatarLabel: thread.avatarLabel,
             accentColor: thread.accentColor,
             uid: thread.participantUid,
+            avatarUrl: thread.avatarUrl,
           ),
         )
         .toList(growable: false);
