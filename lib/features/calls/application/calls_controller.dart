@@ -14,6 +14,7 @@ import '../domain/call_history_entry.dart';
 import '../domain/call_permissions.dart';
 import '../domain/call_session.dart';
 import '../domain/call_signal.dart';
+import '../domain/group_call_continuation.dart';
 
 class CallsController extends ChangeNotifier {
   CallsController({
@@ -72,10 +73,14 @@ class CallsController extends ChangeNotifier {
   StreamSubscription<String?>? _authUidSubscription;
   StreamSubscription<CallSignal?>? _incomingSignalSubscription;
   StreamSubscription<CallSignal?>? _activeSignalSubscription;
+  StreamSubscription<Map<String, CallSignalStatus>>? _groupInviteSubscription;
+  Map<String, CallSignalStatus> _groupInviteStatuses =
+      const <String, CallSignalStatus>{};
+  bool _isEndingCall = false;
   lk.Room? _room;
   lk.EventsListener<lk.RoomEvent>? _roomListener;
   lk.LocalVideoTrack? _localVideoTrack;
-  lk.VideoTrack? _remoteVideoTrack;
+  final Map<String, lk.VideoTrack> _remoteVideoTracks = <String, lk.VideoTrack>{};
 
   bool get hasLoaded => _hasLoaded;
   bool get isLoading => _isLoading;
@@ -93,9 +98,27 @@ class CallsController extends ChangeNotifier {
   /// simulated calls, or before the camera has connected.
   lk.LocalVideoTrack? get localVideoTrack => _localVideoTrack;
 
-  /// The remote participant's video track for a real call. Null for
-  /// simulated calls, audio-only calls, or before the peer's video arrives.
-  lk.VideoTrack? get remoteVideoTrack => _remoteVideoTrack;
+  /// The remote participant's video track for a 1:1 call -- first entry when
+  /// several are connected (group video).
+  lk.VideoTrack? get remoteVideoTrack {
+    if (_remoteVideoTracks.isEmpty) {
+      return null;
+    }
+    return _remoteVideoTracks.values.first;
+  }
+
+  /// Every remote video track currently subscribed -- backs the group grid.
+  List<lk.VideoTrack> get remoteVideoTracks =>
+      List<lk.VideoTrack>.unmodifiable(_remoteVideoTracks.values);
+
+  /// How many other people are in the LiveKit room right now.
+  int get remoteParticipantCount {
+    final room = _room;
+    if (room != null) {
+      return room.remoteParticipants.length;
+    }
+    return _remoteVideoTracks.length;
+  }
 
   Future<void> ensureLoaded() async {
     if (_hasLoaded || _isLoading) {
@@ -268,8 +291,27 @@ class CallsController extends ChangeNotifier {
       return false;
     }
 
-    final calleeUid = contact.uid;
     final signaling = _signalingService;
+
+    if (contact.isGroup) {
+      final memberUids = contact.memberUids;
+      if (memberUids != null && memberUids.isNotEmpty && signaling != null) {
+        return _beginGroupOutgoingSession(
+          contact: contact,
+          type: type,
+          memberUids: memberUids,
+          signaling: signaling,
+        );
+      }
+      if (signaling != null) {
+        _errorMessage =
+            'This group has no other members to call right now.';
+        notifyListeners();
+        return false;
+      }
+    }
+
+    final calleeUid = contact.uid;
     if (calleeUid != null && signaling != null) {
       return _beginRealOutgoingSession(
         contact: contact,
@@ -299,35 +341,72 @@ class CallsController extends ChangeNotifier {
     _cancelTimers();
     _errorMessage = null;
 
+    final session = CallSession(
+      id: 'call-${_sessionSequence++}',
+      contact: contact,
+      type: type,
+      direction: CallDirection.outgoing,
+      phase: CallSessionPhase.ringing,
+      createdAt: _now(),
+      isSpeakerOn: type == CallType.video,
+      isLocalVideoEnabled: type == CallType.video,
+    );
+    _currentSession = session;
+    _telemetry.recordInteraction(
+      'call_outgoing_started',
+      attributes: _callAttributes(
+        contact: contact,
+        type: type,
+        extra: <String, Object?>{
+          'real': true,
+          'optimistic': true,
+        },
+      ),
+    );
+    notifyListeners();
+
+    unawaited(
+      _finalizeRealOutgoingSession(
+        sessionId: session.id,
+        contact: contact,
+        type: type,
+        calleeUid: calleeUid,
+        signaling: signaling,
+      ),
+    );
+    return true;
+  }
+
+  Future<void> _finalizeRealOutgoingSession({
+    required String sessionId,
+    required CallContact contact,
+    required CallType type,
+    required String calleeUid,
+    required CallSignalingService signaling,
+  }) async {
     try {
       final signal = await signaling.placeCall(
         calleeUid: calleeUid,
         type: type,
       );
-      final session = CallSession(
-        id: 'call-${_sessionSequence++}',
-        contact: contact,
-        type: type,
-        direction: CallDirection.outgoing,
-        phase: CallSessionPhase.ringing,
-        createdAt: _now(),
-        isSpeakerOn: type == CallType.video,
-        isLocalVideoEnabled: type == CallType.video,
+      final session = _currentSession;
+      if (session == null || session.id != sessionId) {
+        await signaling.updateStatus(signal.id, CallSignalStatus.ended);
+        return;
+      }
+
+      _currentSession = session.copyWith(
         callId: signal.id,
-      );
-      _currentSession = session;
-      _telemetry.recordInteraction(
-        'call_outgoing_started',
-        attributes: _callAttributes(
-          contact: contact,
-          type: type,
-          extra: <String, Object?>{'real': true},
-        ),
+        roomName: signal.roomName,
       );
       notifyListeners();
       _watchActiveSignal(signal.id);
-      return true;
     } catch (error, stackTrace) {
+      final session = _currentSession;
+      if (session == null || session.id != sessionId) {
+        return;
+      }
+
       _errorMessage = 'We could not start that call right now.';
       _telemetry.recordError(
         error,
@@ -340,7 +419,107 @@ class CallsController extends ChangeNotifier {
         },
       );
       notifyListeners();
-      return false;
+      await _finishSession(status: CallHistoryStatus.failed);
+    }
+  }
+
+  Future<bool> _beginGroupOutgoingSession({
+    required CallContact contact,
+    required CallType type,
+    required List<String> memberUids,
+    required CallSignalingService signaling,
+  }) async {
+    _cancelTimers();
+    _errorMessage = null;
+
+    final session = CallSession(
+      id: 'call-${_sessionSequence++}',
+      contact: contact,
+      type: type,
+      direction: CallDirection.outgoing,
+      phase: CallSessionPhase.ringing,
+      createdAt: _now(),
+      isSpeakerOn: type == CallType.video,
+      isLocalVideoEnabled: type == CallType.video,
+    );
+    _currentSession = session;
+    _telemetry.recordInteraction(
+      'call_outgoing_started',
+      attributes: _callAttributes(
+        contact: contact,
+        type: type,
+        extra: <String, Object?>{
+          'real': true,
+          'group': true,
+          'invite_count': memberUids.length,
+          'optimistic': true,
+        },
+      ),
+    );
+    notifyListeners();
+
+    unawaited(
+      _finalizeGroupOutgoingSession(
+        sessionId: session.id,
+        contact: contact,
+        type: type,
+        memberUids: memberUids,
+        signaling: signaling,
+      ),
+    );
+    return true;
+  }
+
+  Future<void> _finalizeGroupOutgoingSession({
+    required String sessionId,
+    required CallContact contact,
+    required CallType type,
+    required List<String> memberUids,
+    required CallSignalingService signaling,
+  }) async {
+    try {
+      final signal = await signaling.placeGroupCall(
+        threadId: contact.id,
+        threadName: contact.name,
+        participantUids: memberUids,
+        type: type,
+      );
+      final session = _currentSession;
+      if (session == null || session.id != sessionId) {
+        await signaling.updateStatus(signal.id, CallSignalStatus.ended);
+        return;
+      }
+
+      _currentSession = session.copyWith(
+        callId: signal.id,
+        roomName: signal.roomName,
+      );
+      notifyListeners();
+      _watchActiveSignal(signal.id);
+      _watchGroupInvitesIfNeeded(_currentSession!);
+
+      if (_tokenService != null && _liveKitUrl != null) {
+        await _joinLiveKitRoomAndConnect(_currentSession!, signal.roomName);
+      }
+    } catch (error, stackTrace) {
+      final session = _currentSession;
+      if (session == null || session.id != sessionId) {
+        return;
+      }
+
+      _errorMessage = 'We could not start that group call right now.';
+      _telemetry.recordError(
+        error,
+        stackTrace,
+        source: 'call_place_group',
+        fatal: false,
+        attributes: <String, Object?>{
+          'contact_id': contact.id,
+          'type': type.name,
+        },
+      );
+      notifyListeners();
+      await _finishSession(status: CallHistoryStatus.failed);
     }
   }
 
@@ -457,27 +636,32 @@ class CallsController extends ChangeNotifier {
 
   Future<void> endCurrentCall() async {
     final session = _currentSession;
-    if (session == null) {
+    if (session == null || _isEndingCall) {
       return;
     }
 
-    if (session.isReal) {
-      try {
-        await _signalingService!
-            .updateStatus(session.callId!, CallSignalStatus.ended);
-      } catch (_) {
-        // Best-effort -- we're finishing the local session regardless.
+    _isEndingCall = true;
+    try {
+      if (session.isReal) {
+        try {
+          await _signalingService!
+              .updateStatus(session.callId!, CallSignalStatus.ended);
+        } catch (_) {
+          // Best-effort -- we're finishing the local session regardless.
+        }
       }
-    }
 
-    final status = switch (session.phase) {
-      CallSessionPhase.connected => CallHistoryStatus.completed,
-      CallSessionPhase.incoming => CallHistoryStatus.declined,
-      _ => session.direction == CallDirection.outgoing
-          ? CallHistoryStatus.canceled
-          : CallHistoryStatus.failed,
-    };
-    await _finishSession(status: status);
+      final status = switch (session.phase) {
+        CallSessionPhase.connected => CallHistoryStatus.completed,
+        CallSessionPhase.incoming => CallHistoryStatus.declined,
+        _ => session.direction == CallDirection.outgoing
+            ? CallHistoryStatus.canceled
+            : CallHistoryStatus.failed,
+      };
+      await _finishSession(status: status);
+    } finally {
+      _isEndingCall = false;
+    }
   }
 
   void toggleMute() {
@@ -728,24 +912,39 @@ class CallsController extends ChangeNotifier {
     // usually real. Falls back to a placeholder only for an older-shaped
     // call doc or a caller with no resolvable name -- a known, narrow gap.
     final callerName = signal.callerName;
-    final contact = callerName != null && callerName.isNotEmpty
-        ? CallContact(
-            id: signal.callerUid,
-            name: callerName,
-            avatarLabel: signal.callerAvatarLabel ??
-                signal.callerUid.substring(0, 2).toUpperCase(),
-            accentColor: signal.callerAccentColorArgb != null
-                ? Color(signal.callerAccentColorArgb!)
-                : Colors.teal,
-            uid: signal.callerUid,
-          )
-        : CallContact(
-            id: signal.callerUid,
-            name: 'Caller ${signal.callerUid.substring(0, 4)}',
-            avatarLabel: signal.callerUid.substring(0, 2).toUpperCase(),
-            accentColor: Colors.teal,
-            uid: signal.callerUid,
-          );
+    final CallContact contact;
+    if (signal.isGroup) {
+      contact = CallContact(
+        id: signal.threadId ?? signal.id,
+        name: signal.threadName ?? 'Group call',
+        avatarLabel: contactAvatarLabelFromName(signal.threadName ?? 'Group'),
+        accentColor: signal.callerAccentColorArgb != null
+            ? Color(signal.callerAccentColorArgb!)
+            : Colors.teal,
+        isGroup: true,
+        uid: signal.callerUid,
+        memberUids: signal.participantUids,
+      );
+    } else if (callerName != null && callerName.isNotEmpty) {
+      contact = CallContact(
+        id: signal.callerUid,
+        name: callerName,
+        avatarLabel: signal.callerAvatarLabel ??
+            signal.callerUid.substring(0, 2).toUpperCase(),
+        accentColor: signal.callerAccentColorArgb != null
+            ? Color(signal.callerAccentColorArgb!)
+            : Colors.teal,
+        uid: signal.callerUid,
+      );
+    } else {
+      contact = CallContact(
+        id: signal.callerUid,
+        name: 'Caller ${signal.callerUid.substring(0, 4)}',
+        avatarLabel: signal.callerUid.substring(0, 2).toUpperCase(),
+        accentColor: Colors.teal,
+        uid: signal.callerUid,
+      );
+    }
     final session = CallSession(
       id: 'call-${_sessionSequence++}',
       contact: contact,
@@ -756,6 +955,7 @@ class CallsController extends ChangeNotifier {
       isSpeakerOn: signal.type == CallType.video,
       isLocalVideoEnabled: signal.type == CallType.video,
       callId: signal.id,
+      roomName: signal.roomName,
     );
     _currentSession = session;
     _telemetry.recordInteraction(
@@ -796,6 +996,89 @@ class CallsController extends ChangeNotifier {
     await _finishSession(status: CallHistoryStatus.missed);
   }
 
+  void _watchGroupInvitesIfNeeded(CallSession session) {
+    _groupInviteSubscription?.cancel();
+    _groupInviteSubscription = null;
+    _groupInviteStatuses = const <String, CallSignalStatus>{};
+
+    final signaling = _signalingService;
+    final roomName = session.roomName;
+    final memberUids = session.contact.memberUids;
+    final shouldWatch = signaling != null &&
+        session.contact.isGroup &&
+        session.direction == CallDirection.outgoing &&
+        roomName != null &&
+        memberUids != null &&
+        memberUids.isNotEmpty;
+    if (!shouldWatch) {
+      return;
+    }
+
+    _groupInviteSubscription = signaling
+        .watchGroupInviteStatuses(
+          roomName: roomName,
+          participantUids: memberUids,
+        )
+        .listen(_handleGroupInviteStatuses);
+  }
+
+  void _handleGroupInviteStatuses(Map<String, CallSignalStatus> statuses) {
+    _groupInviteStatuses = statuses;
+    _maybeEndLonelyGroupHostCall();
+  }
+
+  Future<void> _handleRemoteParticipantLeft(String participantIdentity) async {
+    final session = _currentSession;
+    if (session == null) {
+      return;
+    }
+
+    if (session.contact.isGroup && session.direction == CallDirection.outgoing) {
+      final roomName = session.roomName;
+      final memberUids = session.contact.memberUids ?? const <String>[];
+      if (roomName != null && memberUids.contains(participantIdentity)) {
+        final inviteCallId = '${roomName}_$participantIdentity';
+        try {
+          await _signalingService!.updateStatus(
+            inviteCallId,
+            CallSignalStatus.ended,
+          );
+        } catch (_) {
+          // Best-effort -- invite watch + LiveKit state still drive cleanup.
+        }
+        _groupInviteStatuses = Map<String, CallSignalStatus>.from(
+          _groupInviteStatuses,
+        )..[participantIdentity] = CallSignalStatus.ended;
+      }
+      _maybeEndLonelyGroupHostCall();
+      return;
+    }
+
+    if (!session.contact.isGroup && remoteParticipantCount == 0) {
+      await endCurrentCall();
+    }
+  }
+
+  void _maybeEndLonelyGroupHostCall() {
+    final session = _currentSession;
+    if (session == null ||
+        _isEndingCall ||
+        !session.contact.isGroup ||
+        session.direction != CallDirection.outgoing ||
+        session.phase == CallSessionPhase.incoming) {
+      return;
+    }
+
+    if (!shouldEndLonelyGroupHostCall(
+      remoteParticipantCount: remoteParticipantCount,
+      inviteStatuses: _groupInviteStatuses.values,
+    )) {
+      return;
+    }
+
+    unawaited(endCurrentCall());
+  }
+
   void _watchActiveSignal(String callId) {
     _activeSignalSubscription?.cancel();
     _activeSignalSubscription =
@@ -817,15 +1100,22 @@ class CallsController extends ChangeNotifier {
 
     switch (signal.status) {
       case CallSignalStatus.ringing:
+      case CallSignalStatus.active:
         return;
       case CallSignalStatus.accepted:
         if (session.phase == CallSessionPhase.connecting ||
             session.phase == CallSessionPhase.connected) {
           return;
         }
-        await _joinLiveKitRoomAndConnect(session, signal.roomName);
+        await _joinLiveKitRoomAndConnect(
+          session,
+          session.roomName ?? signal.roomName,
+        );
         return;
       case CallSignalStatus.declined:
+        if (session.contact.isGroup && session.direction == CallDirection.outgoing) {
+          return;
+        }
         await _finishSession(status: CallHistoryStatus.declined);
         return;
       case CallSignalStatus.ended:
@@ -869,9 +1159,24 @@ class CallsController extends ChangeNotifier {
       final roomListener = room.createListener();
       roomListener.on<lk.TrackSubscribedEvent>((event) {
         if (event.track is lk.VideoTrack) {
-          _remoteVideoTrack = event.track as lk.VideoTrack;
+          _remoteVideoTracks[event.participant.identity] =
+              event.track as lk.VideoTrack;
           notifyListeners();
         }
+      });
+      roomListener.on<lk.TrackUnsubscribedEvent>((event) {
+        if (event.track is lk.VideoTrack) {
+          _remoteVideoTracks.remove(event.participant.identity);
+          notifyListeners();
+        }
+      });
+      roomListener.on<lk.ParticipantDisconnectedEvent>((event) {
+        _remoteVideoTracks.remove(event.participant.identity);
+        notifyListeners();
+        unawaited(_handleRemoteParticipantLeft(event.participant.identity));
+      });
+      roomListener.on<lk.ParticipantConnectedEvent>((_) {
+        notifyListeners();
       });
 
       lk.LocalTrackPublication? cameraPub;
@@ -948,12 +1253,15 @@ class CallsController extends ChangeNotifier {
   Future<void> _teardownRealCallResources() async {
     await _activeSignalSubscription?.cancel();
     _activeSignalSubscription = null;
+    await _groupInviteSubscription?.cancel();
+    _groupInviteSubscription = null;
+    _groupInviteStatuses = const <String, CallSignalStatus>{};
     final room = _room;
     final roomListener = _roomListener;
     _room = null;
     _roomListener = null;
     _localVideoTrack = null;
-    _remoteVideoTrack = null;
+    _remoteVideoTracks.clear();
     await roomListener?.dispose();
     await room?.disconnect();
     await room?.dispose();
@@ -1139,4 +1447,21 @@ class CallsController extends ChangeNotifier {
     unawaited(_teardownRealCallResources());
     super.dispose();
   }
+}
+
+String contactAvatarLabelFromName(String name) {
+  final parts = name
+      .split(RegExp(r'\s+'))
+      .where((part) => part.isNotEmpty)
+      .toList(growable: false);
+  if (parts.isEmpty) {
+    return 'GC';
+  }
+  if (parts.length == 1) {
+    final clean = parts.first.replaceAll(RegExp(r'[^A-Za-z0-9]'), '');
+    return clean.isEmpty
+        ? 'GC'
+        : clean.substring(0, clean.length >= 2 ? 2 : 1).toUpperCase();
+  }
+  return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
 }

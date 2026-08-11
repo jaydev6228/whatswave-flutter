@@ -17,6 +17,7 @@ class CallSession {
     this.isLocalVideoEnabled = false,
     this.isFrontCamera = true,
     this.callId,
+    this.roomName,
     this.isRemoteRinging = false,
   });
 
@@ -44,6 +45,11 @@ class CallSession {
   /// CallSignalingService), null for the local/simulated call flow.
   final String? callId;
 
+  /// LiveKit room to join -- copied from the signal at session start so
+  /// group invitees can connect without flipping the whole call doc to
+  /// `accepted` (which would cancel everyone else's ringing invite).
+  final String? roomName;
+
   bool get isIncoming => direction == CallDirection.incoming;
   bool get isVideo => type == CallType.video;
   bool get isReal => callId != null;
@@ -70,6 +76,7 @@ class CallSession {
     bool? isLocalVideoEnabled,
     bool? isFrontCamera,
     String? callId,
+    String? roomName,
     bool? isRemoteRinging,
   }) {
     return CallSession(
@@ -86,6 +93,7 @@ class CallSession {
       isLocalVideoEnabled: isLocalVideoEnabled ?? this.isLocalVideoEnabled,
       isFrontCamera: isFrontCamera ?? this.isFrontCamera,
       callId: callId ?? this.callId,
+      roomName: roomName ?? this.roomName,
       isRemoteRinging: isRemoteRinging ?? this.isRemoteRinging,
     );
   }

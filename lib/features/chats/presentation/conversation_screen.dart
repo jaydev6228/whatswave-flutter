@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
@@ -1519,6 +1520,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
   }
 
   CallContact _callContactForThread(ChatThread thread) {
+    final currentUid = fb_auth.FirebaseAuth.instance.currentUser?.uid ?? '';
     return CallContact(
       id: thread.id,
       name: thread.name,
@@ -1526,6 +1528,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
       accentColor: thread.accentColor,
       isGroup: thread.isGroup,
       uid: thread.participantUid,
+      memberUids: thread.isGroup
+          ? thread.otherMemberUids(currentUid)
+          : null,
     );
   }
 

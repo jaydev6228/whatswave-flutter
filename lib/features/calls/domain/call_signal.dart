@@ -1,11 +1,11 @@
 import 'call_history_entry.dart';
 
-enum CallSignalStatus { ringing, accepted, declined, ended }
+enum CallSignalStatus { ringing, accepted, declined, ended, active }
 
-/// A single call's shared state between two real users, synced through
+/// A single call's shared state between real users, synced through
 /// Firestore (see FirestoreCallSignalingService). Distinct from
 /// [CallSession], which is local-only UI state -- this is what actually
-/// lets one device notify another that a call is happening.
+/// lets devices notify each other that a call is happening.
 class CallSignal {
   const CallSignal({
     required this.id,
@@ -20,10 +20,16 @@ class CallSignal {
     this.callerAvatarLabel,
     this.callerAccentColorArgb,
     this.calleeRinging = false,
+    this.isGroup = false,
+    this.threadId,
+    this.threadName,
+    this.participantUids = const <String>[],
   });
 
   final String id;
   final String callerUid;
+
+  /// The 1:1 callee's uid. Empty for group calls -- use [participantUids].
   final String calleeUid;
   final CallType type;
   final String roomName;
@@ -31,25 +37,17 @@ class CallSignal {
   final DateTime createdAt;
   final DateTime updatedAt;
 
-  /// Set once the callee's device has actually surfaced the incoming-call
-  /// UI and started ringing -- distinct from [status] staying `ringing`
-  /// the whole time the call is outstanding. Lets the caller's screen show
-  /// "Ringing..." instead of "Calling..." once it's true. A separate field
-  /// rather than a new [CallSignalStatus] value on purpose: watchIncomingCall
-  /// filters on `status == ringing`, so folding this into status would make
-  /// the callee's own incoming-call query stop matching the instant they
-  /// marked themselves as ringing.
   final bool calleeRinging;
-
-  /// The caller's own identity, stamped onto the call doc at placeCall()
-  /// time (see FirestoreCallSignalingService) so the callee's incoming-call
-  /// UI can show a real name/avatar without a live lookup. Null for local
-  /// signaling, older-shaped call docs, or a caller with no published
-  /// profile -- callers should fall back to a placeholder identity in that
-  /// case (see CallsController._handleIncomingSignal).
   final String? callerName;
   final String? callerAvatarLabel;
   final int? callerAccentColorArgb;
+
+  /// True when this is a group call -- [participantUids] lists every
+  /// invited member except the host ([callerUid]).
+  final bool isGroup;
+  final String? threadId;
+  final String? threadName;
+  final List<String> participantUids;
 
   CallSignal copyWith({
     CallSignalStatus? status,
@@ -69,6 +67,10 @@ class CallSignal {
       callerAvatarLabel: callerAvatarLabel,
       callerAccentColorArgb: callerAccentColorArgb,
       calleeRinging: calleeRinging ?? this.calleeRinging,
+      isGroup: isGroup,
+      threadId: threadId,
+      threadName: threadName,
+      participantUids: participantUids,
     );
   }
 }

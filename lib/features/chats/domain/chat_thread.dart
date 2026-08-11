@@ -22,6 +22,7 @@ class ChatThread {
     this.isCommunityGroup = false,
     this.avatarUrl,
     this.participants,
+    this.participantUids,
     this.groupDescription,
   });
 
@@ -67,6 +68,11 @@ class ChatThread {
   /// backend that doesn't support group management).
   final List<GroupParticipant>? participants;
 
+  /// Raw Firebase uids for every group member, including the viewer.
+  /// Always set for Firestore-backed groups and used as a fallback when
+  /// placing a call if [participants] hasn't been resolved yet.
+  final List<String>? participantUids;
+
   /// A short "what's this group for" blurb, editable by admins -- null if
   /// never set. Not applicable to 1:1 threads.
   final String? groupDescription;
@@ -75,6 +81,16 @@ class ChatThread {
   /// false for 1:1 threads or a group with no [participants] data.
   bool get currentUserIsGroupAdmin =>
       participants?.any((p) => p.isSelf && p.isAdmin) ?? false;
+
+  /// Every other member uid in this group, excluding [currentUid].
+  List<String> otherMemberUids(String currentUid) {
+    final uids = participantUids ??
+        participants?.map((participant) => participant.uid).toList() ??
+        const <String>[];
+    return uids
+        .where((uid) => uid != currentUid)
+        .toList(growable: false);
+  }
 
   ChatMessage? get latestMessage => messages.isEmpty ? null : messages.last;
 
@@ -164,6 +180,7 @@ class ChatThread {
     String? avatarUrl,
     bool clearAvatarUrl = false,
     List<GroupParticipant>? participants,
+    List<String>? participantUids,
     String? groupDescription,
   }) {
     return ChatThread(
@@ -185,6 +202,7 @@ class ChatThread {
       isCommunityGroup: isCommunityGroup ?? this.isCommunityGroup,
       avatarUrl: clearAvatarUrl ? null : (avatarUrl ?? this.avatarUrl),
       participants: participants ?? this.participants,
+      participantUids: participantUids ?? this.participantUids,
       groupDescription: groupDescription ?? this.groupDescription,
     );
   }

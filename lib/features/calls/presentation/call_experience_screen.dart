@@ -245,6 +245,7 @@ class _AudioCallLayout extends StatelessWidget {
         final detailText = session.phase == CallSessionPhase.connected
             ? _formatDuration(session.elapsedSeconds(DateTime.now()))
             : _audioStatusText(session);
+        final groupDetail = _groupParticipantDetail(controller, session);
         final detailStyle = session.phase == CallSessionPhase.connected
             ? theme.textTheme.headlineLarge?.copyWith(
                 color: textColor,
@@ -289,6 +290,20 @@ class _AudioCallLayout extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: detailStyle,
                 ),
+                if (groupDetail.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    groupDetail,
+                    key: const Key('call_group_participant_text'),
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      color: scheme.secondaryText,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
                 Expanded(
                   child: _AudioCenterStage(
                     session: session,
@@ -337,8 +352,13 @@ class _VideoAmbientStage extends StatelessWidget {
     final accentColor = session.contact.accentColor;
     final secondaryGlow = Color.lerp(AppPalette.sky, AppPalette.purple, 0.55)!;
     final remoteTrack = session.isReal ? controller.remoteVideoTrack : null;
-    final showRemoteVideo =
-        session.phase == CallSessionPhase.connected && remoteTrack != null;
+    final remoteTracks =
+        session.isReal ? controller.remoteVideoTracks : const <lk.VideoTrack>[];
+    final showGroupGrid = session.phase == CallSessionPhase.connected &&
+        remoteTracks.length > 1;
+    final showRemoteVideo = session.phase == CallSessionPhase.connected &&
+        !showGroupGrid &&
+        remoteTrack != null;
 
     return Stack(
       fit: StackFit.expand,
@@ -366,7 +386,12 @@ class _VideoAmbientStage extends StatelessWidget {
             ),
           ),
         ),
-        if (showRemoteVideo)
+        if (showGroupGrid)
+          Positioned.fill(
+            key: const Key('call_group_video_grid'),
+            child: _GroupVideoGrid(tracks: remoteTracks),
+          )
+        else if (showRemoteVideo)
           Positioned.fill(
             key: const Key('call_remote_video_surface'),
             child: lk.VideoTrackRenderer(
@@ -1512,6 +1537,127 @@ class _AmbientGlow extends StatelessWidget {
   }
 }
 
+String _groupParticipantDetail(CallsController controller, CallSession session) {
+  if (!session.contact.isGroup) {
+    return '';
+  }
+  if (session.phase == CallSessionPhase.connected) {
+    final joined = controller.remoteParticipantCount;
+    if (joined <= 0) {
+      return 'Waiting for others…';
+    }
+    return joined == 1 ? '1 participant' : '$joined participants';
+  }
+  final invited = session.contact.memberUids?.length ?? 0;
+  if (invited <= 0) {
+    return 'Group call';
+  }
+  return invited == 1 ? '1 person invited' : '$invited people invited';
+}
+
+class _GroupVideoGrid extends StatelessWidget {
+  const _GroupVideoGrid({required this.tracks});
+
+  final List<lk.VideoTrack> tracks;
+
+  @override
+  Widget build(BuildContext context) {
+    final visible = tracks.take(4).toList(growable: false);
+    if (visible.length <= 1) {
+      return lk.VideoTrackRenderer(
+        visible.first,
+        fit: lk.VideoViewFit.cover,
+      );
+    }
+
+    return ColoredBox(
+      color: Colors.black,
+      child: switch (visible.length) {
+        2 => Row(
+            children: visible
+                .map(
+                  (track) => Expanded(
+                    child: lk.VideoTrackRenderer(
+                      track,
+                      fit: lk.VideoViewFit.cover,
+                    ),
+                  ),
+                )
+                .toList(growable: false),
+          ),
+        3 => Column(
+            children: [
+              Expanded(
+                child: lk.VideoTrackRenderer(
+                  visible[0],
+                  fit: lk.VideoViewFit.cover,
+                ),
+              ),
+              Expanded(
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: lk.VideoTrackRenderer(
+                        visible[1],
+                        fit: lk.VideoViewFit.cover,
+                      ),
+                    ),
+                    Expanded(
+                      child: lk.VideoTrackRenderer(
+                        visible[2],
+                        fit: lk.VideoViewFit.cover,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        _ => Column(
+            children: [
+              Expanded(
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: lk.VideoTrackRenderer(
+                        visible[0],
+                        fit: lk.VideoViewFit.cover,
+                      ),
+                    ),
+                    Expanded(
+                      child: lk.VideoTrackRenderer(
+                        visible[1],
+                        fit: lk.VideoViewFit.cover,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: lk.VideoTrackRenderer(
+                        visible[2],
+                        fit: lk.VideoViewFit.cover,
+                      ),
+                    ),
+                    Expanded(
+                      child: lk.VideoTrackRenderer(
+                        visible[3],
+                        fit: lk.VideoViewFit.cover,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+      },
+    );
+  }
+}
+
 String _displayCallName(String fullName) {
   final trimmed = fullName.trim();
   if (trimmed.isEmpty) {
@@ -1527,7 +1673,9 @@ String _displayCallName(String fullName) {
 
 String _videoStatusText(CallSession session) {
   return switch (session.phase) {
-    CallSessionPhase.incoming => 'Incoming call',
+    CallSessionPhase.incoming => session.contact.isGroup
+        ? 'Incoming group video call'
+        : 'Incoming call',
     CallSessionPhase.ringing =>
       session.isRemoteRinging ? 'Ringing...' : 'Calling...',
     CallSessionPhase.connecting => 'Connecting...',
@@ -1538,7 +1686,9 @@ String _videoStatusText(CallSession session) {
 
 String _audioStatusText(CallSession session) {
   return switch (session.phase) {
-    CallSessionPhase.incoming => 'Incoming audio call',
+    CallSessionPhase.incoming => session.contact.isGroup
+        ? 'Incoming group audio call'
+        : 'Incoming audio call',
     CallSessionPhase.ringing =>
       session.isRemoteRinging ? 'Ringing...' : 'Calling...',
     CallSessionPhase.connecting => 'Connecting...',
@@ -1551,7 +1701,9 @@ String _audioStatusText(CallSession session) {
 String _remoteVideoStageLabel(CallSession session) {
   final callingVerb = session.isRemoteRinging ? 'Ringing' : 'Calling';
   return switch (session.phase) {
-    CallSessionPhase.incoming => 'Incoming video call',
+    CallSessionPhase.incoming => session.contact.isGroup
+        ? 'Incoming group video call'
+        : 'Incoming video call',
     CallSessionPhase.ringing =>
       '$callingVerb ${_displayCallName(session.contact.name)}',
     CallSessionPhase.connecting => 'Preparing video',

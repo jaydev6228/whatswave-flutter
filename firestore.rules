@@ -250,30 +250,44 @@ service cloud.firestore {
     }
 
     match /calls/{callId} {
-      // Only the two participants can ever read a call doc. Only the
-      // caller can create one (the callee doesn't need write access to be
-      // invited), and callerUid/calleeUid must differ -- self-calls were
-      // briefly allowed to smoke-test the debug call-signaling screen on
-      // one device, now reverted since real calling is wired up and
-      // self-calls have no legitimate use. Either side can update status
-      // (accept/decline/end), but can't change who's on the call, which
-      // room it points to, or the caller identity stamped at creation
-      // (callerName/callerAvatarLabel/callerAccentColorArgb, see
-      // FirestoreCallSignalingService.placeCall) -- those fields are all
-      // fixed at creation.
+      // 1:1 calls use callerUid + calleeUid; group calls add
+      // participantUids (every invited member except the host). Either
+      // party may update status (accept/decline/end) but can't rewrite
+      // identity or membership fields stamped at creation.
       allow read: if request.auth != null
                     && (request.auth.uid == resource.data.callerUid
-                        || request.auth.uid == resource.data.calleeUid);
+                        || request.auth.uid == resource.data.calleeUid
+                        || (resource.data.get('isGroup', false) == true
+                            && request.auth.uid
+                                in resource.data.get('participantUids', [])));
       allow create: if request.auth != null
                       && request.auth.uid == request.resource.data.callerUid
-                      && request.resource.data.callerUid
-                          != request.resource.data.calleeUid;
+                      && (
+                           (request.resource.data.get('isGroup', false) == true
+                            && request.resource.data.participantUids.size() > 0
+                            && !(request.auth.uid
+                                 in request.resource.data.participantUids))
+                           || (request.resource.data.get('isGroup', false) != true
+                               && request.resource.data.callerUid
+                                   != request.resource.data.calleeUid)
+                         );
       allow update: if request.auth != null
                       && (request.auth.uid == resource.data.callerUid
-                          || request.auth.uid == resource.data.calleeUid)
+                          || request.auth.uid == resource.data.calleeUid
+                          || (resource.data.get('isGroup', false) == true
+                              && request.auth.uid
+                                  in resource.data.get('participantUids', [])))
                       && request.resource.data.callerUid == resource.data.callerUid
                       && request.resource.data.calleeUid == resource.data.calleeUid
                       && request.resource.data.roomName == resource.data.roomName
+                      && request.resource.data.get('isGroup', false)
+                          == resource.data.get('isGroup', false)
+                      && request.resource.data.get('participantUids', [])
+                          == resource.data.get('participantUids', [])
+                      && request.resource.data.get('threadId', null)
+                          == resource.data.get('threadId', null)
+                      && request.resource.data.get('threadName', null)
+                          == resource.data.get('threadName', null)
                       && request.resource.data.get('callerName', null)
                           == resource.data.get('callerName', null)
                       && request.resource.data.get('callerAvatarLabel', null)

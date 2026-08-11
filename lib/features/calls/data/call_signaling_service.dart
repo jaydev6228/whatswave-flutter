@@ -12,25 +12,34 @@ abstract class CallSignalingService {
     required CallType type,
   });
 
-  /// The most recent ringing call addressed to [myUid], or null. Used to
-  /// surface an incoming-call UI on the callee's device.
+  /// Starts a group call inviting every uid in [participantUids] (host
+  /// excluded). Each invitee watches via [watchIncomingCall].
+  Future<CallSignal> placeGroupCall({
+    required String threadId,
+    required String threadName,
+    required List<String> participantUids,
+    required CallType type,
+  });
+
+  /// The most recent ringing call addressed to [myUid], or null. Matches
+  /// both 1:1 ([CallSignal.calleeUid]) and group
+  /// ([CallSignal.participantUids]) invites.
   Stream<CallSignal?> watchIncomingCall(String myUid);
 
-  /// Live updates for a specific call, e.g. so the caller sees when the
-  /// callee accepts/declines.
   Stream<CallSignal?> watchCall(String callId);
+
+  /// Live map of each invited member's call-doc status for a group host.
+  Stream<Map<String, CallSignalStatus>> watchGroupInviteStatuses({
+    required String roomName,
+    required List<String> participantUids,
+  });
 
   Future<void> updateStatus(String callId, CallSignalStatus status);
 
-  /// Tells the caller's side that this device has surfaced the incoming-call
-  /// UI and started ringing, so their screen can show "Ringing..." instead
-  /// of "Calling...".
   Future<void> markCalleeRinging(String callId);
 }
 
-/// Local-only stand-in with no real cross-device delivery -- there's no
-/// second device to signal in local mode. Exists purely to satisfy the
-/// [CallSignalingService] seam for local/demo builds.
+/// Local-only stand-in with no real cross-device delivery.
 class MemoryCallSignalingService implements CallSignalingService {
   final Map<String, CallSignal> _calls = <String, CallSignal>{};
   final StreamController<CallSignal?> _incomingController =
@@ -61,6 +70,33 @@ class MemoryCallSignalingService implements CallSignalingService {
   }
 
   @override
+  Future<CallSignal> placeGroupCall({
+    required String threadId,
+    required String threadName,
+    required List<String> participantUids,
+    required CallType type,
+  }) async {
+    final now = DateTime.now();
+    final id = 'local-group-call-${_sequence++}';
+    final signal = CallSignal(
+      id: id,
+      callerUid: 'local-caller',
+      calleeUid: '',
+      roomName: id,
+      type: type,
+      status: CallSignalStatus.ringing,
+      createdAt: now,
+      updatedAt: now,
+      isGroup: true,
+      threadId: threadId,
+      threadName: threadName,
+      participantUids: participantUids,
+    );
+    _calls[id] = signal;
+    return signal;
+  }
+
+  @override
   Stream<CallSignal?> watchIncomingCall(String myUid) {
     return _incomingController.stream;
   }
@@ -70,6 +106,16 @@ class MemoryCallSignalingService implements CallSignalingService {
     return _callControllers
         .putIfAbsent(callId, () => StreamController<CallSignal?>.broadcast())
         .stream;
+  }
+
+  @override
+  Stream<Map<String, CallSignalStatus>> watchGroupInviteStatuses({
+    required String roomName,
+    required List<String> participantUids,
+  }) {
+    final controller =
+        StreamController<Map<String, CallSignalStatus>>.broadcast();
+    return controller.stream;
   }
 
   @override

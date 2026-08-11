@@ -813,6 +813,7 @@ class FirestoreChatRepository implements ChatRepository {
       participantUid: otherUid,
       isCommunityGroup: (data['isCommunityGroup'] as bool?) ?? false,
       participants: participants,
+      participantUids: isGroup ? participantUids : null,
       groupDescription: groupDescription,
     );
   }

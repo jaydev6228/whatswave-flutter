@@ -280,6 +280,8 @@ void main() {
       expect(didStart, isTrue);
       expect(signaling.placedCalleeUid, 'callee-uid');
       expect(controller.currentSession?.phase, CallSessionPhase.ringing);
+      expect(controller.currentSession, isNotNull);
+      await Future<void>.delayed(Duration.zero);
       expect(controller.currentSession?.callId, isNotNull);
       expect(controller.currentSession?.isReal, isTrue);
 
@@ -290,6 +292,193 @@ void main() {
 
       expect(controller.currentSession, isNull);
       expect(controller.history.first.uid, 'callee-uid');
+      expect(controller.history.first.status, CallHistoryStatus.canceled);
+    });
+
+    test('starts a real group call when member uids are provided', () async {
+      final signaling = FakeCallSignalingService();
+      final controller = CallsController(
+        repository: FakeCallsRepository(latency: Duration.zero),
+        permissionService: MemoryAppPermissionService(),
+        signalingService: signaling,
+        durationTickInterval: Duration.zero,
+      );
+      await controller.loadOverview();
+
+      final didStart = await controller.startOutgoingCall(
+        contact: const CallContact(
+          id: 'design-sprint',
+          name: 'Design Sprint',
+          avatarLabel: 'DS',
+          accentColor: Color(0xFF123456),
+          isGroup: true,
+          memberUids: <String>['uid-ava', 'uid-noah'],
+        ),
+        type: CallType.audio,
+      );
+
+      expect(didStart, isTrue);
+      expect(signaling.placedType, CallType.audio);
+      expect(controller.currentSession?.contact.isGroup, isTrue);
+      expect(controller.currentSession?.phase, CallSessionPhase.ringing);
+      expect(controller.currentSession, isNotNull);
+      await Future<void>.delayed(Duration.zero);
+      expect(controller.currentSession?.isReal, isTrue);
+
+      await controller.endCurrentCall();
+      expect(controller.history.first.isGroup, isTrue);
+    });
+
+    test('rings on an incoming group call the same way as 1:1', () async {
+      final signaling = FakeCallSignalingService();
+      final uidController = StreamController<String?>();
+      final controller = CallsController(
+        repository: FakeCallsRepository(latency: Duration.zero),
+        permissionService: MemoryAppPermissionService(),
+        signalingService: signaling,
+        currentUserIdStream: uidController.stream,
+        durationTickInterval: Duration.zero,
+      );
+
+      await controller.loadOverview();
+      uidController.add('uid-noah');
+      await Future<void>.delayed(Duration.zero);
+
+      final now = DateTime.now();
+      signaling.emitIncomingCall(
+        CallSignal(
+          id: 'room-1_uid-noah',
+          callerUid: 'uid-host',
+          calleeUid: 'uid-noah',
+          roomName: 'room-1',
+          type: CallType.audio,
+          status: CallSignalStatus.ringing,
+          createdAt: now,
+          updatedAt: now,
+          callerName: 'Jay',
+          isGroup: true,
+          threadId: 'group-thread',
+          threadName: 'Weekend Crew',
+          participantUids: const <String>['uid-ava', 'uid-noah'],
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(controller.currentSession?.direction, CallDirection.incoming);
+      expect(controller.currentSession?.contact.isGroup, isTrue);
+      expect(controller.currentSession?.contact.name, 'Weekend Crew');
+      expect(controller.currentSession?.roomName, 'room-1');
+
+      await uidController.close();
+    });
+
+    test(
+        'shows the group host call screen before remote invites are placed',
+        () async {
+      final signaling = DelayedFakeCallSignalingService();
+      final controller = CallsController(
+        repository: FakeCallsRepository(latency: Duration.zero),
+        permissionService: MemoryAppPermissionService(),
+        signalingService: signaling,
+        durationTickInterval: Duration.zero,
+      );
+      await controller.loadOverview();
+
+      await controller.startOutgoingCall(
+        contact: const CallContact(
+          id: 'design-sprint',
+          name: 'Design Sprint',
+          avatarLabel: 'DS',
+          accentColor: Color(0xFF123456),
+          isGroup: true,
+          memberUids: <String>['uid-ava'],
+        ),
+        type: CallType.audio,
+      );
+
+      expect(controller.currentSession, isNotNull);
+      expect(controller.currentSession?.isReal, isFalse);
+      expect(signaling.placeGroupCallStarted, isTrue);
+
+      signaling.releasePlaceGroupCall.complete();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(controller.currentSession?.isReal, isTrue);
+    });
+
+    test(
+        'keeps a group host in the call while another member is still ringing',
+        () async {
+      final signaling = FakeCallSignalingService();
+      final controller = CallsController(
+        repository: FakeCallsRepository(latency: Duration.zero),
+        permissionService: MemoryAppPermissionService(),
+        signalingService: signaling,
+        durationTickInterval: Duration.zero,
+      );
+      await controller.loadOverview();
+
+      await controller.startOutgoingCall(
+        contact: const CallContact(
+          id: 'design-sprint',
+          name: 'Design Sprint',
+          avatarLabel: 'DS',
+          accentColor: Color(0xFF123456),
+          isGroup: true,
+          memberUids: <String>['uid-ava', 'uid-noah'],
+        ),
+        type: CallType.audio,
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      signaling.setGroupInviteStatus(
+        roomName: signaling.lastGroupRoomName!,
+        inviteeUid: 'uid-ava',
+        status: CallSignalStatus.ended,
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(controller.currentSession, isNotNull);
+    });
+
+    test(
+        'ends a group host call once nobody is connected or still ringing',
+        () async {
+      final signaling = FakeCallSignalingService();
+      final controller = CallsController(
+        repository: FakeCallsRepository(latency: Duration.zero),
+        permissionService: MemoryAppPermissionService(),
+        signalingService: signaling,
+        durationTickInterval: Duration.zero,
+      );
+      await controller.loadOverview();
+
+      await controller.startOutgoingCall(
+        contact: const CallContact(
+          id: 'design-sprint',
+          name: 'Design Sprint',
+          avatarLabel: 'DS',
+          accentColor: Color(0xFF123456),
+          isGroup: true,
+          memberUids: <String>['uid-ava', 'uid-noah'],
+        ),
+        type: CallType.audio,
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      signaling.setGroupInviteStatus(
+        roomName: signaling.lastGroupRoomName!,
+        inviteeUid: 'uid-ava',
+        status: CallSignalStatus.ended,
+      );
+      signaling.setGroupInviteStatus(
+        roomName: signaling.lastGroupRoomName!,
+        inviteeUid: 'uid-noah',
+        status: CallSignalStatus.declined,
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(controller.currentSession, isNull);
       expect(controller.history.first.status, CallHistoryStatus.canceled);
     });
 
@@ -553,10 +742,70 @@ class FakeCallSignalingService implements CallSignalingService {
       StreamController<CallSignal?>.broadcast();
   final Map<String, StreamController<CallSignal?>> _callControllers =
       <String, StreamController<CallSignal?>>{};
+  final Map<String, StreamController<Map<String, CallSignalStatus>>>
+      _groupInviteControllers =
+      <String, StreamController<Map<String, CallSignalStatus>>>{};
+  final Map<String, Map<String, CallSignalStatus>> _groupInviteStatuses =
+      <String, Map<String, CallSignalStatus>>{};
   int _sequence = 0;
 
   String? placedCalleeUid;
   CallType? placedType;
+  String? lastGroupRoomName;
+
+  String _groupInviteCallId(String roomName, String inviteeUid) =>
+      '${roomName}_$inviteeUid';
+
+  @override
+  Future<CallSignal> placeGroupCall({
+    required String threadId,
+    required String threadName,
+    required List<String> participantUids,
+    required CallType type,
+  }) async {
+    placedCalleeUid = participantUids.isEmpty ? null : participantUids.first;
+    placedType = type;
+    final now = DateTime.now();
+    final id = 'fake-group-call-${_sequence++}';
+    lastGroupRoomName = id;
+    final signal = CallSignal(
+      id: id,
+      callerUid: 'test-caller-uid',
+      calleeUid: '',
+      roomName: id,
+      type: type,
+      status: CallSignalStatus.active,
+      createdAt: now,
+      updatedAt: now,
+      isGroup: true,
+      threadId: threadId,
+      threadName: threadName,
+      participantUids: participantUids,
+    );
+    _calls[id] = signal;
+    _groupInviteStatuses[id] = <String, CallSignalStatus>{
+      for (final uid in participantUids) uid: CallSignalStatus.ringing,
+    };
+    for (final uid in participantUids) {
+      final inviteId = _groupInviteCallId(id, uid);
+      _calls[inviteId] = CallSignal(
+        id: inviteId,
+        callerUid: 'test-caller-uid',
+        calleeUid: uid,
+        roomName: id,
+        type: type,
+        status: CallSignalStatus.ringing,
+        createdAt: now,
+        updatedAt: now,
+        isGroup: true,
+        threadId: threadId,
+        threadName: threadName,
+        participantUids: participantUids,
+      );
+    }
+    _emitGroupInviteStatuses(id);
+    return signal;
+  }
 
   @override
   Future<CallSignal> placeCall({
@@ -594,6 +843,55 @@ class FakeCallSignalingService implements CallSignalingService {
   }
 
   @override
+  Stream<Map<String, CallSignalStatus>> watchGroupInviteStatuses({
+    required String roomName,
+    required List<String> participantUids,
+  }) {
+    final controller = _groupInviteControllers.putIfAbsent(
+      roomName,
+      () => StreamController<Map<String, CallSignalStatus>>.broadcast(),
+    );
+    final initial = _groupInviteStatuses[roomName];
+    if (initial != null) {
+      Future<void>.microtask(
+        () => controller.add(Map<String, CallSignalStatus>.from(initial)),
+      );
+    }
+    return controller.stream;
+  }
+
+  void setGroupInviteStatus({
+    required String roomName,
+    required String inviteeUid,
+    required CallSignalStatus status,
+  }) {
+    final statuses = _groupInviteStatuses.putIfAbsent(
+      roomName,
+      () => <String, CallSignalStatus>{},
+    );
+    statuses[inviteeUid] = status;
+    final inviteId = _groupInviteCallId(roomName, inviteeUid);
+    final existing = _calls[inviteId];
+    if (existing != null) {
+      _calls[inviteId] = existing.copyWith(
+        status: status,
+        updatedAt: DateTime.now(),
+      );
+    }
+    _emitGroupInviteStatuses(roomName);
+  }
+
+  void _emitGroupInviteStatuses(String roomName) {
+    final statuses = _groupInviteStatuses[roomName];
+    if (statuses == null) {
+      return;
+    }
+    _groupInviteControllers[roomName]?.add(
+      Map<String, CallSignalStatus>.from(statuses),
+    );
+  }
+
+  @override
   Future<void> updateStatus(String callId, CallSignalStatus status) async {
     final existing = _calls[callId];
     if (existing == null) {
@@ -625,4 +923,26 @@ class FakeCallSignalingService implements CallSignalingService {
   }
 
   CallSignalStatus? statusOf(String callId) => _calls[callId]?.status;
+}
+
+class DelayedFakeCallSignalingService extends FakeCallSignalingService {
+  final Completer<void> releasePlaceGroupCall = Completer<void>();
+  var placeGroupCallStarted = false;
+
+  @override
+  Future<CallSignal> placeGroupCall({
+    required String threadId,
+    required String threadName,
+    required List<String> participantUids,
+    required CallType type,
+  }) async {
+    placeGroupCallStarted = true;
+    await releasePlaceGroupCall.future;
+    return super.placeGroupCall(
+      threadId: threadId,
+      threadName: threadName,
+      participantUids: participantUids,
+      type: type,
+    );
+  }
 }

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:flutter/material.dart';
@@ -9,11 +11,9 @@ import '../domain/call_signal.dart';
 import 'call_signaling_service.dart';
 
 /// Real cross-device call signaling via a `calls/{callId}` Firestore
-/// collection. The room name is just the document id -- LiveKit doesn't
-/// need it to mean anything else. See firestore.rules for the matching
-/// security rules (only the two participants can read/write a call doc,
-/// and identity fields -- including callerName/callerAvatarLabel/
-/// callerAccentColorArgb -- can't be changed after creation).
+/// collection. Group calls reuse the same shape as 1:1: one call doc per
+/// invitee with [CallSignal.calleeUid] set, plus a host doc keyed by the
+/// shared LiveKit [CallSignal.roomName].
 class FirestoreCallSignalingService implements CallSignalingService {
   FirestoreCallSignalingService({
     FirebaseFirestore? firestore,
@@ -27,16 +27,18 @@ class FirestoreCallSignalingService implements CallSignalingService {
   CollectionReference<Map<String, dynamic>> get _calls =>
       _firestore.collection('calls');
 
+  String _groupInviteCallId({
+    required String roomName,
+    required String inviteeUid,
+  }) =>
+      '${roomName}_$inviteeUid';
+
   @override
   Future<CallSignal> placeCall({
     required String calleeUid,
     required CallType type,
   }) async {
-    final callerUid = _firebaseAuth.currentUser?.uid;
-    if (callerUid == null) {
-      throw StateError('Must be signed in to place a call.');
-    }
-
+    final callerUid = _requireCallerUid;
     final identity = await _callerIdentity(callerUid);
 
     final docRef = _calls.doc();
@@ -53,6 +55,7 @@ class FirestoreCallSignalingService implements CallSignalingService {
       'callerAvatarLabel': identity.avatarLabel,
       'callerAccentColorArgb': identity.accentColorArgb,
       'calleeRinging': false,
+      'isGroup': false,
     });
 
     return CallSignal(
@@ -70,16 +73,86 @@ class FirestoreCallSignalingService implements CallSignalingService {
     );
   }
 
-  /// Resolves the caller's own identity to stamp onto the call doc so the
-  /// callee can show a real name/avatar without a live lookup on their
-  /// side. Prefers the userProfiles registry -- the same source every
-  /// other feature already resolves identity from (see
-  /// FirebaseAuthRepository, which keeps it fresh on every sign-in, and
-  /// FirestoreChatRepository._threadFromDoc, which reads it the same way).
-  /// Falls back to deriving directly from the local Firebase Auth
-  /// displayName only if that doc isn't there yet (e.g. a call placed in
-  /// the brief window right after signup, before the fire-and-forget
-  /// profile publish lands) -- best-effort, never blocks placing the call.
+  @override
+  Future<CallSignal> placeGroupCall({
+    required String threadId,
+    required String threadName,
+    required List<String> participantUids,
+    required CallType type,
+  }) async {
+    final callerUid = _requireCallerUid;
+    if (participantUids.isEmpty) {
+      throw StateError('A group call needs at least one other member.');
+    }
+
+    final identity = await _callerIdentity(callerUid);
+    final hostRef = _calls.doc();
+    final roomName = hostRef.id;
+    final now = DateTime.now();
+    final sharedFields = <String, Object?>{
+      'callerUid': callerUid,
+      'roomName': roomName,
+      'type': type.name,
+      'createdAt': Timestamp.fromDate(now),
+      'updatedAt': Timestamp.fromDate(now),
+      'callerName': identity.name,
+      'callerAvatarLabel': identity.avatarLabel,
+      'callerAccentColorArgb': identity.accentColorArgb,
+      'calleeRinging': false,
+      'isGroup': true,
+      'threadId': threadId,
+      'threadName': threadName,
+      'participantUids': participantUids,
+    };
+
+    // Host session doc -- watched by the caller for end/cancel.
+    await hostRef.set(<String, Object?>{
+      ...sharedFields,
+      'calleeUid': '',
+      'status': CallSignalStatus.active.name,
+    });
+
+    // One ringing call doc per invitee -- same query path as 1:1 incoming.
+    final batch = _firestore.batch();
+    for (final inviteeUid in participantUids) {
+      final inviteRef = _calls.doc(
+        _groupInviteCallId(roomName: roomName, inviteeUid: inviteeUid),
+      );
+      batch.set(inviteRef, <String, Object?>{
+        ...sharedFields,
+        'calleeUid': inviteeUid,
+        'status': CallSignalStatus.ringing.name,
+      });
+    }
+    await batch.commit();
+
+    return CallSignal(
+      id: roomName,
+      callerUid: callerUid,
+      calleeUid: '',
+      roomName: roomName,
+      type: type,
+      status: CallSignalStatus.active,
+      createdAt: now,
+      updatedAt: now,
+      callerName: identity.name,
+      callerAvatarLabel: identity.avatarLabel,
+      callerAccentColorArgb: identity.accentColorArgb,
+      isGroup: true,
+      threadId: threadId,
+      threadName: threadName,
+      participantUids: participantUids,
+    );
+  }
+
+  String get _requireCallerUid {
+    final callerUid = _firebaseAuth.currentUser?.uid;
+    if (callerUid == null) {
+      throw StateError('Must be signed in to place a call.');
+    }
+    return callerUid;
+  }
+
   Future<_CallerIdentity> _callerIdentity(String callerUid) async {
     final profile =
         await UserProfileLookup(firestore: _firestore).fetch(callerUid);
@@ -102,9 +175,6 @@ class FirestoreCallSignalingService implements CallSignalingService {
     );
   }
 
-  // Same deterministic avatar/color derivation as FirebaseAuthRepository
-  // and FakeAuthRepository, so a caller's stamped identity here looks
-  // visually consistent with how they appear everywhere else in the app.
   String _avatarLabelForName(String name) {
     final parts = name
         .split(RegExp(r'\s+'))
@@ -166,6 +236,89 @@ class FirestoreCallSignalingService implements CallSignalingService {
       'status': status.name,
       'updatedAt': Timestamp.fromDate(DateTime.now()),
     });
+    if (status == CallSignalStatus.ended) {
+      await _endGroupInviteCallsForHost(callId);
+    }
+  }
+
+  Future<void> _endGroupInviteCallsForHost(String hostCallId) async {
+    final hostDoc = await _calls.doc(hostCallId).get();
+    if (!hostDoc.exists) {
+      return;
+    }
+    final data = hostDoc.data();
+    if (data == null || data['isGroup'] != true) {
+      return;
+    }
+
+    final roomName = data['roomName'] as String? ?? hostCallId;
+    final participantUids = (data['participantUids'] as List<dynamic>?)
+            ?.map((entry) => entry.toString())
+            .toList(growable: false) ??
+        const <String>[];
+    if (participantUids.isEmpty) {
+      return;
+    }
+
+    final now = Timestamp.fromDate(DateTime.now());
+    final batch = _firestore.batch();
+    for (final inviteeUid in participantUids) {
+      final inviteRef =
+          _calls.doc(_groupInviteCallId(roomName: roomName, inviteeUid: inviteeUid));
+      batch.update(inviteRef, <String, Object?>{
+        'status': CallSignalStatus.ended.name,
+        'updatedAt': now,
+      });
+    }
+    await batch.commit();
+  }
+
+  @override
+  Stream<Map<String, CallSignalStatus>> watchGroupInviteStatuses({
+    required String roomName,
+    required List<String> participantUids,
+  }) {
+    final controller =
+        StreamController<Map<String, CallSignalStatus>>.broadcast();
+    final statuses = <String, CallSignalStatus>{};
+    final subscriptions = <StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>>[];
+
+    void emit() {
+      if (controller.isClosed) {
+        return;
+      }
+      controller.add(Map<String, CallSignalStatus>.unmodifiable(statuses));
+    }
+
+    for (final inviteeUid in participantUids) {
+      final subscription = _calls
+          .doc(_groupInviteCallId(roomName: roomName, inviteeUid: inviteeUid))
+          .snapshots()
+          .listen(
+        (snapshot) {
+          if (!snapshot.exists) {
+            statuses.remove(inviteeUid);
+          } else {
+            final data = snapshot.data()!;
+            statuses[inviteeUid] =
+                CallSignalStatus.values.byName(data['status'] as String);
+          }
+          emit();
+        },
+        onError: (Object error, StackTrace stackTrace) {
+          debugPrint('Group invite watch failed for $inviteeUid: $error');
+        },
+      );
+      subscriptions.add(subscription);
+    }
+
+    controller.onCancel = () async {
+      for (final subscription in subscriptions) {
+        await subscription.cancel();
+      }
+    };
+
+    return controller.stream;
   }
 
   @override
@@ -178,23 +331,27 @@ class FirestoreCallSignalingService implements CallSignalingService {
 
   CallSignal _fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data()!;
+    final participantUids = (data['participantUids'] as List<dynamic>?)
+            ?.map((entry) => entry.toString())
+            .toList(growable: false) ??
+        const <String>[];
     return CallSignal(
       id: doc.id,
       callerUid: data['callerUid'] as String,
-      calleeUid: data['calleeUid'] as String,
+      calleeUid: data['calleeUid'] as String? ?? '',
       roomName: data['roomName'] as String,
       type: CallType.values.byName(data['type'] as String),
       status: CallSignalStatus.values.byName(data['status'] as String),
       createdAt: (data['createdAt'] as Timestamp).toDate(),
       updatedAt: (data['updatedAt'] as Timestamp).toDate(),
-      // Nullable on purpose -- an older-shaped call doc (written before
-      // this identity-stamping existed) simply won't have these fields,
-      // and that must not break watchCall()/watchIncomingCall() for a
-      // call already in flight.
       callerName: data['callerName'] as String?,
       callerAvatarLabel: data['callerAvatarLabel'] as String?,
       callerAccentColorArgb: data['callerAccentColorArgb'] as int?,
       calleeRinging: data['calleeRinging'] as bool? ?? false,
+      isGroup: data['isGroup'] as bool? ?? false,
+      threadId: data['threadId'] as String?,
+      threadName: data['threadName'] as String?,
+      participantUids: participantUids,
     );
   }
 }

@@ -244,7 +244,8 @@ class RuntimeAwareRepositoryAdapterCatalog implements RepositoryAdapterCatalog {
         nextSteps: <String>[
           if (!runtimeConfig.hasFirebasePushScaffold)
             'Finish FCM and APNs setup so an incoming call can still be delivered while the app is backgrounded or fully killed -- right now it only arrives while the app is already running and watching for it.',
-          'Add group calling -- the real signaling path is 1:1 only (a single calleeUid per call doc).',
+          'Group calling (Phase 1) -- Firestore signaling + LiveKit multi-party '
+          'media. Deploy firestore.rules and firestore.indexes.json after pull.',
         ],
       ),
     ];
