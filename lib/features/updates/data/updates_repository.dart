@@ -54,15 +54,22 @@ abstract class UpdatesRepository {
   /// [StoryViewer].
   Future<List<StoryViewer>> fetchStoryViewers(String storyId);
 
-  /// Whether the signed-in viewer has hearted [storyId] -- read from their
-  /// own row in the owner's views subcollection.
-  Future<bool> isStoryLikedByMe(String storyId);
+  /// Whether the signed-in viewer has hearted [segmentId] on [storyId] --
+  /// read from their own row in the owner's views subcollection.
+  Future<bool> isStoryLikedByMe(
+    String storyId, {
+    required String segmentId,
+  });
 
-  /// Sets or clears a heart quick-react on someone else's story -- surfaced
-  /// back to the owner via [fetchStoryViewers]'s [StoryViewer.liked] flag.
+  /// Sets or clears a heart quick-react on one segment of someone else's
+  /// story -- surfaced back to the owner via [StoryViewer.likedSegmentIds].
   /// Never sends a chat message; that's the viewer's separate typed-reply
   /// path.
-  Future<void> setStoryLiked(String storyId, {required bool liked});
+  Future<void> setStoryLiked(
+    String storyId, {
+    required String segmentId,
+    required bool liked,
+  });
 
   /// Live viewer list for a story you own -- null when unsupported (e.g.
   /// the fake/demo backend). Prefer over one-shot [fetchStoryViewers] when

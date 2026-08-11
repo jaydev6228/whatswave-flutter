@@ -214,6 +214,43 @@ void main() {
 
     expect(emojiOverlay.label, '☕️');
   });
+
+  test('tracks story likes per segment instead of for the whole ring', () async {
+    final repository = FakeUpdatesRepository(latency: Duration.zero);
+
+    await repository.setStoryLiked(
+      'ava-story',
+      segmentId: 'ava-story-0',
+      liked: true,
+    );
+    expect(
+      await repository.isStoryLikedByMe(
+        'ava-story',
+        segmentId: 'ava-story-0',
+      ),
+      isTrue,
+    );
+    expect(
+      await repository.isStoryLikedByMe(
+        'ava-story',
+        segmentId: 'ava-story-1',
+      ),
+      isFalse,
+    );
+
+    await repository.setStoryLiked(
+      'ava-story',
+      segmentId: 'ava-story-0',
+      liked: false,
+    );
+    expect(
+      await repository.isStoryLikedByMe(
+        'ava-story',
+        segmentId: 'ava-story-0',
+      ),
+      isFalse,
+    );
+  });
 }
 
 class _PassThroughStatusMediaStore implements StatusMediaStore {

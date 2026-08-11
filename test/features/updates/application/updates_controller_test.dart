@@ -117,6 +117,21 @@ void main() {
       );
     });
 
+    test('marks my status segments as seen when I view my own story', () async {
+      await controller.loadUpdates();
+      await controller.createStatus(
+        type: StatusStoryType.text,
+        caption: 'My own story preview',
+      );
+      final myStatus = controller.myStatus;
+      expect(myStatus, isNotNull);
+      expect(myStatus!.seenSegments, 0);
+
+      await controller.markStoryViewed(myStatus.id, seenSegments: 1);
+
+      expect(controller.myStatus?.seenSegments, 1);
+    });
+
     test('deletes a single status segment and keeps remaining items intact',
         () async {
       await controller.loadUpdates();
@@ -253,12 +268,19 @@ class _FailingUpdatesRepository implements UpdatesRepository {
   }
 
   @override
-  Future<bool> isStoryLikedByMe(String storyId) {
+  Future<bool> isStoryLikedByMe(
+    String storyId, {
+    required String segmentId,
+  }) {
     throw UnimplementedError();
   }
 
   @override
-  Future<void> setStoryLiked(String storyId, {required bool liked}) {
+  Future<void> setStoryLiked(
+    String storyId, {
+    required String segmentId,
+    required bool liked,
+  }) {
     throw UnimplementedError();
   }
 

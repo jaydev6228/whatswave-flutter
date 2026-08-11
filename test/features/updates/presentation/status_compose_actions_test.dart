@@ -65,12 +65,19 @@ class _FailingCreateStatusRepository implements UpdatesRepository {
   }
 
   @override
-  Future<bool> isStoryLikedByMe(String storyId) {
+  Future<bool> isStoryLikedByMe(
+    String storyId, {
+    required String segmentId,
+  }) {
     throw UnimplementedError();
   }
 
   @override
-  Future<void> setStoryLiked(String storyId, {required bool liked}) {
+  Future<void> setStoryLiked(
+    String storyId, {
+    required String segmentId,
+    required bool liked,
+  }) {
     throw UnimplementedError();
   }
 

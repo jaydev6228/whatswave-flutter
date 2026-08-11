@@ -299,13 +299,6 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
   }) async {
     final uid = _requireCurrentUid;
 
-    // Viewing your own story is a no-op, matching FakeUpdatesRepository's
-    // `!story.isMine` guard. Cross-user seen-tracking isn't implemented --
-    // see the class doc comment.
-    if (storyId == uid) {
-      return (await fetchUpdates()).stories;
-    }
-
     try {
       final doc = await _storiesRef.doc(storyId).get();
       final story = await _storyFromDoc(doc, currentUid: uid);
@@ -319,10 +312,8 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
         return (await fetchUpdates()).stories;
       }
 
-      // Written to the viewer's own per-viewer doc, not the story doc
-      // itself -- security rules only let the owner write that (see
-      // firestore.rules), so a shared seenSegments field on the story doc
-      // could never actually persist another viewer's progress.
+      // Written to the viewer's own per-viewer doc -- including when the
+      // viewer is the owner checking their own story ring state.
       await _storiesRef.doc(storyId).collection('views').doc(uid).set(
         {
           'seenSegments': normalizedSeenSegments,
@@ -454,7 +445,7 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
           .collection('views')
           .orderBy('viewedAt', descending: true)
           .get();
-      return _viewersFromSnapshot(snapshot);
+      return _viewersFromSnapshot(snapshot, ownerUid: storyId);
     } on FirebaseException catch (e) {
       throw UpdatesRepositoryException(
         e.message ?? 'Could not load viewers right now.',
@@ -474,15 +465,18 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
         .collection('views')
         .orderBy('viewedAt', descending: true)
         .snapshots()
-        .asyncMap(_viewersFromSnapshot);
+        .asyncMap((snapshot) => _viewersFromSnapshot(snapshot, ownerUid: storyId));
   }
 
   Future<List<StoryViewer>> _viewersFromSnapshot(
-    QuerySnapshot<Map<String, dynamic>> snapshot,
-  ) async {
+    QuerySnapshot<Map<String, dynamic>> snapshot, {
+    required String ownerUid,
+  }) async {
     final lookup = UserProfileLookup(firestore: _firestore);
     final viewers = await Future.wait(
-      snapshot.docs.map((doc) async {
+      snapshot.docs
+          .where((doc) => doc.id != ownerUid)
+          .map((doc) async {
         final data = doc.data();
         final profile = await lookup.fetch(doc.id);
         final viewedAt = data['viewedAt'];
@@ -494,23 +488,28 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
               Color(profile?.accentColorArgb ?? AppPalette.slate.toARGB32()),
           avatarUrl: profile?.avatarUrl,
           viewedAt: viewedAt is Timestamp ? viewedAt.toDate() : null,
-          liked: data['liked'] == true,
+          likedSegmentIds: _likedSegmentIdsFromViewData(data),
           seenSegments: (data['seenSegments'] as num?)?.toInt() ?? 0,
         );
       }),
     );
 
-    // Liked viewers first, then everyone else -- both groups keep the
-    // query's own viewedAt-descending order (List.sort isn't guaranteed
-    // stable, so partitioning via .where preserves it instead of relying
-    // on a comparator), matching WhatsApp's own "Viewed by" ordering.
-    final liked = viewers.where((viewer) => viewer.liked);
-    final others = viewers.where((viewer) => !viewer.liked);
-    return <StoryViewer>[...liked, ...others];
+    return viewers;
+  }
+
+  List<String> _likedSegmentIdsFromViewData(Map<String, dynamic> data) {
+    final raw = data['likedSegmentIds'];
+    if (raw is List) {
+      return raw.map((entry) => entry.toString()).toList(growable: false);
+    }
+    return const <String>[];
   }
 
   @override
-  Future<bool> isStoryLikedByMe(String storyId) async {
+  Future<bool> isStoryLikedByMe(
+    String storyId, {
+    required String segmentId,
+  }) async {
     final uid = _requireCurrentUid;
     if (storyId == uid) {
       return false;
@@ -519,7 +518,11 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
     try {
       final doc =
           await _storiesRef.doc(storyId).collection('views').doc(uid).get();
-      return doc.data()?['liked'] == true;
+      final data = doc.data();
+      if (data == null) {
+        return false;
+      }
+      return _likedSegmentIdsFromViewData(data).contains(segmentId);
     } on FirebaseException catch (e) {
       throw UpdatesRepositoryException(
         e.message ?? 'We could not load that reaction right now.',
@@ -528,7 +531,11 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
   }
 
   @override
-  Future<void> setStoryLiked(String storyId, {required bool liked}) async {
+  Future<void> setStoryLiked(
+    String storyId, {
+    required String segmentId,
+    required bool liked,
+  }) async {
     final uid = _requireCurrentUid;
     if (storyId == uid) {
       return;
@@ -541,12 +548,13 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
       await _storiesRef.doc(storyId).collection('views').doc(uid).set(
         liked
             ? {
-                'liked': true,
+                'likedSegmentIds': FieldValue.arrayUnion([segmentId]),
                 'likedAt': FieldValue.serverTimestamp(),
+                'liked': FieldValue.delete(),
               }
             : {
-                'liked': false,
-                'likedAt': FieldValue.delete(),
+                'likedSegmentIds': FieldValue.arrayRemove([segmentId]),
+                'liked': FieldValue.delete(),
               },
         SetOptions(merge: true),
       );
@@ -601,12 +609,10 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
       return DateTime.now().difference(postedAt) < const Duration(hours: 24);
     }).toList(growable: false);
 
-    // For someone else's story, the real seen-progress is this viewer's
-    // own per-viewer doc (see the class doc comment) -- the field on the
-    // story doc itself only ever reflects the owner's own writes (e.g.
-    // reset to 0 on a new segment), never another viewer's progress.
+    // Per-viewer seen-progress lives in each viewer's own views doc --
+    // including the owner viewing their own story ring on "My Status".
     var seenSegments = story.seenSegments;
-    if (!isMine && liveSegments.isNotEmpty) {
+    if (liveSegments.isNotEmpty) {
       final viewDoc =
           await doc.reference.collection('views').doc(currentUid).get();
       seenSegments = (viewDoc.data()?['seenSegments'] as num?)?.toInt() ?? 0;
@@ -621,6 +627,9 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
       final viewsSnapshot = await doc.reference.collection('views').get();
       final requiredSeen = liveSegments.length;
       viewerCount = viewsSnapshot.docs.where((viewDoc) {
+        if (viewDoc.id == doc.id) {
+          return false;
+        }
         final seen = (viewDoc.data()['seenSegments'] as num?)?.toInt() ?? 0;
         return seen >= requiredSeen;
       }).length;

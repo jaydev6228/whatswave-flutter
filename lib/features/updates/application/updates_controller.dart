@@ -223,7 +223,7 @@ class UpdatesController extends ChangeNotifier {
           (entry) => entry?.id == storyId,
           orElse: () => null,
         );
-    if (story == null || story.isMine || !story.hasSegments) {
+    if (story == null || !story.hasSegments) {
       return;
     }
 
@@ -303,7 +303,7 @@ class UpdatesController extends ChangeNotifier {
     return List<StatusStory>.unmodifiable(
       updatedStories.map((story) {
         final currentStory = currentStoriesById[story.id];
-        if (currentStory == null || story.isMine || !story.hasSegments) {
+        if (currentStory == null || !story.hasSegments) {
           return story;
         }
 
@@ -384,11 +384,15 @@ class UpdatesController extends ChangeNotifier {
     }
   }
 
-  /// Whether you've already hearted [storyId] -- read from your own view
-  /// doc so the heart stays filled when you reopen the story.
-  Future<bool> isStoryLikedByMe(String storyId) async {
+  Future<bool> isStoryLikedByMe(
+    String storyId, {
+    required String segmentId,
+  }) async {
     try {
-      return await _repository.isStoryLikedByMe(storyId);
+      return await _repository.isStoryLikedByMe(
+        storyId,
+        segmentId: segmentId,
+      );
     } on UpdatesRepositoryException {
       return false;
     } catch (_) {
@@ -396,13 +400,21 @@ class UpdatesController extends ChangeNotifier {
     }
   }
 
-  /// Sets or clears a heart quick-react on someone else's story -- never
-  /// sends a chat message (that's the reply bar's separate typed-text
-  /// path). Best-effort: the bool return lets the viewer revert its own
-  /// optimistic UI state on failure.
-  Future<bool> setStoryLiked(String storyId, {required bool liked}) async {
+  /// Sets or clears a heart quick-react on one segment of someone else's
+  /// story -- never sends a chat message (that's the reply bar's separate
+  /// typed-text path). Best-effort: the bool return lets the viewer revert
+  /// its own optimistic UI state on failure.
+  Future<bool> setStoryLiked(
+    String storyId, {
+    required String segmentId,
+    required bool liked,
+  }) async {
     try {
-      await _repository.setStoryLiked(storyId, liked: liked);
+      await _repository.setStoryLiked(
+        storyId,
+        segmentId: segmentId,
+        liked: liked,
+      );
       return true;
     } on UpdatesRepositoryException {
       return false;

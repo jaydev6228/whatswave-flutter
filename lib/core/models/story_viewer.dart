@@ -11,7 +11,7 @@ class StoryViewer {
     required this.accentColor,
     this.avatarUrl,
     this.viewedAt,
-    this.liked = false,
+    this.likedSegmentIds = const <String>[],
     this.seenSegments = 0,
   });
 
@@ -25,13 +25,14 @@ class StoryViewer {
   /// data written before this field existed).
   final DateTime? viewedAt;
 
-  /// Whether this viewer sent a heart quick-react to the story -- liked
-  /// viewers are listed first, ahead of everyone sorted by [viewedAt], the
-  /// same as WhatsApp's own "Viewed by" list.
-  final bool liked;
+  /// Segment ids this viewer hearted -- likes are per status item, not for
+  /// the whole story ring.
+  final List<String> likedSegmentIds;
 
   /// How many segments this viewer has watched through -- used to decide
   /// whether they count toward a specific segment's view total (WhatsApp
   /// tracks views per status item, not once for the whole story ring).
   final int seenSegments;
+
+  bool likedSegment(String segmentId) => likedSegmentIds.contains(segmentId);
 }

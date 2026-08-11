@@ -12,6 +12,8 @@ class StatusRingAvatar extends StatelessWidget {
     required this.seenSegments,
     this.size = 72,
     this.avatarUrl,
+    this.ringActiveColor,
+    this.ringInactiveColor,
     super.key,
   });
 
@@ -21,6 +23,8 @@ class StatusRingAvatar extends StatelessWidget {
   final int seenSegments;
   final double size;
   final String? avatarUrl;
+  final Color? ringActiveColor;
+  final Color? ringInactiveColor;
 
   @override
   Widget build(BuildContext context) {
@@ -39,8 +43,9 @@ class StatusRingAvatar extends StatelessWidget {
       height: size,
       child: CustomPaint(
         painter: _SegmentedStoryRingPainter(
-          activeColor: color,
-          inactiveColor: theme.colorScheme.onSurface.withValues(alpha: 0.18),
+          activeColor: ringActiveColor ?? color,
+          inactiveColor: ringInactiveColor ??
+              theme.colorScheme.onSurface.withValues(alpha: 0.18),
           totalSegments: totalSegments,
           seenSegments: seenSegments,
         ),

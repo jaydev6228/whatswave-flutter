@@ -533,6 +533,7 @@ class _MyStatusCard extends StatelessWidget {
                         StatusRingAvatar(
                           label: status.avatarLabel,
                           color: status.accentColor,
+                          avatarUrl: status.avatarUrl,
                           totalSegments: status.totalSegments,
                           seenSegments: status.seenSegments,
                           size: 66,
@@ -1124,6 +1125,7 @@ class _StatusStoryTile extends StatelessWidget {
                   StatusRingAvatar(
                     label: story.avatarLabel,
                     color: story.accentColor,
+                    avatarUrl: story.avatarUrl,
                     totalSegments: story.totalSegments,
                     seenSegments: story.seenSegments,
                     size: 58,

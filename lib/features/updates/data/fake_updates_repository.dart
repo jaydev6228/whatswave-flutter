@@ -37,9 +37,9 @@ class FakeUpdatesRepository implements UpdatesRepository {
   SharedPreferences? _preferences;
   bool _didHydratePersistedState = false;
 
-  /// Story ids the demo viewer has hearted -- backs [isStoryLikedByMe] and
-  /// [setStoryLiked] in widget tests without a real Firestore backend.
-  final Set<String> _likedStoryIds = <String>{};
+  /// Story segment ids the demo viewer has hearted -- keyed by story id.
+  final Map<String, Set<String>> _likedSegmentIdsByStory =
+      <String, Set<String>>{};
 
   Future<void> _wait() {
     if (latency == Duration.zero) {
@@ -249,7 +249,7 @@ class FakeUpdatesRepository implements UpdatesRepository {
     await _wait();
     _stories = List<StatusStory>.unmodifiable(
       _stories.map((story) {
-        if (story.id != storyId || story.isMine || !story.hasSegments) {
+        if (story.id != storyId || !story.hasSegments) {
           return story;
         }
         final normalizedSeenSegments =
@@ -361,18 +361,32 @@ class FakeUpdatesRepository implements UpdatesRepository {
   }
 
   @override
-  Future<bool> isStoryLikedByMe(String storyId) async {
+  Future<bool> isStoryLikedByMe(
+    String storyId, {
+    required String segmentId,
+  }) async {
     await _wait();
-    return _likedStoryIds.contains(storyId);
+    return _likedSegmentIdsByStory[storyId]?.contains(segmentId) ?? false;
   }
 
   @override
-  Future<void> setStoryLiked(String storyId, {required bool liked}) async {
+  Future<void> setStoryLiked(
+    String storyId, {
+    required String segmentId,
+    required bool liked,
+  }) async {
     await _wait();
+    final likedSegments = _likedSegmentIdsByStory.putIfAbsent(
+      storyId,
+      () => <String>{},
+    );
     if (liked) {
-      _likedStoryIds.add(storyId);
+      likedSegments.add(segmentId);
     } else {
-      _likedStoryIds.remove(storyId);
+      likedSegments.remove(segmentId);
+      if (likedSegments.isEmpty) {
+        _likedSegmentIdsByStory.remove(storyId);
+      }
     }
   }
 

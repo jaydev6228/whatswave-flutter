@@ -15,7 +15,6 @@ import 'widgets/status_media_decoration_overlay.dart';
 import 'widgets/status_media_source.dart';
 import 'widgets/status_story_media_surface.dart';
 import 'widgets/text_status_canvas.dart';
-import 'widgets/status_ring_avatar.dart';
 
 class StatusStoryDeleteResult {
   const StatusStoryDeleteResult({
@@ -69,11 +68,13 @@ class StatusStoryViewerScreen extends StatefulWidget {
   /// without closing and reopening. Null falls back to [onFetchViewers].
   final Stream<List<StoryViewer>>? Function()? onWatchViewers;
 
-  /// Loads whether you've already hearted this story (someone else's only).
-  final Future<bool> Function(StatusStory story)? onFetchLikedByMe;
+  /// Loads whether you've already hearted the active segment.
+  final Future<bool> Function(StatusStory story, String segmentId)?
+      onFetchLikedByMe;
 
-  /// Sets or clears your heart quick-react on someone else's story.
-  final Future<bool> Function(StatusStory story, bool liked)? onSetStoryLiked;
+  /// Sets or clears your heart quick-react on the active segment.
+  final Future<bool> Function(StatusStory story, String segmentId, bool liked)?
+      onSetStoryLiked;
 
   @override
   State<StatusStoryViewerScreen> createState() =>
@@ -107,8 +108,8 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
   final FocusNode _replyFocusNode = FocusNode();
   bool _isSendingReply = false;
 
-  /// Whether you've hearted this story -- loaded from Firestore on open
-  /// and toggled optimistically on tap (see [_toggleHeart]).
+  /// Whether you've hearted the current segment -- loaded from Firestore
+  /// when the segment changes and toggled optimistically on tap.
   bool _hasHearted = false;
   bool _isTogglingHeart = false;
   StreamSubscription<List<StoryViewer>>? _viewersSubscription;
@@ -145,11 +146,24 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
     return _story.relativeTimeLabel;
   }
 
+  List<StoryViewer> get _externalViewers {
+    final cachedViewers = _cachedViewers;
+    if (cachedViewers == null) {
+      return const <StoryViewer>[];
+    }
+    if (!_story.isMine) {
+      return cachedViewers;
+    }
+    return cachedViewers
+        .where((viewer) => viewer.uid != _story.id)
+        .toList(growable: false);
+  }
+
   int get _currentSegmentViewerCount {
     final requiredSeen = _currentSegmentIndex + 1;
-    final cachedViewers = _cachedViewers;
-    if (cachedViewers != null) {
-      return cachedViewers
+    final externalViewers = _externalViewers;
+    if (_cachedViewers != null) {
+      return externalViewers
           .where((viewer) => viewer.seenSegments >= requiredSeen)
           .length;
     }
@@ -162,14 +176,39 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
   }
 
   List<StoryViewer> _viewersForSegment(int segmentIndex) {
-    final requiredSeen = segmentIndex + 1;
-    final cachedViewers = _cachedViewers;
-    if (cachedViewers == null) {
+    final segment = _story.segmentAt(segmentIndex);
+    if (segment == null) {
       return const <StoryViewer>[];
     }
-    return cachedViewers
+    final requiredSeen = segmentIndex + 1;
+    final externalViewers = _externalViewers;
+    if (_cachedViewers == null) {
+      return const <StoryViewer>[];
+    }
+    final viewers = externalViewers
         .where((viewer) => viewer.seenSegments >= requiredSeen)
-        .toList(growable: false);
+        .toList(growable: true);
+    final segmentId = segment.id;
+    viewers.sort((left, right) {
+      final leftLiked = left.likedSegment(segmentId);
+      final rightLiked = right.likedSegment(segmentId);
+      if (leftLiked != rightLiked) {
+        return leftLiked ? -1 : 1;
+      }
+      final leftAt = left.viewedAt;
+      final rightAt = right.viewedAt;
+      if (leftAt == null && rightAt == null) {
+        return 0;
+      }
+      if (leftAt == null) {
+        return 1;
+      }
+      if (rightAt == null) {
+        return -1;
+      }
+      return rightAt.compareTo(leftAt);
+    });
+    return viewers;
   }
 
   void _toggleMute() {
@@ -246,11 +285,12 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
 
   Future<void> _loadLikedByMe() async {
     final onFetchLikedByMe = widget.onFetchLikedByMe;
-    if (onFetchLikedByMe == null) {
+    final segment = _currentSegment;
+    if (onFetchLikedByMe == null || segment == null) {
       return;
     }
     try {
-      final liked = await onFetchLikedByMe(_story);
+      final liked = await onFetchLikedByMe(_story, segment.id);
       if (!mounted) {
         return;
       }
@@ -300,7 +340,9 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
   }
 
   void _handleProgressStatusChange(AnimationStatus status) {
-    if (status == AnimationStatus.completed) {
+    if (status == AnimationStatus.completed &&
+        !_isPausedByHold &&
+        !_isClosing) {
       _advanceToNextSegment();
     }
   }
@@ -527,7 +569,7 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
   }
 
   void _pausePlaybackForHold() {
-    if (_isPausedByHold || _isClosing) {
+    if (_isClosing) {
       return;
     }
 
@@ -543,24 +585,6 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
     }
 
     _isPausedByHold = false;
-    _segmentProgressController.forward();
-    if (_currentSegmentType == StatusStoryType.video &&
-        _videoController != null &&
-        _videoController!.value.isInitialized) {
-      unawaited(_videoController!.play());
-    }
-    if (_musicController != null && _musicController!.value.isInitialized) {
-      unawaited(_musicController!.play());
-    }
-  }
-
-  void _resumePlaybackIfNeeded({
-    required bool shouldResume,
-  }) {
-    if (!shouldResume || _isClosing) {
-      return;
-    }
-
     _segmentProgressController.forward();
     if (_currentSegmentType == StatusStoryType.video &&
         _videoController != null &&
@@ -729,7 +753,9 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
   /// owner's "Viewed by" list (live via [onWatchViewers] when supported).
   Future<void> _toggleHeart() async {
     final onSetStoryLiked = widget.onSetStoryLiked;
+    final segment = _currentSegment;
     if (onSetStoryLiked == null ||
+        segment == null ||
         _story.isMine ||
         _isTogglingHeart) {
       return;
@@ -740,7 +766,8 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
       _hasHearted = nextLiked;
       _isTogglingHeart = true;
     });
-    final didSucceed = await onSetStoryLiked(_story, nextLiked);
+    final didSucceed =
+        await onSetStoryLiked(_story, segment.id, nextLiked);
     if (!mounted) {
       return;
     }
@@ -824,7 +851,9 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
     }
 
     if (confirmed != true) {
-      _resumePlaybackIfNeeded(shouldResume: shouldResumeAfterDialog);
+      if (shouldResumeAfterDialog) {
+        _resumePlaybackFromHold();
+      }
       return;
     }
 
@@ -848,7 +877,9 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
       if (!mounted) {
         return;
       }
-      _resumePlaybackIfNeeded(shouldResume: shouldResumeAfterDialog);
+      if (shouldResumeAfterDialog) {
+        _resumePlaybackFromHold();
+      }
       return;
     }
 
@@ -904,13 +935,16 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
       showDragHandle: false,
       builder: (_) => _StoryViewersSheet(
         viewers: _viewersForSegment(_currentSegmentIndex),
+        segmentId: _currentSegment?.id,
       ),
     );
 
     if (!mounted) {
       return;
     }
-    _resumePlaybackIfNeeded(shouldResume: shouldResumeAfterSheet);
+    if (shouldResumeAfterSheet) {
+      _resumePlaybackFromHold();
+    }
   }
 
   Future<void> _advanceToNextSegment() async {
@@ -923,8 +957,10 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
       if (_currentSegmentIndex < _segmentCount - 1) {
         setState(() {
           _currentSegmentIndex += 1;
+          _hasHearted = false;
         });
         _reportCurrentSegmentViewed();
+        unawaited(_loadLikedByMe());
         _startCurrentSegmentPlayback();
         return;
       }
@@ -945,7 +981,9 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
       if (_currentSegmentIndex > 0) {
         setState(() {
           _currentSegmentIndex -= 1;
+          _hasHearted = false;
         });
+        unawaited(_loadLikedByMe());
         _startCurrentSegmentPlayback();
         return;
       }
@@ -1081,19 +1119,12 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
                     const SizedBox(height: 8),
                     Row(
                       children: [
-                        story.isMine
-                            ? AvatarBadge(
-                                label: story.avatarLabel,
-                                color: story.accentColor,
-                                size: 38,
-                              )
-                            : StatusRingAvatar(
-                                label: story.avatarLabel,
-                                color: story.accentColor,
-                                totalSegments: story.totalSegments,
-                                seenSegments: story.seenSegments,
-                                size: 38,
-                              ),
+                        AvatarBadge(
+                          label: story.avatarLabel,
+                          color: story.accentColor,
+                          avatarUrl: story.avatarUrl,
+                          size: 38,
+                        ),
                         const SizedBox(width: 9),
                         Expanded(
                           child: Column(
@@ -1638,9 +1669,13 @@ class _StoryReplyActionButton extends StatelessWidget {
 /// "Viewed by" bottom sheet for your own story -- WhatsApp shows exactly
 /// who viewed a status you posted, not just a bare count.
 class _StoryViewersSheet extends StatelessWidget {
-  const _StoryViewersSheet({required this.viewers});
+  const _StoryViewersSheet({
+    required this.viewers,
+    this.segmentId,
+  });
 
   final List<StoryViewer> viewers;
+  final String? segmentId;
 
   static const Color _sheetFill = Color(0xBF000000);
   static const Color _handleFill = Color(0x59FFFFFF);
@@ -1709,7 +1744,10 @@ class _StoryViewersSheet extends StatelessWidget {
                   itemCount: viewers.length,
                   separatorBuilder: (_, __) => const SizedBox(height: 2),
                   itemBuilder: (context, index) {
-                    return _StoryViewerRow(viewer: viewers[index]);
+                    return _StoryViewerRow(
+                      viewer: viewers[index],
+                      segmentId: segmentId,
+                    );
                   },
                 ),
               ),
@@ -1721,14 +1759,21 @@ class _StoryViewersSheet extends StatelessWidget {
 }
 
 class _StoryViewerRow extends StatelessWidget {
-  const _StoryViewerRow({required this.viewer});
+  const _StoryViewerRow({
+    required this.viewer,
+    this.segmentId,
+  });
 
   final StoryViewer viewer;
+  final String? segmentId;
 
   @override
   Widget build(BuildContext context) {
     final viewedAtLabel =
         viewer.viewedAt == null ? null : _relativeViewLabel(viewer.viewedAt!);
+    final likedThisSegment = segmentId == null
+        ? viewer.likedSegmentIds.isNotEmpty
+        : viewer.likedSegment(segmentId!);
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
@@ -1754,7 +1799,7 @@ class _StoryViewerRow extends StatelessWidget {
               ),
             ),
           ),
-          if (viewer.liked) ...[
+          if (likedThisSegment) ...[
             Icon(
               Icons.favorite_rounded,
               size: 18,

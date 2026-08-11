@@ -32,11 +32,18 @@ Future<void> openStatusStoryViewer(
             : null,
         onFetchLikedByMe: story.isMine
             ? null
-            : (activeStory) => controller.isStoryLikedByMe(activeStory.id),
+            : (activeStory, segmentId) =>
+                controller.isStoryLikedByMe(
+                  activeStory.id,
+                  segmentId: segmentId,
+                ),
         onSetStoryLiked: story.isMine
             ? null
-            : (activeStory, liked) =>
-                controller.setStoryLiked(activeStory.id, liked: liked),
+            : (activeStory, segmentId, liked) => controller.setStoryLiked(
+                  activeStory.id,
+                  segmentId: segmentId,
+                  liked: liked,
+                ),
         onDeleteSegment: story.isMine
             ? (activeStory, segment) async {
                 final didDelete = await controller.deleteMyStatusSegment(

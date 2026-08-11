@@ -1201,10 +1201,20 @@ void main() {
     await tester.tap(find.byTooltip('Close'));
     await tester.pumpAndSettle();
 
-    // Reopen -- the heart should still be filled from persisted state.
+    // Reopen on the latest segment -- the heart stays outline until we go
+    // back to the segment we liked earlier.
     await tester.ensureVisible(avatarFinder);
     await tester.pump();
     await tester.tap(avatarFinder);
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(find.byIcon(Icons.favorite_border_rounded), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const Key('updates_story_viewer_left_zone')),
+    );
+    await tester.pump();
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 350));
     expect(find.byIcon(Icons.favorite_rounded), findsOneWidget);

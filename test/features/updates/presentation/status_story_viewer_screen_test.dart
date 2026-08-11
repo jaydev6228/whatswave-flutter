@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:whatswave/app/theme/app_palette.dart';
 import 'package:whatswave/app/theme/app_theme.dart';
 import 'package:whatswave/core/models/status_story.dart';
+import 'package:whatswave/core/models/story_viewer.dart';
 import 'package:whatswave/features/updates/presentation/status_story_viewer_screen.dart';
 
 import '../../../support/device_matrix.dart';
@@ -394,6 +395,31 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('opening the viewed-by sheet pauses the progress bar',
+      (tester) async {
+    await _pumpStoryViewerHarness(
+      tester,
+      story: myTextStory,
+      segmentDurationOverride: const Duration(seconds: 10),
+      onFetchViewers: (_) async => const <StoryViewer>[],
+    );
+
+    await tester.tap(find.byKey(const Key('open_viewer_button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    final fillBeforeSheet = _fillWidthFactor(tester, 0);
+    expect(fillBeforeSheet, greaterThan(0));
+
+    await tester.tap(find.byKey(const Key('updates_story_viewer_count')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(find.byKey(const Key('story_viewers_sheet')), findsOneWidget);
+    final fillWhileSheetOpen = _fillWidthFactor(tester, 0);
+    expect(fillWhileSheetOpen, closeTo(fillBeforeSheet, 0.02));
+  });
+
   testWidgets('my status can delete the current segment after confirmation',
       (tester) async {
     String? deletedSegmentId;
@@ -471,6 +497,7 @@ Future<void> _pumpStoryViewerHarness(
     StatusStory story,
     StatusStorySegment segment,
   )? onDeleteSegment,
+  Future<List<StoryViewer>> Function(StatusStory story)? onFetchViewers,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -494,6 +521,7 @@ Future<void> _pumpStoryViewerHarness(
                         segmentDurationOverride: segmentDurationOverride,
                         initialSegmentIndex: initialSegmentIndex,
                         onDeleteSegment: onDeleteSegment,
+                        onFetchViewers: onFetchViewers,
                       ),
                     ),
                   );
