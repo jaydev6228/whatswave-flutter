@@ -15,6 +15,7 @@ import '../domain/call_permissions.dart';
 import '../domain/call_session.dart';
 import '../domain/call_signal.dart';
 import '../domain/group_call_continuation.dart';
+import '../domain/group_call_participant.dart';
 
 class CallsController extends ChangeNotifier {
   CallsController({
@@ -68,6 +69,7 @@ class CallsController extends ChangeNotifier {
   CallSession? _currentSession;
   Timer? _phaseTimer;
   Timer? _durationTicker;
+  Timer? _groupHostNoAnswerTimer;
   int _sessionSequence = 0;
 
   StreamSubscription<String?>? _authUidSubscription;
@@ -76,6 +78,7 @@ class CallsController extends ChangeNotifier {
   StreamSubscription<Map<String, CallSignalStatus>>? _groupInviteSubscription;
   Map<String, CallSignalStatus> _groupInviteStatuses =
       const <String, CallSignalStatus>{};
+  String? _myUid;
   bool _isEndingCall = false;
   lk.Room? _room;
   lk.EventsListener<lk.RoomEvent>? _roomListener;
@@ -110,6 +113,54 @@ class CallsController extends ChangeNotifier {
   /// Every remote video track currently subscribed -- backs the group grid.
   List<lk.VideoTrack> get remoteVideoTracks =>
       List<lk.VideoTrack>.unmodifiable(_remoteVideoTracks.values);
+
+  /// Remote video tracks keyed by Firebase uid (LiveKit participant identity).
+  Map<String, lk.VideoTrack> get remoteVideoTracksByUid =>
+      Map<String, lk.VideoTrack>.unmodifiable(_remoteVideoTracks);
+
+  /// Firebase uids currently connected in the LiveKit room.
+  Set<String> get connectedParticipantUids {
+    final room = _room;
+    if (room == null) {
+      return const <String>{};
+    }
+    return room.remoteParticipants.values
+        .map((participant) => participant.identity)
+        .toSet();
+  }
+
+  /// Per-member presence for an active group call -- empty for 1:1 calls.
+  List<GroupCallParticipantView> get groupCallParticipants {
+    final session = _currentSession;
+    if (session == null || !session.contact.isGroup) {
+      return const <GroupCallParticipantView>[];
+    }
+
+    final hostUid = session.direction == CallDirection.outgoing
+        ? _myUid
+        : session.contact.uid;
+    final memberUids = session.contact.memberUids ?? const <String>[];
+    if (hostUid == null || memberUids.isEmpty) {
+      return const <GroupCallParticipantView>[];
+    }
+
+    final connected = <String>{
+      ...connectedParticipantUids,
+      if (_myUid != null && session.phase == CallSessionPhase.connected) _myUid!,
+    };
+
+    return buildGroupCallParticipants(
+      hostUid: hostUid,
+      memberUids: memberUids,
+      displayNames: session.contact.memberDisplayNames ?? const <String, String>{},
+      inviteStatuses: _groupInviteStatuses,
+      connectedUids: connected,
+      viewerUid: _myUid,
+      hostConnectedInRoom: session.direction == CallDirection.outgoing
+          ? session.phase == CallSessionPhase.connected
+          : connected.contains(hostUid),
+    );
+  }
 
   /// How many other people are in the LiveKit room right now.
   int get remoteParticipantCount {
@@ -458,6 +509,8 @@ class CallsController extends ChangeNotifier {
     );
     notifyListeners();
 
+    _scheduleGroupHostNoAnswerTimeout(session.id);
+
     unawaited(
       _finalizeGroupOutgoingSession(
         sessionId: session.id,
@@ -483,6 +536,7 @@ class CallsController extends ChangeNotifier {
         threadName: contact.name,
         participantUids: memberUids,
         type: type,
+        participantDisplayNames: contact.memberDisplayNames,
       );
       final session = _currentSession;
       if (session == null || session.id != sessionId) {
@@ -887,6 +941,7 @@ class CallsController extends ChangeNotifier {
   }
 
   void _handleUidChanged(String? uid) {
+    _myUid = uid;
     _incomingSignalSubscription?.cancel();
     _incomingSignalSubscription = null;
     final signaling = _signalingService;
@@ -914,6 +969,13 @@ class CallsController extends ChangeNotifier {
     final callerName = signal.callerName;
     final CallContact contact;
     if (signal.isGroup) {
+      final displayNames = Map<String, String>.from(
+        signal.participantDisplayNames,
+      );
+      final callerName = signal.callerName?.trim();
+      if (callerName != null && callerName.isNotEmpty) {
+        displayNames.putIfAbsent(signal.callerUid, () => callerName);
+      }
       contact = CallContact(
         id: signal.threadId ?? signal.id,
         name: signal.threadName ?? 'Group call',
@@ -924,6 +986,7 @@ class CallsController extends ChangeNotifier {
         isGroup: true,
         uid: signal.callerUid,
         memberUids: signal.participantUids,
+        memberDisplayNames: displayNames.isEmpty ? null : displayNames,
       );
     } else if (callerName != null && callerName.isNotEmpty) {
       contact = CallContact(
@@ -965,6 +1028,9 @@ class CallsController extends ChangeNotifier {
     notifyListeners();
     _startRinging();
     _watchActiveSignal(signal.id);
+    if (signal.isGroup) {
+      _watchGroupInvitesIfNeeded(session);
+    }
     unawaited(_signalingService!.markCalleeRinging(signal.id));
     _scheduleIncomingMissTimeout(session);
   }
@@ -1006,7 +1072,6 @@ class CallsController extends ChangeNotifier {
     final memberUids = session.contact.memberUids;
     final shouldWatch = signaling != null &&
         session.contact.isGroup &&
-        session.direction == CallDirection.outgoing &&
         roomName != null &&
         memberUids != null &&
         memberUids.isNotEmpty;
@@ -1176,6 +1241,7 @@ class CallsController extends ChangeNotifier {
         unawaited(_handleRemoteParticipantLeft(event.participant.identity));
       });
       roomListener.on<lk.ParticipantConnectedEvent>((_) {
+        _cancelGroupHostNoAnswerTimeout();
         notifyListeners();
       });
 
@@ -1383,6 +1449,70 @@ class CallsController extends ChangeNotifier {
     };
   }
 
+  void _scheduleGroupHostNoAnswerTimeout(String sessionId) {
+    _cancelGroupHostNoAnswerTimeout();
+    if (incomingMissedAfter == Duration.zero) {
+      unawaited(_handleGroupHostNoAnswerTimeout(sessionId));
+      return;
+    }
+
+    _groupHostNoAnswerTimer = Timer(incomingMissedAfter, () {
+      unawaited(_handleGroupHostNoAnswerTimeout(sessionId));
+    });
+  }
+
+  void _cancelGroupHostNoAnswerTimeout() {
+    _groupHostNoAnswerTimer?.cancel();
+    _groupHostNoAnswerTimer = null;
+  }
+
+  Future<void> _handleGroupHostNoAnswerTimeout(String sessionId) async {
+    final session = _currentSession;
+    if (session == null || session.id != sessionId) {
+      return;
+    }
+    if (!session.contact.isGroup || session.direction != CallDirection.outgoing) {
+      return;
+    }
+    if (remoteParticipantCount > 0) {
+      return;
+    }
+
+    final memberUids = session.contact.memberUids ?? const <String>[];
+    final roomName = session.roomName;
+    final signaling = _signalingService;
+    var didUpdate = false;
+
+    for (final uid in memberUids) {
+      final status = _groupInviteStatuses[uid] ?? CallSignalStatus.ringing;
+      if (status != CallSignalStatus.ringing &&
+          status != CallSignalStatus.accepted) {
+        continue;
+      }
+
+      if (roomName != null && signaling != null) {
+        try {
+          await signaling.updateStatus(
+            '${roomName}_$uid',
+            CallSignalStatus.declined,
+          );
+        } catch (_) {
+          // Best-effort -- local invite state still drives teardown.
+        }
+      }
+
+      _groupInviteStatuses = Map<String, CallSignalStatus>.from(
+        _groupInviteStatuses,
+      )..[uid] = CallSignalStatus.declined;
+      didUpdate = true;
+    }
+
+    if (didUpdate) {
+      notifyListeners();
+    }
+    _maybeEndLonelyGroupHostCall();
+  }
+
   void _schedulePhaseTimer(Duration duration, VoidCallback action) {
     _phaseTimer?.cancel();
     if (duration == Duration.zero) {
@@ -1413,6 +1543,7 @@ class CallsController extends ChangeNotifier {
   void _cancelTimers() {
     _phaseTimer?.cancel();
     _phaseTimer = null;
+    _cancelGroupHostNoAnswerTimeout();
     _durationTicker?.cancel();
     _durationTicker = null;
     _stopRinging();

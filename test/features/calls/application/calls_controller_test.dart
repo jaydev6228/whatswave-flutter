@@ -13,6 +13,7 @@ import 'package:whatswave/features/calls/data/ringtone_player.dart';
 import 'package:whatswave/features/calls/domain/call_permissions.dart';
 import 'package:whatswave/features/calls/domain/call_session.dart';
 import 'package:whatswave/features/calls/domain/call_signal.dart';
+import 'package:whatswave/features/calls/domain/group_call_participant.dart';
 
 void main() {
   test(
@@ -482,6 +483,84 @@ void main() {
       expect(controller.history.first.status, CallHistoryStatus.canceled);
     });
 
+    test(
+        'ends a group host call after the no-answer timeout with nobody joined',
+        () async {
+      final signaling = FakeCallSignalingService();
+      final controller = CallsController(
+        repository: FakeCallsRepository(latency: Duration.zero),
+        permissionService: MemoryAppPermissionService(),
+        signalingService: signaling,
+        incomingMissedAfter: Duration.zero,
+        durationTickInterval: Duration.zero,
+      );
+      await controller.loadOverview();
+
+      await controller.startOutgoingCall(
+        contact: const CallContact(
+          id: 'design-sprint',
+          name: 'Design Sprint',
+          avatarLabel: 'DS',
+          accentColor: Color(0xFF123456),
+          isGroup: true,
+          memberUids: <String>['uid-ava', 'uid-noah'],
+        ),
+        type: CallType.audio,
+      );
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(controller.currentSession, isNull);
+      expect(controller.history.first.status, CallHistoryStatus.canceled);
+    });
+
+    test('builds a group participant list for the host', () async {
+      final signaling = FakeCallSignalingService();
+      final uidController = StreamController<String?>();
+      final controller = CallsController(
+        repository: FakeCallsRepository(latency: Duration.zero),
+        permissionService: MemoryAppPermissionService(),
+        signalingService: signaling,
+        currentUserIdStream: uidController.stream,
+        durationTickInterval: Duration.zero,
+      );
+
+      await controller.loadOverview();
+      uidController.add('host-uid');
+      await Future<void>.delayed(Duration.zero);
+
+      await controller.startOutgoingCall(
+        contact: const CallContact(
+          id: 'design-sprint',
+          name: 'Design Sprint',
+          avatarLabel: 'DS',
+          accentColor: Color(0xFF123456),
+          isGroup: true,
+          memberUids: <String>['uid-ava', 'uid-noah'],
+          memberDisplayNames: <String, String>{
+            'host-uid': 'Jay',
+            'uid-ava': 'Ava Patel',
+            'uid-noah': 'Noah Kim',
+          },
+        ),
+        type: CallType.audio,
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      final participants = controller.groupCallParticipants;
+      expect(participants.length, 3);
+      expect(
+        participants.firstWhere((entry) => entry.uid == 'host-uid').displayName,
+        'You',
+      );
+      expect(
+        participants.firstWhere((entry) => entry.uid == 'uid-ava').state,
+        GroupCallParticipantState.ringing,
+      );
+
+      await uidController.close();
+    });
+
     test('falls back to the simulated call when the contact has no uid',
         () async {
       final signaling = FakeCallSignalingService();
@@ -762,12 +841,17 @@ class FakeCallSignalingService implements CallSignalingService {
     required String threadName,
     required List<String> participantUids,
     required CallType type,
+    Map<String, String>? participantDisplayNames,
   }) async {
     placedCalleeUid = participantUids.isEmpty ? null : participantUids.first;
     placedType = type;
     final now = DateTime.now();
     final id = 'fake-group-call-${_sequence++}';
     lastGroupRoomName = id;
+    final resolvedDisplayNames = <String, String>{
+      ...?participantDisplayNames,
+      'test-caller-uid': 'Test Host',
+    };
     final signal = CallSignal(
       id: id,
       callerUid: 'test-caller-uid',
@@ -781,6 +865,7 @@ class FakeCallSignalingService implements CallSignalingService {
       threadId: threadId,
       threadName: threadName,
       participantUids: participantUids,
+      participantDisplayNames: resolvedDisplayNames,
     );
     _calls[id] = signal;
     _groupInviteStatuses[id] = <String, CallSignalStatus>{
@@ -935,6 +1020,7 @@ class DelayedFakeCallSignalingService extends FakeCallSignalingService {
     required String threadName,
     required List<String> participantUids,
     required CallType type,
+    Map<String, String>? participantDisplayNames,
   }) async {
     placeGroupCallStarted = true;
     await releasePlaceGroupCall.future;
@@ -943,6 +1029,7 @@ class DelayedFakeCallSignalingService extends FakeCallSignalingService {
       threadName: threadName,
       participantUids: participantUids,
       type: type,
+      participantDisplayNames: participantDisplayNames,
     );
   }
 }

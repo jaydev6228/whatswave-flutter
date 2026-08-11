@@ -24,6 +24,7 @@ class CallSignal {
     this.threadId,
     this.threadName,
     this.participantUids = const <String>[],
+    this.participantDisplayNames = const <String, String>{},
   });
 
   final String id;
@@ -48,6 +49,7 @@ class CallSignal {
   final String? threadId;
   final String? threadName;
   final List<String> participantUids;
+  final Map<String, String> participantDisplayNames;
 
   CallSignal copyWith({
     CallSignalStatus? status,
@@ -71,6 +73,7 @@ class CallSignal {
       threadId: threadId,
       threadName: threadName,
       participantUids: participantUids,
+      participantDisplayNames: participantDisplayNames,
     );
   }
 }

@@ -9,6 +9,8 @@ import '../../shared/widgets/liquid_glass.dart';
 import '../application/calls_controller.dart';
 import '../domain/call_contact.dart';
 import '../domain/call_session.dart';
+import '../domain/group_call_participant.dart';
+import 'group_call_presence_bubbles.dart';
 
 const Alignment _audioFallbackStageAlignment = Alignment(0, -0.08);
 
@@ -70,20 +72,25 @@ class _CallExperienceScreenState extends State<CallExperienceScreen> {
       return const SizedBox.shrink();
     }
     final gradient = _backgroundGradient(context, session);
+    final videoBackdropColor =
+        session.isVideo ? Colors.black : gradient.colors.first;
 
     return PopScope(
       canPop: false,
       child: Scaffold(
         key: const Key('call_experience_screen'),
-        backgroundColor: gradient.colors.first,
+        backgroundColor: videoBackdropColor,
         body: Stack(
           fit: StackFit.expand,
           children: [
-            DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: gradient,
+            if (session.isVideo)
+              const ColoredBox(color: Colors.black)
+            else
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: gradient,
+                ),
               ),
-            ),
             // Remote video/ambient stage now paints edge-to-edge, behind
             // the safe-area-padded chrome below -- "show opponent video to
             // whole screen behind element on screen". Audio calls have no
@@ -141,6 +148,7 @@ class _VideoCallLayout extends StatelessWidget {
         final previewMargin = isCompact ? 16.0 : 24.0;
         final textColor = scheme.primaryText;
         final isConnected = session.phase == CallSessionPhase.connected;
+        final isGroupVideo = session.contact.isGroup;
 
         // Chrome overlaid on top of the full-screen remote video behind
         // this (see _CallExperienceScreenState.build). No "Video call"
@@ -152,7 +160,7 @@ class _VideoCallLayout extends StatelessWidget {
         // call").
         return Stack(
           children: [
-            if (isConnected)
+            if (isConnected && !isGroupVideo)
               Positioned(
                 top: 0,
                 left: 0,
@@ -183,20 +191,20 @@ class _VideoCallLayout extends StatelessWidget {
                   ],
                 ),
               ),
-            Positioned(
-              top: previewMargin,
-              right: previewMargin,
-              child: _LocalVideoPreviewCard(
-                session: session,
-                localVideoTrack:
-                    session.isReal ? controller.localVideoTrack : null,
-                width: previewWidth,
-                height: previewHeight,
-                compact: isCompact,
-                scheme: scheme,
-                onSwitchCamera: controller.switchCamera,
+            if (!isGroupVideo)
+              Positioned(
+                top: previewMargin,
+                right: previewMargin,
+                child: _LocalVideoPreviewCard(
+                  session: session,
+                  localVideoTrack:
+                      session.isReal ? controller.localVideoTrack : null,
+                  width: previewWidth,
+                  height: previewHeight,
+                  compact: isCompact,
+                  scheme: scheme,
+                ),
               ),
-            ),
             Positioned(
               left: 0,
               right: 0,
@@ -242,73 +250,38 @@ class _AudioCallLayout extends StatelessWidget {
         final isCompact =
             constraints.maxHeight < 760 || constraints.maxWidth < 390;
         final textColor = scheme.primaryText;
-        final detailText = session.phase == CallSessionPhase.connected
-            ? _formatDuration(session.elapsedSeconds(DateTime.now()))
-            : _audioStatusText(session);
-        final groupDetail = _groupParticipantDetail(controller, session);
-        final detailStyle = session.phase == CallSessionPhase.connected
-            ? theme.textTheme.headlineLarge?.copyWith(
-                color: textColor,
-                fontWeight: FontWeight.w700,
-                letterSpacing: -0.6,
-                fontSize: isCompact ? 34 : 38,
-              )
-            : theme.textTheme.titleLarge?.copyWith(
-                color: scheme.secondaryText,
-                fontWeight: FontWeight.w700,
-                fontSize: isCompact ? 22 : 24,
-              );
+        final isGroupCall = session.contact.isGroup;
+        final playfieldTopPad = isCompact ? 98.0 : 108.0;
+        final playfieldBottomPad = isCompact ? 12.0 : 16.0;
+        final headerTop = isCompact ? 24.0 : 32.0;
 
         return Stack(
           fit: StackFit.expand,
           children: [
             Column(
               children: [
-                SizedBox(height: isCompact ? 24 : 32),
-                Text(
-                  _displayCallName(session.contact.name),
-                  key: const Key('call_name_text'),
-                  textAlign: TextAlign.center,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.displaySmall?.copyWith(
-                    color: textColor,
-                    fontWeight: FontWeight.w800,
-                    fontSize: isCompact ? 42 : 48,
-                    letterSpacing: -0.9,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                // No "Audio call" label -- the user already knows what
-                // kind of call this is; detailText below (Calling.../
-                // Connecting.../elapsed duration) carries the info that
-                // actually changes and matters.
-                Text(
-                  detailText,
-                  textAlign: TextAlign.center,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: detailStyle,
-                ),
-                if (groupDetail.isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  Text(
-                    groupDetail,
-                    key: const Key('call_group_participant_text'),
-                    textAlign: TextAlign.center,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodyLarge?.copyWith(
-                      color: scheme.secondaryText,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
                 Expanded(
-                  child: _AudioCenterStage(
-                    session: session,
-                    compact: isCompact,
-                    scheme: scheme,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      _AudioCenterStage(
+                        controller: controller,
+                        session: session,
+                        compact: isCompact,
+                        scheme: scheme,
+                        isGroupCall: isGroupCall,
+                      ),
+                      if (isGroupCall)
+                        GroupCallFloatingFieldHost(
+                          controller: controller,
+                          compact: isCompact,
+                          primaryText: scheme.primaryText,
+                          surfaceColor: scheme.identitySurfaceColor,
+                          ringColor: scheme.avatarMiddleColor,
+                          topPadding: playfieldTopPad,
+                          bottomPadding: playfieldBottomPad,
+                        ),
+                    ],
                   ),
                 ),
                 if (session.phase == CallSessionPhase.incoming)
@@ -325,6 +298,57 @@ class _AudioCallLayout extends StatelessWidget {
                     scheme: scheme,
                   ),
               ],
+            ),
+            Positioned(
+              top: headerTop,
+              left: 0,
+              right: 0,
+              child: ListenableBuilder(
+                listenable: controller,
+                builder: (context, _) {
+                  final detailText = session.phase == CallSessionPhase.connected
+                      ? _formatDuration(session.elapsedSeconds(DateTime.now()))
+                      : _audioStatusText(session);
+                  final detailStyle =
+                      session.phase == CallSessionPhase.connected
+                          ? theme.textTheme.headlineLarge?.copyWith(
+                              color: textColor,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: -0.6,
+                              fontSize: isCompact ? 34 : 38,
+                            )
+                          : theme.textTheme.titleLarge?.copyWith(
+                              color: scheme.secondaryText,
+                              fontWeight: FontWeight.w700,
+                              fontSize: isCompact ? 22 : 24,
+                            );
+                  return Column(
+                    children: [
+                      Text(
+                        _displayCallName(session.contact.name),
+                        key: const Key('call_name_text'),
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.displaySmall?.copyWith(
+                          color: textColor,
+                          fontWeight: FontWeight.w800,
+                          fontSize: isCompact ? 42 : 48,
+                          letterSpacing: -0.9,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        detailText,
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: detailStyle,
+                      ),
+                    ],
+                  );
+                },
+              ),
             ),
           ],
         );
@@ -352,44 +376,48 @@ class _VideoAmbientStage extends StatelessWidget {
     final accentColor = session.contact.accentColor;
     final secondaryGlow = Color.lerp(AppPalette.sky, AppPalette.purple, 0.55)!;
     final remoteTrack = session.isReal ? controller.remoteVideoTrack : null;
-    final remoteTracks =
-        session.isReal ? controller.remoteVideoTracks : const <lk.VideoTrack>[];
-    final showGroupGrid = session.phase == CallSessionPhase.connected &&
-        remoteTracks.length > 1;
-    final showRemoteVideo = session.phase == CallSessionPhase.connected &&
-        !showGroupGrid &&
+    final isGroupVideo = session.contact.isGroup;
+    final showGroupVideoGrid = isGroupVideo;
+    final showRemoteVideo = !showGroupVideoGrid &&
+        session.phase == CallSessionPhase.connected &&
         remoteTrack != null;
 
     return Stack(
       fit: StackFit.expand,
       children: [
-        Align(
-          alignment: const Alignment(-0.92, -0.08),
-          child: _AmbientGlow(
-            size: compact ? 250 : 320,
-            color: accentColor.withValues(alpha: scheme.isDark ? 0.2 : 0.11),
-          ),
-        ),
-        Align(
-          alignment: const Alignment(0.96, 0.34),
-          child: _AmbientGlow(
-            size: compact ? 280 : 340,
-            color: secondaryGlow.withValues(alpha: scheme.isDark ? 0.18 : 0.1),
-          ),
-        ),
-        Align(
-          alignment: const Alignment(0.04, 0.02),
-          child: _AmbientGlow(
-            size: compact ? 160 : 210,
-            color: (scheme.isDark ? Colors.white : AppPalette.cloud).withValues(
-              alpha: scheme.isDark ? 0.06 : 0.52,
+        if (!showGroupVideoGrid) ...[
+          Align(
+            alignment: const Alignment(-0.92, -0.08),
+            child: _AmbientGlow(
+              size: compact ? 250 : 320,
+              color: accentColor.withValues(alpha: scheme.isDark ? 0.2 : 0.11),
             ),
           ),
-        ),
-        if (showGroupGrid)
+          Align(
+            alignment: const Alignment(0.96, 0.34),
+            child: _AmbientGlow(
+              size: compact ? 280 : 340,
+              color: secondaryGlow.withValues(alpha: scheme.isDark ? 0.18 : 0.1),
+            ),
+          ),
+          Align(
+            alignment: const Alignment(0.04, 0.02),
+            child: _AmbientGlow(
+              size: compact ? 160 : 210,
+              color: (scheme.isDark ? Colors.white : AppPalette.cloud).withValues(
+                alpha: scheme.isDark ? 0.06 : 0.52,
+              ),
+            ),
+          ),
+        ],
+        if (showGroupVideoGrid)
           Positioned.fill(
             key: const Key('call_group_video_grid'),
-            child: _GroupVideoGrid(tracks: remoteTracks),
+            child: _GroupCallVideoGrid(
+              controller: controller,
+              session: session,
+              scheme: scheme,
+            ),
           )
         else if (showRemoteVideo)
           Positioned.fill(
@@ -456,7 +484,6 @@ class _LocalVideoPreviewCard extends StatelessWidget {
     required this.height,
     required this.compact,
     required this.scheme,
-    required this.onSwitchCamera,
     this.localVideoTrack,
   });
 
@@ -466,7 +493,6 @@ class _LocalVideoPreviewCard extends StatelessWidget {
   final double height;
   final bool compact;
   final _CallVisualScheme scheme;
-  final VoidCallback onSwitchCamera;
 
   @override
   Widget build(BuildContext context) {
@@ -517,88 +543,62 @@ class _LocalVideoPreviewCard extends StatelessWidget {
             // button below gets its own small margin separately, so it
             // doesn't look glued to the exact corner pixel.
             Stack(
-                children: [
-                  // Video (or its fallback icon) painted first, so the
-                  // switch-camera button below always stays on top and
-                  // tappable -- Stack children paint in order, and a
-                  // full-bleed video here would otherwise cover it.
-                  Align(
-                    alignment: Alignment.center,
-                    child: AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 220),
-                      switchInCurve: Curves.easeOutCubic,
-                      switchOutCurve: Curves.easeInCubic,
-                      child: localVideoTrack != null &&
-                              session.isLocalVideoEnabled
-                          ? ClipRRect(
-                              key: const Key('call_local_video_surface'),
-                              borderRadius: borderRadius,
-                              child: lk.VideoTrackRenderer(
-                                localVideoTrack!,
-                                fit: lk.VideoViewFit.cover,
-                              ),
-                            )
-                          : session.isLocalVideoEnabled
-                          ? Icon(
-                              key: const Key('call_local_video_enabled_icon'),
-                              Icons.person_pin_circle_outlined,
-                              color: scheme.primaryText,
-                              size: compact ? 46 : 50,
-                            )
-                          : Column(
-                              key: const Key('call_local_video_disabled_panel'),
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.videocam_off_rounded,
-                                  color: scheme.primaryText,
-                                  size: compact ? 40 : 44,
-                                ),
-                                SizedBox(height: compact ? 8 : 10),
-                                Text(
-                                  'Camera off',
-                                  key: const Key(
-                                      'call_local_video_status_label'),
-                                  textAlign: TextAlign.center,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .labelLarge
-                                      ?.copyWith(
-                                        color: scheme.primaryText,
-                                        fontWeight: FontWeight.w700,
-                                        fontSize: compact ? 13 : 14,
-                                      ),
-                                ),
-                              ],
+              children: [
+                Align(
+                  alignment: Alignment.center,
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 220),
+                    switchInCurve: Curves.easeOutCubic,
+                    switchOutCurve: Curves.easeInCubic,
+                    child: localVideoTrack != null &&
+                            session.isLocalVideoEnabled
+                        ? ClipRRect(
+                            key: const Key('call_local_video_surface'),
+                            borderRadius: borderRadius,
+                            child: lk.VideoTrackRenderer(
+                              localVideoTrack!,
+                              fit: lk.VideoViewFit.cover,
                             ),
-                    ),
-                  ),
-                  Align(
-                    alignment: Alignment.bottomRight,
-                    child: Padding(
-                      padding: EdgeInsets.all(compact ? 8 : 10),
-                      child: _PreviewControlButton(
-                        buttonKey: const Key('call_switch_camera_button'),
-                        icon: Icons.flip_camera_ios_rounded,
-                        size: compact ? 34 : 38,
-                        backgroundColor: scheme.miniControlBackground,
-                        foregroundColor: scheme.miniControlForeground,
-                        borderColor: scheme.isDark
-                            ? Colors.white.withValues(alpha: 0.14)
-                            : scheme.miniControlForeground.withValues(
-                                alpha: 0.12,
+                          )
+                        : session.isLocalVideoEnabled
+                            ? Icon(
+                                key: const Key('call_local_video_enabled_icon'),
+                                Icons.person_pin_circle_outlined,
+                                color: scheme.primaryText,
+                                size: compact ? 46 : 50,
+                              )
+                            : Column(
+                                key: const Key('call_local_video_disabled_panel'),
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.videocam_off_rounded,
+                                    color: scheme.primaryText,
+                                    size: compact ? 40 : 44,
+                                  ),
+                                  SizedBox(height: compact ? 8 : 10),
+                                  Text(
+                                    'Camera off',
+                                    key: const Key(
+                                        'call_local_video_status_label'),
+                                    textAlign: TextAlign.center,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .labelLarge
+                                        ?.copyWith(
+                                          color: scheme.primaryText,
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: compact ? 13 : 14,
+                                        ),
+                                  ),
+                                ],
                               ),
-                        shadowColor: Colors.black.withValues(
-                          alpha: scheme.isDark ? 0.14 : 0.05,
-                        ),
-                        onPressed: onSwitchCamera,
-                      ),
-                    ),
                   ),
-                ],
-              ),
+                ),
+              ],
+            ),
           ],
         ),
       ),
@@ -608,18 +608,35 @@ class _LocalVideoPreviewCard extends StatelessWidget {
 
 class _AudioCenterStage extends StatelessWidget {
   const _AudioCenterStage({
+    required this.controller,
     required this.session,
     required this.compact,
     required this.scheme,
+    required this.isGroupCall,
   });
 
+  final CallsController controller;
   final CallSession session;
   final bool compact;
   final _CallVisualScheme scheme;
+  final bool isGroupCall;
 
   @override
   Widget build(BuildContext context) {
     final hasPhotoBackdrop = session.contact.photoAssetPath != null;
+    final centerStage = isGroupCall
+        ? GroupCallCenterAnchorHost(
+            controller: controller,
+            compact: compact,
+            primaryText: scheme.primaryText,
+            surfaceColor: scheme.identitySurfaceColor,
+            ringColor: scheme.avatarMiddleColor,
+          )
+        : _AudioAvatarStage(
+            session: session,
+            compact: compact,
+            scheme: scheme,
+          );
 
     return Padding(
       padding: EdgeInsets.fromLTRB(
@@ -636,23 +653,13 @@ class _AudioCenterStage extends StatelessWidget {
               session: session,
               compact: compact,
               scheme: scheme,
-              fallbackForeground: hasPhotoBackdrop
-                  ? null
-                  : _AudioAvatarStage(
-                      session: session,
-                      compact: compact,
-                      scheme: scheme,
-                    ),
+              fallbackForeground: hasPhotoBackdrop ? null : centerStage,
             ),
           ),
           if (hasPhotoBackdrop)
             Align(
               alignment: _audioFallbackStageAlignment,
-              child: _AudioAvatarStage(
-                session: session,
-                compact: compact,
-                scheme: scheme,
-              ),
+              child: centerStage,
             ),
         ],
       ),
@@ -1010,6 +1017,46 @@ class _AudioAvatarStage extends StatelessWidget {
   }
 }
 
+class _CallControlDockMetrics {
+  const _CallControlDockMetrics({required this.compact});
+
+  final bool compact;
+
+  double get controlSize => compact ? 50.0 : 56.0;
+  double get buttonGap => compact ? 8.0 : 10.0;
+  double get endGap => compact ? 12.0 : 14.0;
+  double get panelPaddingH => compact ? 12.0 : 16.0;
+  double get panelPaddingV => compact ? 14.0 : 16.0;
+  double get rowGap => compact ? 10.0 : 12.0;
+  double get borderRadius => compact ? 28.0 : 32.0;
+
+  Color dividerColor(_CallVisualScheme scheme) {
+    return scheme.isDark
+        ? Colors.white.withValues(alpha: 0.22)
+        : scheme.primaryText.withValues(alpha: 0.18);
+  }
+
+  Widget frostedShell({
+    required _CallVisualScheme scheme,
+    Key? panelKey,
+    required Widget child,
+  }) {
+    return _FrostedPanel(
+      panelKey: panelKey,
+      borderRadius: BorderRadius.circular(borderRadius),
+      backgroundColor: scheme.panelBackground,
+      borderColor: scheme.panelBorder,
+      child: Padding(
+        padding: EdgeInsets.symmetric(
+          horizontal: panelPaddingH,
+          vertical: panelPaddingV,
+        ),
+        child: child,
+      ),
+    );
+  }
+}
+
 class _VideoControlDock extends StatelessWidget {
   const _VideoControlDock({
     required this.controller,
@@ -1025,9 +1072,8 @@ class _VideoControlDock extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final controlSize = compact ? 50.0 : 56.0;
-    final controlWidth = compact ? 64.0 : 68.0;
-    final labelFontSize = compact ? 12.5 : 13.0;
+    final metrics = _CallControlDockMetrics(compact: compact);
+    final controlSize = metrics.controlSize;
     final mutedStyle = _resolveCallControlStyle(
       scheme: scheme,
       tone: _CallControlTone.muted,
@@ -1043,103 +1089,164 @@ class _VideoControlDock extends StatelessWidget {
       tone: _CallControlTone.camera,
       active: session.isLocalVideoEnabled,
     );
+    final switchStyle = _resolveCallControlStyle(
+      scheme: scheme,
+      tone: _CallControlTone.camera,
+      active: false,
+    );
+    final buttonGap = metrics.buttonGap;
+
+    Widget actionButton({
+      required Key? buttonKey,
+      required IconData icon,
+      required String label,
+      required bool isSelected,
+      required _CallControlStyle style,
+      required VoidCallback onPressed,
+    }) {
+      return _CallActionButton(
+        buttonKey: buttonKey,
+        icon: icon,
+        label: label,
+        isSelected: isSelected,
+        size: controlSize,
+        showLabel: false,
+        backgroundColor: style.backgroundColor,
+        foregroundColor: style.foregroundColor,
+        labelColor: style.labelColor,
+        borderColor: style.borderColor,
+        shadowColor: style.shadowColor,
+        onPressed: onPressed,
+      );
+    }
+
+    final primaryControls = <Widget>[
+      actionButton(
+        buttonKey: const Key('call_mute_button'),
+        icon: session.isMuted ? Icons.mic_off_rounded : Icons.mic_rounded,
+        label: session.isMuted ? 'Muted' : 'Mute',
+        isSelected: session.isMuted,
+        style: mutedStyle,
+        onPressed: controller.toggleMute,
+      ),
+      actionButton(
+        buttonKey: const Key('call_audio_route_button'),
+        icon: Icons.volume_up_rounded,
+        label: 'Speaker',
+        isSelected: session.isSpeakerOn,
+        style: speakerStyle,
+        onPressed: controller.toggleSpeaker,
+      ),
+      actionButton(
+        buttonKey: const Key('call_video_toggle_button'),
+        icon: session.isLocalVideoEnabled
+            ? Icons.videocam_rounded
+            : Icons.videocam_off_rounded,
+        label: session.isLocalVideoEnabled ? 'Camera' : 'Cam off',
+        isSelected: session.isLocalVideoEnabled,
+        style: cameraStyle,
+        onPressed: controller.toggleLocalVideo,
+      ),
+      actionButton(
+        buttonKey: const Key('call_switch_camera_button'),
+        icon: Icons.flip_camera_ios_rounded,
+        label: 'Flip',
+        isSelected: false,
+        style: switchStyle,
+        onPressed: controller.switchCamera,
+      ),
+    ];
+
+    final endCallButton = _EndCallButton(
+      buttonKey: const Key('call_end_button'),
+      size: controlSize,
+      onPressed: controller.endCurrentCall,
+    );
 
     return LayoutBuilder(
       builder: (context, constraints) {
-        final dockWidth = (compact ? 240.0 : 268.0)
-            .clamp(0.0, constraints.maxWidth)
-            .toDouble();
+        final endGap = metrics.endGap;
+        final dividerColor = metrics.dividerColor(scheme);
 
-        return SizedBox(
-          width: dockWidth,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // No "Incoming video"/"Connecting video" pill here -- it
-              // duplicated the centered avatar+name+status overlay
-              // (_VideoAmbientStage) that's already showing that same
-              // status for every phase this dock renders in but connected.
-              _FrostedPanel(
-                panelKey: const Key('call_video_control_dock'),
-                borderRadius: BorderRadius.circular(compact ? 28 : 32),
-                backgroundColor: scheme.panelBackground,
-                borderColor: scheme.panelBorder,
-                child: Padding(
-                  padding: EdgeInsets.fromLTRB(
-                    compact ? 12 : 16,
-                    compact ? 14 : 16,
-                    compact ? 12 : 16,
-                    compact ? 14 : 16,
-                  ),
-                  child: Wrap(
-                    alignment: WrapAlignment.center,
-                    spacing: compact ? 8 : 10,
-                    runSpacing: compact ? 12 : 14,
-                    children: [
-                      _CallActionButton(
-                        buttonKey: const Key('call_mute_button'),
-                        icon: session.isMuted
-                            ? Icons.mic_off_rounded
-                            : Icons.mic_rounded,
-                        label: session.isMuted ? 'Muted' : 'Mute',
-                        isSelected: session.isMuted,
-                        size: controlSize,
-                        width: controlWidth,
-                        labelFontSize: labelFontSize,
-                        backgroundColor: mutedStyle.backgroundColor,
-                        foregroundColor: mutedStyle.foregroundColor,
-                        labelColor: mutedStyle.labelColor,
-                        borderColor: mutedStyle.borderColor,
-                        shadowColor: mutedStyle.shadowColor,
-                        onPressed: controller.toggleMute,
-                      ),
-                      _CallActionButton(
-                        buttonKey: const Key('call_audio_route_button'),
-                        icon: Icons.volume_up_rounded,
-                        label: 'Speaker',
-                        isSelected: session.isSpeakerOn,
-                        size: controlSize,
-                        width: controlWidth,
-                        labelFontSize: labelFontSize,
-                        backgroundColor: speakerStyle.backgroundColor,
-                        foregroundColor: speakerStyle.foregroundColor,
-                        labelColor: speakerStyle.labelColor,
-                        borderColor: speakerStyle.borderColor,
-                        shadowColor: speakerStyle.shadowColor,
-                        onPressed: controller.toggleSpeaker,
-                      ),
-                      _CallActionButton(
-                        buttonKey: const Key('call_video_toggle_button'),
-                        icon: session.isLocalVideoEnabled
-                            ? Icons.videocam_rounded
-                            : Icons.videocam_off_rounded,
-                        label:
-                            session.isLocalVideoEnabled ? 'Camera' : 'Cam off',
-                        isSelected: session.isLocalVideoEnabled,
-                        size: controlSize,
-                        width: controlWidth,
-                        labelFontSize: labelFontSize,
-                        backgroundColor: cameraStyle.backgroundColor,
-                        foregroundColor: cameraStyle.foregroundColor,
-                        labelColor: cameraStyle.labelColor,
-                        borderColor: cameraStyle.borderColor,
-                        shadowColor: cameraStyle.shadowColor,
-                        onPressed: controller.toggleLocalVideo,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              SizedBox(height: compact ? 14 : 16),
-              _EndCallButton(
-                buttonKey: const Key('call_end_button'),
-                size: compact ? 82 : 88,
-                onPressed: controller.endCurrentCall,
-              ),
+        final primaryRow = Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var index = 0; index < primaryControls.length; index++) ...[
+              if (index > 0) SizedBox(width: buttonGap),
+              primaryControls[index],
             ],
-          ),
+          ],
+        );
+
+        final singleRowWidth = metrics.panelPaddingH * 2 +
+            controlSize * 5 +
+            buttonGap * 3 +
+            endGap * 2 +
+            1;
+        final fitsSingleRow = constraints.maxWidth >= singleRowWidth;
+
+        Widget dockPill({required Widget child}) {
+          return metrics.frostedShell(
+            scheme: scheme,
+            child: child,
+          );
+        }
+
+        if (fitsSingleRow) {
+          return KeyedSubtree(
+            key: const Key('call_video_control_dock'),
+            child: dockPill(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  primaryRow,
+                  SizedBox(width: endGap),
+                  _CallDockDivider(
+                    height: controlSize,
+                    color: dividerColor,
+                  ),
+                  SizedBox(width: endGap),
+                  endCallButton,
+                ],
+              ),
+            ),
+          );
+        }
+
+        // Two-row cutout: separate pills for primary controls and end call
+        // so video stays visible under the sides of the bottom button.
+        return Column(
+          key: const Key('call_video_control_dock'),
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            dockPill(child: primaryRow),
+            SizedBox(height: metrics.rowGap),
+            dockPill(child: endCallButton),
+          ],
         );
       },
+    );
+  }
+}
+
+class _CallDockDivider extends StatelessWidget {
+  const _CallDockDivider({
+    required this.height,
+    required this.color,
+  });
+
+  final double height;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 1,
+      height: height,
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(999),
+      ),
     );
   }
 }
@@ -1159,7 +1266,8 @@ class _AudioCallActions extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final controlSize = compact ? 58.0 : 64.0;
+    final metrics = _CallControlDockMetrics(compact: compact);
+    final controlSize = metrics.controlSize;
     final mutedStyle = _resolveCallControlStyle(
       scheme: scheme,
       tone: _CallControlTone.muted,
@@ -1171,19 +1279,23 @@ class _AudioCallActions extends StatelessWidget {
       active: session.isSpeakerOn,
     );
 
-    return Column(
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
+    return Align(
+      alignment: Alignment.bottomCenter,
+      child: metrics.frostedShell(
+        panelKey: const Key('call_audio_control_dock'),
+        scheme: scheme,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             _CallActionButton(
               buttonKey: const Key('call_mute_button'),
-              icon: session.isMuted ? Icons.mic_off_rounded : Icons.mic_rounded,
+              icon:
+                  session.isMuted ? Icons.mic_off_rounded : Icons.mic_rounded,
               label: session.isMuted ? 'Muted' : 'Mute',
               isSelected: session.isMuted,
               size: controlSize,
-              width: compact ? 74 : 80,
-              labelFontSize: compact ? 13 : 14,
+              showLabel: false,
               backgroundColor: mutedStyle.backgroundColor,
               foregroundColor: mutedStyle.foregroundColor,
               labelColor: mutedStyle.labelColor,
@@ -1191,15 +1303,14 @@ class _AudioCallActions extends StatelessWidget {
               shadowColor: mutedStyle.shadowColor,
               onPressed: controller.toggleMute,
             ),
-            SizedBox(width: compact ? 22 : 28),
+            SizedBox(width: metrics.buttonGap),
             _CallActionButton(
               buttonKey: const Key('call_audio_route_button'),
               icon: Icons.volume_up_rounded,
               label: 'Speaker',
               isSelected: session.isSpeakerOn,
               size: controlSize,
-              width: compact ? 74 : 80,
-              labelFontSize: compact ? 13 : 14,
+              showLabel: false,
               backgroundColor: speakerStyle.backgroundColor,
               foregroundColor: speakerStyle.foregroundColor,
               labelColor: speakerStyle.labelColor,
@@ -1207,15 +1318,20 @@ class _AudioCallActions extends StatelessWidget {
               shadowColor: speakerStyle.shadowColor,
               onPressed: controller.toggleSpeaker,
             ),
+            SizedBox(width: metrics.endGap),
+            _CallDockDivider(
+              height: controlSize,
+              color: metrics.dividerColor(scheme),
+            ),
+            SizedBox(width: metrics.endGap),
+            _EndCallButton(
+              buttonKey: const Key('call_end_button'),
+              size: controlSize,
+              onPressed: controller.endCurrentCall,
+            ),
           ],
         ),
-        SizedBox(height: compact ? 24 : 28),
-        _EndCallButton(
-          buttonKey: const Key('call_end_button'),
-          size: compact ? 84 : 90,
-          onPressed: controller.endCurrentCall,
-        ),
-      ],
+      ),
     );
   }
 }
@@ -1321,6 +1437,7 @@ class _CallActionButton extends StatelessWidget {
     this.size = 68,
     this.width,
     this.labelFontSize = 15,
+    this.showLabel = true,
   });
 
   final Key? buttonKey;
@@ -1336,6 +1453,7 @@ class _CallActionButton extends StatelessWidget {
   final double size;
   final double? width;
   final double labelFontSize;
+  final bool showLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -1353,49 +1471,60 @@ class _CallActionButton extends StatelessWidget {
             ? resolvedBackgroundColor.withValues(alpha: 0.24)
             : Colors.black.withValues(alpha: 0.08));
 
+    final circleButton = AnimatedContainer(
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: resolvedBackgroundColor,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: resolvedBorderColor,
+          width: isSelected ? 1.15 : 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: resolvedShadowColor,
+            blurRadius: isSelected ? (isLightTheme ? 24 : 16) : 10,
+            spreadRadius: isSelected ? (isLightTheme ? 0.6 : 0.4) : 0,
+            offset: Offset(0, isSelected ? (isLightTheme ? 8 : 4) : 3),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(999),
+        child: InkWell(
+          key: buttonKey,
+          borderRadius: BorderRadius.circular(999),
+          onTap: onPressed,
+          child: SizedBox(
+            width: size,
+            height: size,
+            child: Icon(
+              icon,
+              color: resolvedForegroundColor,
+              size: size * 0.42,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    if (!showLabel) {
+      return SizedBox.square(
+        dimension: size,
+        child: circleButton,
+      );
+    }
+
     return SizedBox(
       width: width ?? (size + 10),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 220),
-            curve: Curves.easeOutCubic,
-            decoration: BoxDecoration(
-              color: resolvedBackgroundColor,
-              borderRadius: BorderRadius.circular(999),
-              border: Border.all(
-                color: resolvedBorderColor,
-                width: isSelected ? 1.15 : 1,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: resolvedShadowColor,
-                  blurRadius: isSelected ? (isLightTheme ? 24 : 16) : 10,
-                  spreadRadius: isSelected ? (isLightTheme ? 0.6 : 0.4) : 0,
-                  offset: Offset(0, isSelected ? (isLightTheme ? 8 : 4) : 3),
-                ),
-              ],
-            ),
-            child: Material(
-              color: Colors.transparent,
-              borderRadius: BorderRadius.circular(999),
-              child: InkWell(
-                key: buttonKey,
-                borderRadius: BorderRadius.circular(999),
-                onTap: onPressed,
-                child: SizedBox(
-                  width: size,
-                  height: size,
-                  child: Icon(
-                    icon,
-                    color: resolvedForegroundColor,
-                    size: size * 0.42,
-                  ),
-                ),
-              ),
-            ),
-          ),
+          circleButton,
           const SizedBox(height: 8),
           Text(
             label,
@@ -1537,125 +1666,242 @@ class _AmbientGlow extends StatelessWidget {
   }
 }
 
-String _groupParticipantDetail(CallsController controller, CallSession session) {
-  if (!session.contact.isGroup) {
-    return '';
-  }
-  if (session.phase == CallSessionPhase.connected) {
-    final joined = controller.remoteParticipantCount;
-    if (joined <= 0) {
-      return 'Waiting for others…';
-    }
-    return joined == 1 ? '1 participant' : '$joined participants';
-  }
-  final invited = session.contact.memberUids?.length ?? 0;
-  if (invited <= 0) {
-    return 'Group call';
-  }
-  return invited == 1 ? '1 person invited' : '$invited people invited';
-}
+class _GroupCallVideoGrid extends StatelessWidget {
+  const _GroupCallVideoGrid({
+    required this.controller,
+    required this.session,
+    required this.scheme,
+  });
 
-class _GroupVideoGrid extends StatelessWidget {
-  const _GroupVideoGrid({required this.tracks});
-
-  final List<lk.VideoTrack> tracks;
+  final CallsController controller;
+  final CallSession session;
+  final _CallVisualScheme scheme;
 
   @override
   Widget build(BuildContext context) {
-    final visible = tracks.take(4).toList(growable: false);
-    if (visible.length <= 1) {
-      return lk.VideoTrackRenderer(
-        visible.first,
-        fit: lk.VideoViewFit.cover,
-      );
+    final participants = controller.groupCallParticipants;
+    final remoteTracks = controller.remoteVideoTracksByUid;
+    final localTrack = session.isReal ? controller.localVideoTrack : null;
+
+    if (participants.isEmpty) {
+      return const ColoredBox(color: Colors.black);
     }
+
+    final tiles = participants
+        .map(
+          (participant) => _GroupCallVideoTile(
+            participant: participant,
+            track: participant.isSelf
+                ? localTrack
+                : remoteTracks[participant.uid],
+            scheme: scheme,
+          ),
+        )
+        .toList(growable: false);
 
     return ColoredBox(
       color: Colors.black,
-      child: switch (visible.length) {
-        2 => Row(
-            children: visible
-                .map(
-                  (track) => Expanded(
-                    child: lk.VideoTrackRenderer(
-                      track,
-                      fit: lk.VideoViewFit.cover,
-                    ),
-                  ),
-                )
-                .toList(growable: false),
-          ),
-        3 => Column(
-            children: [
-              Expanded(
-                child: lk.VideoTrackRenderer(
-                  visible[0],
-                  fit: lk.VideoViewFit.cover,
-                ),
-              ),
-              Expanded(
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: lk.VideoTrackRenderer(
-                        visible[1],
-                        fit: lk.VideoViewFit.cover,
-                      ),
-                    ),
-                    Expanded(
-                      child: lk.VideoTrackRenderer(
-                        visible[2],
-                        fit: lk.VideoViewFit.cover,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        _ => Column(
-            children: [
-              Expanded(
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: lk.VideoTrackRenderer(
-                        visible[0],
-                        fit: lk.VideoViewFit.cover,
-                      ),
-                    ),
-                    Expanded(
-                      child: lk.VideoTrackRenderer(
-                        visible[1],
-                        fit: lk.VideoViewFit.cover,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Expanded(
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: lk.VideoTrackRenderer(
-                        visible[2],
-                        fit: lk.VideoViewFit.cover,
-                      ),
-                    ),
-                    Expanded(
-                      child: lk.VideoTrackRenderer(
-                        visible[3],
-                        fit: lk.VideoViewFit.cover,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-      },
+      child: _groupVideoTileLayout(tiles),
     );
   }
+
+  static const double _gridGap = 1;
+
+  Widget _groupVideoTileLayout(List<_GroupCallVideoTile> tiles) {
+    if (tiles.length == 1) {
+      return tiles.first;
+    }
+    if (tiles.length == 2) {
+      return Row(
+        children: [
+          Expanded(child: tiles[0]),
+          const SizedBox(width: _gridGap),
+          Expanded(child: tiles[1]),
+        ],
+      );
+    }
+    if (tiles.length == 3) {
+      return Column(
+        children: [
+          Expanded(child: tiles[0]),
+          const SizedBox(height: _gridGap),
+          Expanded(
+            child: Row(
+              children: [
+                Expanded(child: tiles[1]),
+                const SizedBox(width: _gridGap),
+                Expanded(child: tiles[2]),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+
+    final visible = tiles.take(4).toList(growable: false);
+    return Column(
+      children: [
+        Expanded(
+          child: Row(
+            children: [
+              Expanded(child: visible[0]),
+              const SizedBox(width: _gridGap),
+              Expanded(child: visible[1]),
+            ],
+          ),
+        ),
+        const SizedBox(height: _gridGap),
+        Expanded(
+          child: Row(
+            children: [
+              Expanded(child: visible[2]),
+              const SizedBox(width: _gridGap),
+              Expanded(child: visible[3]),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _GroupCallVideoTile extends StatelessWidget {
+  const _GroupCallVideoTile({
+    required this.participant,
+    required this.track,
+    required this.scheme,
+  });
+
+  final GroupCallParticipantView participant;
+  final lk.VideoTrack? track;
+  final _CallVisualScheme scheme;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = _groupVideoTileAccent(participant.state);
+    final borderWidth = participant.state == GroupCallParticipantState.connected
+        ? 2.4
+        : 1.2;
+    final identityLabel = participant.isSelf
+        ? 'You'
+        : _displayCallName(participant.displayName);
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border.all(
+          color: accent.withValues(alpha: 0.85),
+          width: borderWidth,
+        ),
+      ),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          if (track != null)
+            lk.VideoTrackRenderer(
+              track!,
+              fit: lk.VideoViewFit.cover,
+            )
+          else
+            ColoredBox(
+              color: scheme.isDark
+                  ? const Color(0xFF141414)
+                  : const Color(0xFF202020),
+              child: Center(
+                child: _GroupCallVideoIdentity(
+                  participant: participant,
+                  label: identityLabel,
+                  scheme: scheme,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _GroupCallVideoIdentity extends StatelessWidget {
+  const _GroupCallVideoIdentity({
+    required this.participant,
+    required this.label,
+    required this.scheme,
+  });
+
+  final GroupCallParticipantView participant;
+  final String label;
+  final _CallVisualScheme scheme;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    const avatarSize = 88.0;
+
+    return Semantics(
+      label: label,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            DecoratedBox(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: scheme.identitySurfaceColor,
+                border: Border.all(
+                  color: scheme.avatarMiddleColor.withValues(alpha: 0.9),
+                  width: 2.4,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.28),
+                    blurRadius: 18,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: SizedBox(
+                width: avatarSize,
+                height: avatarSize,
+                child: Center(
+                  child: Text(
+                    participant.avatarLabel,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.headlineSmall?.copyWith(
+                      color: scheme.primaryText,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: -0.4,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.titleSmall?.copyWith(
+                color: scheme.primaryText.withValues(alpha: 0.92),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+Color _groupVideoTileAccent(GroupCallParticipantState state) {
+  return switch (state) {
+    GroupCallParticipantState.connected => AppPalette.green,
+    GroupCallParticipantState.connecting => AppPalette.sky,
+    GroupCallParticipantState.ringing => AppPalette.amber,
+    GroupCallParticipantState.declined => const Color(0xFFFF5A5F),
+    GroupCallParticipantState.unavailable => AppPalette.cloud,
+  };
 }
 
 String _displayCallName(String fullName) {

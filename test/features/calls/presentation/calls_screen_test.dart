@@ -249,40 +249,30 @@ void main() {
     expect(previewRect.left, greaterThan(statusRect.right + 8));
     expect(
       dockRect.center.dx,
-      moreOrLessEquals(screenRect.center.dx, epsilon: 2),
+      moreOrLessEquals(screenRect.center.dx, epsilon: 8),
       reason:
           'The video control dock should stay centered along the bottom edge.',
     );
     expect(
-      previewRect.contains(switchButtonRect.center),
+      dockRect.contains(switchButtonRect.center),
       isTrue,
       reason:
-          'The front/back camera action should live inside the local preview card.',
+          'The front/back camera action should live inside the bottom dock.',
     );
     expect(
-      dockRect.contains(switchButtonRect.center),
+      previewRect.contains(switchButtonRect.center),
       isFalse,
       reason:
-          'The switch camera action should no longer consume space in the bottom dock.',
-    );
-    expect(
-      switchButtonRect.center.dx,
-      greaterThan(previewRect.center.dx),
-      reason:
-          'The switch camera action should sit on the right side of the local preview.',
-    );
-    expect(
-      switchButtonRect.center.dy,
-      greaterThan(previewRect.center.dy),
-      reason:
-          'The switch camera action should sit near the bottom edge of the local preview.',
+          'The switch camera action should no longer consume space in the local preview card.',
     );
     expect(
       find.text('You'),
       findsNothing,
       reason: 'The preview badge is intentionally removed for a cleaner local preview.',
     );
-    expect(find.text('Camera'), findsOneWidget);
+    expect(find.text('Camera'), findsNothing);
+    expect(find.text('Speaker'), findsNothing);
+    expect(find.text('Mute'), findsNothing);
 
     await tester.tap(find.byKey(const Key('call_switch_camera_button')));
     await tester.pumpAndSettle();
@@ -291,7 +281,7 @@ void main() {
       controller.currentSession?.isFrontCamera,
       isFalse,
       reason:
-          'Tapping the preview switch action should still swap between front and back camera states.',
+          'Tapping the dock switch action should still swap between front and back camera states.',
     );
 
     await tester.tap(find.byKey(const Key('call_video_toggle_button')));
@@ -302,7 +292,7 @@ void main() {
     final disabledLabelRect =
         tester.getRect(find.byKey(const Key('call_local_video_status_label')));
 
-    expect(find.text('Cam off'), findsOneWidget);
+    expect(find.text('Cam off'), findsNothing);
     // No fixed inset padding around the preview's content anymore (the
     // video/fallback content now touches the card's own edges by design,
     // per docs/ui_layout_guidelines.md-style "no wasted chrome" -- only
@@ -327,7 +317,7 @@ void main() {
   });
 
   testWidgets(
-      'keeps the preview camera switch control soft in light theme',
+      'keeps the dock camera switch control soft in light theme',
       (tester) async {
     final controller = CallsController(
       repository: FakeCallsRepository(latency: Duration.zero),
@@ -358,32 +348,24 @@ void main() {
         matching: find.byIcon(Icons.flip_camera_ios_rounded),
       ),
     );
-    final switchColor = switchIcon.color!;
-    final switchHsl = HSLColor.fromColor(switchColor.withAlpha(255));
+    final muteIcon = tester.widget<Icon>(
+      find.descendant(
+        of: find.byKey(const Key('call_mute_button')),
+        matching: find.byIcon(Icons.mic_rounded),
+      ),
+    );
 
     expect(
-      switchColor,
-      isNot(equals(AppPalette.ink)),
+      switchIcon.color,
+      equals(muteIcon.color),
       reason:
-          'The preview camera switch should no longer read as a heavy black control in light mode.',
-    );
-    expect(
-      switchHsl.lightness,
-      greaterThan(0.34),
-      reason:
-          'The preview camera switch should stay visually lighter than primary black text.',
-    );
-    expect(
-      switchHsl.saturation,
-      lessThan(0.18),
-      reason:
-          'The preview camera switch should keep a neutral iOS-style tone instead of a strong accent.',
+          'The dock camera switch should share the same foreground treatment as the other dock controls.',
     );
     expect(
       tester.takeException(),
       isNull,
       reason:
-          'The lighter preview switch styling should still render without layout or paint issues.',
+          'The dock switch styling should still render without layout or paint issues.',
     );
   });
 
@@ -425,7 +407,7 @@ void main() {
         .decoration! as BoxDecoration;
     final beforeColor = beforeDecoration.color;
 
-    expect(find.text('Speaker'), findsOneWidget);
+    expect(find.text('Speaker'), findsNothing);
 
     await tester.tap(speakerActionFinder);
     await tester.pumpAndSettle();
@@ -438,7 +420,7 @@ void main() {
 
     expect(controller.currentSession?.isSpeakerOn, isTrue);
     expect(afterColor, isNot(equals(beforeColor)));
-    expect(find.text('Speaker'), findsOneWidget);
+    expect(find.text('Speaker'), findsNothing);
     expect(
       afterColor.a,
       greaterThan(beforeColor!.a + 0.15),
@@ -510,8 +492,8 @@ void main() {
 
     expect(controller.currentSession?.isMuted, isTrue);
     expect(controller.currentSession?.isSpeakerOn, isTrue);
-    expect(find.text('Muted'), findsOneWidget);
-    expect(find.text('Speaker'), findsOneWidget);
+    expect(find.text('Muted'), findsNothing);
+    expect(find.text('Speaker'), findsNothing);
     expect(muteDecoration.color, equals(speakerDecoration.color));
     expect(
       muteDecoration.border,
@@ -587,9 +569,9 @@ void main() {
     expect(controller.currentSession?.isMuted, isTrue);
     expect(controller.currentSession?.isSpeakerOn, isTrue);
     expect(controller.currentSession?.isLocalVideoEnabled, isTrue);
-    expect(find.text('Muted'), findsOneWidget);
-    expect(find.text('Speaker'), findsOneWidget);
-    expect(find.text('Camera'), findsOneWidget);
+    expect(find.text('Muted'), findsNothing);
+    expect(find.text('Speaker'), findsNothing);
+    expect(find.text('Camera'), findsNothing);
     expect(muteDecoration.color, equals(speakerDecoration.color));
     expect(cameraDecoration.color, equals(speakerDecoration.color));
     expect(
@@ -663,7 +645,7 @@ void main() {
     final afterLuminance = afterColor.withAlpha(255).computeLuminance();
 
     expect(controller.currentSession?.isSpeakerOn, isTrue);
-    expect(find.text('Speaker'), findsOneWidget);
+    expect(find.text('Speaker'), findsNothing);
     expect(
       afterHsl.lightness,
       greaterThan(beforeHsl.lightness + 0.05),

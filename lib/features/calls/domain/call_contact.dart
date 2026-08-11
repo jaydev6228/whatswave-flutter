@@ -10,6 +10,7 @@ class CallContact {
     this.photoAssetPath,
     this.uid,
     this.memberUids,
+    this.memberDisplayNames,
   });
 
   final String id;
@@ -27,6 +28,10 @@ class CallContact {
   /// threads so [CallsController] can start a real multi-party call.
   final List<String>? memberUids;
 
+  /// Optional uid -> display name map for [memberUids] and the host, used by
+  /// the in-call participant list during group calls.
+  final Map<String, String>? memberDisplayNames;
+
   CallContact copyWith({
     String? id,
     String? name,
@@ -36,6 +41,7 @@ class CallContact {
     String? photoAssetPath,
     String? uid,
     List<String>? memberUids,
+    Map<String, String>? memberDisplayNames,
   }) {
     return CallContact(
       id: id ?? this.id,
@@ -46,6 +52,7 @@ class CallContact {
       photoAssetPath: photoAssetPath ?? this.photoAssetPath,
       uid: uid ?? this.uid,
       memberUids: memberUids ?? this.memberUids,
+      memberDisplayNames: memberDisplayNames ?? this.memberDisplayNames,
     );
   }
 }

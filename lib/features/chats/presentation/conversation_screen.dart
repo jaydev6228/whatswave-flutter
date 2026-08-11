@@ -1531,6 +1531,12 @@ class _ConversationScreenState extends State<ConversationScreen> {
       memberUids: thread.isGroup
           ? thread.otherMemberUids(currentUid)
           : null,
+      memberDisplayNames: thread.isGroup
+          ? <String, String>{
+              for (final participant in thread.participants ?? const [])
+                participant.uid: participant.name,
+            }
+          : null,
     );
   }
 

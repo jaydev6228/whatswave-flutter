@@ -79,6 +79,7 @@ class FirestoreCallSignalingService implements CallSignalingService {
     required String threadName,
     required List<String> participantUids,
     required CallType type,
+    Map<String, String>? participantDisplayNames,
   }) async {
     final callerUid = _requireCallerUid;
     if (participantUids.isEmpty) {
@@ -86,6 +87,13 @@ class FirestoreCallSignalingService implements CallSignalingService {
     }
 
     final identity = await _callerIdentity(callerUid);
+    final resolvedDisplayNames = <String, String>{
+      ...?participantDisplayNames,
+    };
+    final hostName = identity.name?.trim();
+    if (hostName != null && hostName.isNotEmpty) {
+      resolvedDisplayNames[callerUid] = hostName;
+    }
     final hostRef = _calls.doc();
     final roomName = hostRef.id;
     final now = DateTime.now();
@@ -103,6 +111,8 @@ class FirestoreCallSignalingService implements CallSignalingService {
       'threadId': threadId,
       'threadName': threadName,
       'participantUids': participantUids,
+      if (resolvedDisplayNames.isNotEmpty)
+        'participantDisplayNames': resolvedDisplayNames,
     };
 
     // Host session doc -- watched by the caller for end/cancel.
@@ -142,6 +152,7 @@ class FirestoreCallSignalingService implements CallSignalingService {
       threadId: threadId,
       threadName: threadName,
       participantUids: participantUids,
+      participantDisplayNames: resolvedDisplayNames,
     );
   }
 
@@ -335,6 +346,11 @@ class FirestoreCallSignalingService implements CallSignalingService {
             ?.map((entry) => entry.toString())
             .toList(growable: false) ??
         const <String>[];
+    final participantDisplayNames =
+        (data['participantDisplayNames'] as Map<String, dynamic>?)?.map(
+              (key, value) => MapEntry(key, value.toString()),
+            ) ??
+            const <String, String>{};
     return CallSignal(
       id: doc.id,
       callerUid: data['callerUid'] as String,
@@ -352,6 +368,7 @@ class FirestoreCallSignalingService implements CallSignalingService {
       threadId: data['threadId'] as String?,
       threadName: data['threadName'] as String?,
       participantUids: participantUids,
+      participantDisplayNames: participantDisplayNames,
     );
   }
 }
