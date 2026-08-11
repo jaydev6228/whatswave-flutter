@@ -384,19 +384,40 @@ class UpdatesController extends ChangeNotifier {
     }
   }
 
-  /// Records a heart quick-react to someone else's story -- never sends a
-  /// chat message (that's the reply bar's separate typed-text path).
-  /// Best-effort and silent on failure, the same as [fetchStoryViewers]:
-  /// a lightweight reaction isn't worth surfacing an error banner for, but
-  /// the bool return lets the caller revert its own optimistic UI state.
-  Future<bool> likeStory(String storyId) async {
+  /// Whether you've already hearted [storyId] -- read from your own view
+  /// doc so the heart stays filled when you reopen the story.
+  Future<bool> isStoryLikedByMe(String storyId) async {
     try {
-      await _repository.likeStory(storyId);
+      return await _repository.isStoryLikedByMe(storyId);
+    } on UpdatesRepositoryException {
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Sets or clears a heart quick-react on someone else's story -- never
+  /// sends a chat message (that's the reply bar's separate typed-text
+  /// path). Best-effort: the bool return lets the viewer revert its own
+  /// optimistic UI state on failure.
+  Future<bool> setStoryLiked(String storyId, {required bool liked}) async {
+    try {
+      await _repository.setStoryLiked(storyId, liked: liked);
       return true;
     } on UpdatesRepositoryException {
       return false;
     } catch (_) {
       return false;
+    }
+  }
+
+  /// Live viewer list for your own story -- null when the backend can't
+  /// stream (fake/demo). Likes and new views show up without reopening.
+  Stream<List<StoryViewer>>? watchStoryViewers(String storyId) {
+    try {
+      return _repository.watchStoryViewers(storyId);
+    } catch (_) {
+      return null;
     }
   }
 }

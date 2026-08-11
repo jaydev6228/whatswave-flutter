@@ -376,5 +376,14 @@ class _FlakyUpdatesRepository implements UpdatesRepository {
       _delegate.fetchStoryViewers(storyId);
 
   @override
-  Future<void> likeStory(String storyId) => _delegate.likeStory(storyId);
+  Future<bool> isStoryLikedByMe(String storyId) =>
+      _delegate.isStoryLikedByMe(storyId);
+
+  @override
+  Future<void> setStoryLiked(String storyId, {required bool liked}) =>
+      _delegate.setStoryLiked(storyId, liked: liked);
+
+  @override
+  Stream<List<StoryViewer>>? watchStoryViewers(String storyId) =>
+      _delegate.watchStoryViewers(storyId);
 }

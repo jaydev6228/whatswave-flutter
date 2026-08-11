@@ -1192,11 +1192,31 @@ void main() {
 
     // Filled in, but no chat message (and no SnackBar) went out for it --
     // liking is a lightweight, message-free reaction (see
-    // StatusStoryViewerScreen.onLikeStory / _toggleHeart), unlike a typed
+    // StatusStoryViewerScreen.onSetStoryLiked / _toggleHeart), unlike a typed
     // reply.
     expect(find.byIcon(Icons.favorite_rounded), findsOneWidget);
     expect(find.byIcon(Icons.favorite_border_rounded), findsNothing);
     expect(find.text('Reply sent to Ava'), findsNothing);
+
+    await tester.tap(find.byTooltip('Close'));
+    await tester.pumpAndSettle();
+
+    // Reopen -- the heart should still be filled from persisted state.
+    await tester.ensureVisible(avatarFinder);
+    await tester.pump();
+    await tester.tap(avatarFinder);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 350));
+    expect(find.byIcon(Icons.favorite_rounded), findsOneWidget);
+
+    // Unlike toggles back to outline.
+    await tester.tap(
+      find.byKey(const Key('updates_story_heart_react_button')),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.byIcon(Icons.favorite_border_rounded), findsOneWidget);
+    expect(find.byIcon(Icons.favorite_rounded), findsNothing);
 
     await tester.tap(find.byTooltip('Close'));
     await tester.pumpAndSettle();

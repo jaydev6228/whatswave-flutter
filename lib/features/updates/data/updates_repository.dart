@@ -54,11 +54,20 @@ abstract class UpdatesRepository {
   /// [StoryViewer].
   Future<List<StoryViewer>> fetchStoryViewers(String storyId);
 
-  /// Records a heart quick-react to someone else's story -- a one-way
-  /// action (there's no unlike), surfaced back to the owner via
-  /// [fetchStoryViewers]'s [StoryViewer.liked] flag. Never sends a chat
-  /// message; that's [StatusStoryViewerScreen]'s separate typed-reply path.
-  Future<void> likeStory(String storyId);
+  /// Whether the signed-in viewer has hearted [storyId] -- read from their
+  /// own row in the owner's views subcollection.
+  Future<bool> isStoryLikedByMe(String storyId);
+
+  /// Sets or clears a heart quick-react on someone else's story -- surfaced
+  /// back to the owner via [fetchStoryViewers]'s [StoryViewer.liked] flag.
+  /// Never sends a chat message; that's the viewer's separate typed-reply
+  /// path.
+  Future<void> setStoryLiked(String storyId, {required bool liked});
+
+  /// Live viewer list for a story you own -- null when unsupported (e.g.
+  /// the fake/demo backend). Prefer over one-shot [fetchStoryViewers] when
+  /// you need likes/views to appear without reopening the story.
+  Stream<List<StoryViewer>>? watchStoryViewers(String storyId);
 }
 
 class UpdatesRepositoryException implements Exception {

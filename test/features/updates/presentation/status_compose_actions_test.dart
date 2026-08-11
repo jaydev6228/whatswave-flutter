@@ -65,7 +65,17 @@ class _FailingCreateStatusRepository implements UpdatesRepository {
   }
 
   @override
-  Future<void> likeStory(String storyId) {
+  Future<bool> isStoryLikedByMe(String storyId) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<void> setStoryLiked(String storyId, {required bool liked}) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Stream<List<StoryViewer>>? watchStoryViewers(String storyId) {
     throw UnimplementedError();
   }
 }

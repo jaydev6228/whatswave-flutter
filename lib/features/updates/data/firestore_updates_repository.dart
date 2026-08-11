@@ -454,33 +454,7 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
           .collection('views')
           .orderBy('viewedAt', descending: true)
           .get();
-      final lookup = UserProfileLookup(firestore: _firestore);
-      final viewers = await Future.wait(
-        snapshot.docs.map((doc) async {
-          final data = doc.data();
-          final profile = await lookup.fetch(doc.id);
-          final viewedAt = data['viewedAt'];
-          return StoryViewer(
-            uid: doc.id,
-            name: profile?.name ?? 'WhatsWave user',
-            avatarLabel: profile?.avatarLabel ?? '?',
-            accentColor:
-                Color(profile?.accentColorArgb ?? AppPalette.slate.toARGB32()),
-            avatarUrl: profile?.avatarUrl,
-            viewedAt: viewedAt is Timestamp ? viewedAt.toDate() : null,
-            liked: data['liked'] == true,
-            seenSegments: (data['seenSegments'] as num?)?.toInt() ?? 0,
-          );
-        }),
-      );
-
-      // Liked viewers first, then everyone else -- both groups keep the
-      // query's own viewedAt-descending order (List.sort isn't guaranteed
-      // stable, so partitioning via .where preserves it instead of relying
-      // on a comparator), matching WhatsApp's own "Viewed by" ordering.
-      final liked = viewers.where((viewer) => viewer.liked);
-      final others = viewers.where((viewer) => !viewer.liked);
-      return <StoryViewer>[...liked, ...others];
+      return _viewersFromSnapshot(snapshot);
     } on FirebaseException catch (e) {
       throw UpdatesRepositoryException(
         e.message ?? 'Could not load viewers right now.',
@@ -489,7 +463,72 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
   }
 
   @override
-  Future<void> likeStory(String storyId) async {
+  Stream<List<StoryViewer>>? watchStoryViewers(String storyId) {
+    final uid = _requireCurrentUid;
+    if (storyId != uid) {
+      return null;
+    }
+
+    return _storiesRef
+        .doc(storyId)
+        .collection('views')
+        .orderBy('viewedAt', descending: true)
+        .snapshots()
+        .asyncMap(_viewersFromSnapshot);
+  }
+
+  Future<List<StoryViewer>> _viewersFromSnapshot(
+    QuerySnapshot<Map<String, dynamic>> snapshot,
+  ) async {
+    final lookup = UserProfileLookup(firestore: _firestore);
+    final viewers = await Future.wait(
+      snapshot.docs.map((doc) async {
+        final data = doc.data();
+        final profile = await lookup.fetch(doc.id);
+        final viewedAt = data['viewedAt'];
+        return StoryViewer(
+          uid: doc.id,
+          name: profile?.name ?? 'WhatsWave user',
+          avatarLabel: profile?.avatarLabel ?? '?',
+          accentColor:
+              Color(profile?.accentColorArgb ?? AppPalette.slate.toARGB32()),
+          avatarUrl: profile?.avatarUrl,
+          viewedAt: viewedAt is Timestamp ? viewedAt.toDate() : null,
+          liked: data['liked'] == true,
+          seenSegments: (data['seenSegments'] as num?)?.toInt() ?? 0,
+        );
+      }),
+    );
+
+    // Liked viewers first, then everyone else -- both groups keep the
+    // query's own viewedAt-descending order (List.sort isn't guaranteed
+    // stable, so partitioning via .where preserves it instead of relying
+    // on a comparator), matching WhatsApp's own "Viewed by" ordering.
+    final liked = viewers.where((viewer) => viewer.liked);
+    final others = viewers.where((viewer) => !viewer.liked);
+    return <StoryViewer>[...liked, ...others];
+  }
+
+  @override
+  Future<bool> isStoryLikedByMe(String storyId) async {
+    final uid = _requireCurrentUid;
+    if (storyId == uid) {
+      return false;
+    }
+
+    try {
+      final doc =
+          await _storiesRef.doc(storyId).collection('views').doc(uid).get();
+      return doc.data()?['liked'] == true;
+    } on FirebaseException catch (e) {
+      throw UpdatesRepositoryException(
+        e.message ?? 'We could not load that reaction right now.',
+      );
+    }
+  }
+
+  @override
+  Future<void> setStoryLiked(String storyId, {required bool liked}) async {
     final uid = _requireCurrentUid;
     if (storyId == uid) {
       return;
@@ -497,18 +536,23 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
 
     try {
       // Written to the viewer's own per-viewer doc, the same as
-      // markStoryViewed above -- security rules only let the owner write
-      // that (see firestore.rules).
+      // markStoryViewed above -- security rules only let that viewer write
+      // it (see firestore.rules).
       await _storiesRef.doc(storyId).collection('views').doc(uid).set(
-        {
-          'liked': true,
-          'likedAt': FieldValue.serverTimestamp(),
-        },
+        liked
+            ? {
+                'liked': true,
+                'likedAt': FieldValue.serverTimestamp(),
+              }
+            : {
+                'liked': false,
+                'likedAt': FieldValue.delete(),
+              },
         SetOptions(merge: true),
       );
     } on FirebaseException catch (e) {
       throw UpdatesRepositoryException(
-        e.message ?? 'We could not like that status right now.',
+        e.message ?? 'We could not update that reaction right now.',
       );
     }
   }

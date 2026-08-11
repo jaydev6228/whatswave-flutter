@@ -37,6 +37,10 @@ class FakeUpdatesRepository implements UpdatesRepository {
   SharedPreferences? _preferences;
   bool _didHydratePersistedState = false;
 
+  /// Story ids the demo viewer has hearted -- backs [isStoryLikedByMe] and
+  /// [setStoryLiked] in widget tests without a real Firestore backend.
+  final Set<String> _likedStoryIds = <String>{};
+
   Future<void> _wait() {
     if (latency == Duration.zero) {
       return Future<void>.value();
@@ -357,12 +361,23 @@ class FakeUpdatesRepository implements UpdatesRepository {
   }
 
   @override
-  Future<void> likeStory(String storyId) async {
+  Future<bool> isStoryLikedByMe(String storyId) async {
     await _wait();
-    // No-op for the same reason fetchStoryViewers above never has anyone
-    // to list -- there's no other simulated account whose "Viewed by"
-    // list a like could show up in.
+    return _likedStoryIds.contains(storyId);
   }
+
+  @override
+  Future<void> setStoryLiked(String storyId, {required bool liked}) async {
+    await _wait();
+    if (liked) {
+      _likedStoryIds.add(storyId);
+    } else {
+      _likedStoryIds.remove(storyId);
+    }
+  }
+
+  @override
+  Stream<List<StoryViewer>>? watchStoryViewers(String storyId) => null;
 
   Future<String?> _maybeImportMedia({
     required StatusStoryType type,

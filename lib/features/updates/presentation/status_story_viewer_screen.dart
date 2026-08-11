@@ -38,7 +38,9 @@ class StatusStoryViewerScreen extends StatefulWidget {
     this.onDeleteSegment,
     this.chatsController,
     this.onFetchViewers,
-    this.onLikeStory,
+    this.onWatchViewers,
+    this.onFetchLikedByMe,
+    this.onSetStoryLiked,
     super.key,
   });
 
@@ -51,11 +53,6 @@ class StatusStoryViewerScreen extends StatefulWidget {
     StatusStorySegment segment,
   )? onDeleteSegment;
 
-  /// Fetches who has viewed this story -- only ever passed for a story you
-  /// own (see story_viewer_launcher.dart), which is also when the "N
-  /// views" label becomes tappable. Null hides that affordance entirely.
-  final Future<List<StoryViewer>> Function(StatusStory story)? onFetchViewers;
-
   /// Lets the viewer type a reply to someone else's story -- sent as a
   /// real direct message to them, the same as WhatsApp's own status
   /// reply. Null (the default) hides the reply bar entirely -- only call
@@ -63,12 +60,20 @@ class StatusStoryViewerScreen extends StatefulWidget {
   /// story never shows a reply bar regardless.
   final ChatsController? chatsController;
 
-  /// Records a heart quick-react on someone else's story -- unlike a
-  /// typed reply, this never sends a chat message, it just flips the
-  /// heart button filled and (via [onFetchViewers]) surfaces you at the
-  /// top of the story owner's viewer list. Null hides the affordance the
-  /// same way a null [chatsController] would.
-  final Future<bool> Function(StatusStory story)? onLikeStory;
+  /// Fetches who has viewed this story -- only ever passed for a story you
+  /// own (see story_viewer_launcher.dart), which is also when the "N
+  /// views" label becomes tappable. Null hides that affordance entirely.
+  final Future<List<StoryViewer>> Function(StatusStory story)? onFetchViewers;
+
+  /// Live viewer updates for your own story -- likes and new views appear
+  /// without closing and reopening. Null falls back to [onFetchViewers].
+  final Stream<List<StoryViewer>>? Function()? onWatchViewers;
+
+  /// Loads whether you've already hearted this story (someone else's only).
+  final Future<bool> Function(StatusStory story)? onFetchLikedByMe;
+
+  /// Sets or clears your heart quick-react on someone else's story.
+  final Future<bool> Function(StatusStory story, bool liked)? onSetStoryLiked;
 
   @override
   State<StatusStoryViewerScreen> createState() =>
@@ -102,13 +107,11 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
   final FocusNode _replyFocusNode = FocusNode();
   bool _isSendingReply = false;
 
-  /// True once you've hearted this story this viewing session -- swaps the
-  /// heart button from outline to filled. Set optimistically on tap (see
-  /// [_toggleHeart]) rather than waiting on [onLikeStory] to resolve, since
-  /// this is a one-way, best-effort reaction rather than a message send.
-  /// Session-local: it resets to outline again next time the story is
-  /// reopened, same as most of this viewer's other transient UI state.
+  /// Whether you've hearted this story -- loaded from Firestore on open
+  /// and toggled optimistically on tap (see [_toggleHeart]).
   bool _hasHearted = false;
+  bool _isTogglingHeart = false;
+  StreamSubscription<List<StoryViewer>>? _viewersSubscription;
 
   /// Loaded once for your own story so each segment can show its own view
   /// count (WhatsApp counts views per status item, not for the whole ring).
@@ -219,8 +222,41 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
       _reportCurrentSegmentViewed();
     });
 
-    if (_story.isMine && widget.onFetchViewers != null) {
-      unawaited(_loadViewers());
+    if (_story.isMine) {
+      final watchViewers = widget.onWatchViewers?.call();
+      if (watchViewers != null) {
+        _viewersSubscription = watchViewers.listen(
+          (viewers) {
+            if (!mounted) {
+              return;
+            }
+            setState(() => _cachedViewers = viewers);
+          },
+          onError: (_) {
+            // Fall back to the one-shot fetch below.
+          },
+        );
+      } else if (widget.onFetchViewers != null) {
+        unawaited(_loadViewers());
+      }
+    } else if (widget.onFetchLikedByMe != null) {
+      unawaited(_loadLikedByMe());
+    }
+  }
+
+  Future<void> _loadLikedByMe() async {
+    final onFetchLikedByMe = widget.onFetchLikedByMe;
+    if (onFetchLikedByMe == null) {
+      return;
+    }
+    try {
+      final liked = await onFetchLikedByMe(_story);
+      if (!mounted) {
+        return;
+      }
+      setState(() => _hasHearted = liked);
+    } catch (_) {
+      // Heart stays outline if the read fails.
     }
   }
 
@@ -243,6 +279,7 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
 
   @override
   void dispose() {
+    unawaited(_viewersSubscription?.cancel());
     _clearGestureTracking();
     _segmentProgressController
       ..removeListener(_handleProgressTick)
@@ -687,28 +724,42 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
     );
   }
 
-  /// Hearts the story -- a lightweight, one-way reaction (no unlike, same
-  /// as WhatsApp) that only ever flips a flag on the owner's "Viewed by"
-  /// list via [StatusStoryViewerScreen.onLikeStory]; it never sends a chat
-  /// message, unlike a typed reply (see [_sendReply]). Set optimistically
-  /// so the heart fills in immediately on tap rather than waiting on a
-  /// network round-trip, and reverted if that call turns out to fail.
+  /// Toggles the heart quick-react -- persisted in Firestore so the filled
+  /// state survives closing and reopening the story, and reflected on the
+  /// owner's "Viewed by" list (live via [onWatchViewers] when supported).
   Future<void> _toggleHeart() async {
-    final onLikeStory = widget.onLikeStory;
-    if (onLikeStory == null || _hasHearted || _story.isMine) {
+    final onSetStoryLiked = widget.onSetStoryLiked;
+    if (onSetStoryLiked == null ||
+        _story.isMine ||
+        _isTogglingHeart) {
       return;
     }
 
-    setState(() => _hasHearted = true);
-    final didLike = await onLikeStory(_story);
-    if (!mounted || didLike) {
+    final nextLiked = !_hasHearted;
+    setState(() {
+      _hasHearted = nextLiked;
+      _isTogglingHeart = true;
+    });
+    final didSucceed = await onSetStoryLiked(_story, nextLiked);
+    if (!mounted) {
       return;
     }
-    setState(() => _hasHearted = false);
+    setState(() => _isTogglingHeart = false);
+    if (didSucceed) {
+      return;
+    }
+    setState(() => _hasHearted = !nextLiked);
+    if (!mounted) {
+      return;
+    }
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('We could not like that status right now.'),
-        duration: Duration(seconds: 2),
+      SnackBar(
+        content: Text(
+          nextLiked
+              ? 'We could not like that status right now.'
+              : 'We could not remove that reaction right now.',
+        ),
+        duration: const Duration(seconds: 2),
       ),
     );
   }
@@ -1425,9 +1476,8 @@ class _StoryReplyBar extends StatelessWidget {
   final FocusNode focusNode;
   final bool isSending;
 
-  /// Whether this story has already been hearted this viewing session --
-  /// swaps the heart button from outline to filled, matching WhatsApp
-  /// (only fills in once the like actually succeeds).
+  /// Whether this story has already been hearted -- swaps the heart button
+  /// from outline to filled, loaded from Firestore when the story opens.
   final bool hasHearted;
   final ValueChanged<String> onSendText;
   final VoidCallback onHeartTap;
@@ -1499,7 +1549,7 @@ class _StoryReplyBar extends StatelessWidget {
               if (!showSend) {
                 return _StoryReplyActionButton(
                   actionKey: const Key('updates_story_heart_react_button'),
-                  tooltip: hasHearted ? 'Hearted' : 'Send a heart',
+                  tooltip: hasHearted ? 'Unlike' : 'Send a heart',
                   // Independent of isSending -- liking doesn't send a chat
                   // message, so it's never blocked by a reply in flight.
                   // A second tap while hasHearted is already true is a

@@ -709,8 +709,18 @@ class TrackedUpdatesRepository implements UpdatesRepository {
   }
 
   @override
-  Future<void> likeStory(String storyId) {
-    return _delegate.likeStory(storyId);
+  Future<bool> isStoryLikedByMe(String storyId) {
+    return _delegate.isStoryLikedByMe(storyId);
+  }
+
+  @override
+  Future<void> setStoryLiked(String storyId, {required bool liked}) {
+    return _delegate.setStoryLiked(storyId, liked: liked);
+  }
+
+  @override
+  Stream<List<StoryViewer>>? watchStoryViewers(String storyId) {
+    return _delegate.watchStoryViewers(storyId);
   }
 }
 
