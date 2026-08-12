@@ -349,6 +349,48 @@ void main() {
   );
 
   testWidgets(
+    'mic returns after typing then clearing text and unfocusing the composer',
+    (tester) async {
+      const composerFieldKey = Key('conversation_composer_field');
+
+      await _pumpChatsScreen(
+        tester,
+        device: iphoneProProfile,
+        controller: ChatsController(
+          repository: FakeChatRepository(latency: Duration.zero),
+        ),
+      );
+
+      await tester.tap(find.byKey(const Key('chat_tile_ava-patel')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('conversation_voice_button')), findsOneWidget);
+      expect(find.byKey(const Key('conversation_send_button')), findsNothing);
+
+      await tester.enterText(find.byKey(composerFieldKey), 'hello');
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('conversation_send_button')), findsOneWidget);
+      expect(find.byKey(const Key('conversation_voice_button')), findsNothing);
+
+      await tester.enterText(find.byKey(composerFieldKey), '');
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<TextField>(find.byKey(composerFieldKey)).controller!.text,
+        isEmpty,
+      );
+
+      expect(find.byKey(const Key('conversation_send_button')), findsNothing);
+      expect(find.byKey(const Key('conversation_voice_button')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('conversation_message_list')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('conversation_send_button')), findsNothing);
+      expect(find.byKey(const Key('conversation_voice_button')), findsOneWidget);
+    },
+  );
+
+  testWidgets(
     'rapid duplicate-text sends after location never shrink visible history',
     (tester) async {
       const composerFieldKey = Key('conversation_composer_field');

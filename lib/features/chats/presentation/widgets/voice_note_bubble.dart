@@ -1,17 +1,15 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../../../app/theme/app_palette.dart';
 import '../../../updates/presentation/widgets/status_media_source.dart';
+import 'voice_note_recording_session.dart';
 
-/// An inline, playable voice-note bubble -- play/pause button, a progress
-/// bar, and elapsed/total time -- matching WhatsApp's voice message player
-/// instead of a plain icon+title+details row you have to tap into a
-/// separate screen to hear. Reuses [VideoPlayerController] for audio-only
-/// playback (a real audio track with no video track plays back fine
-/// through it) rather than adding a second, audio-specific package.
+/// Inline playable voice-note bubble with a WhatsApp-style waveform scrubber,
+/// playhead dot, elapsed/total time, and a 1x playback-speed toggle.
 class VoiceNoteBubble extends StatefulWidget {
   const VoiceNoteBubble({
     required this.localMediaPath,
@@ -21,9 +19,6 @@ class VoiceNoteBubble extends StatefulWidget {
   });
 
   final String localMediaPath;
-
-  /// Shown in place of the live elapsed/total time before playback has
-  /// initialized (e.g. the attachment's persisted duration label).
   final String fallbackLabel;
   final Color accentColor;
 
@@ -32,10 +27,14 @@ class VoiceNoteBubble extends StatefulWidget {
 }
 
 class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
+  static const List<double> _speedOptions = [1.0, 1.5, 2.0];
+
   VideoPlayerController? _controller;
   bool _isReady = false;
   bool _hasError = false;
   bool _isInitializing = false;
+  int _speedIndex = 0;
+  late final List<double> _waveform = _generateWaveform(widget.localMediaPath);
 
   @override
   void dispose() {
@@ -57,6 +56,7 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
         controller.dispose();
         return;
       }
+      await controller.setPlaybackSpeed(_speedOptions[_speedIndex]);
       setState(() {
         _controller = controller;
         _isReady = true;
@@ -94,10 +94,28 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
     await controller.play();
   }
 
-  String _formatDuration(Duration duration) {
-    final minutes = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
-    final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
-    return '$minutes:$seconds';
+  Future<void> _cycleSpeed() async {
+    await _ensureController();
+    final controller = _controller;
+    if (!_isReady || controller == null) {
+      return;
+    }
+    setState(() {
+      _speedIndex = (_speedIndex + 1) % _speedOptions.length;
+    });
+    await controller.setPlaybackSpeed(_speedOptions[_speedIndex]);
+  }
+
+  List<double> _generateWaveform(String seed) {
+    final random = math.Random(seed.hashCode);
+    return List<double>.generate(
+      36,
+      (_) => 0.18 + random.nextDouble() * 0.82,
+    );
+  }
+
+  String _formatClock(Duration duration) {
+    return formatVoiceNoteDuration(duration);
   }
 
   @override
@@ -110,14 +128,20 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
     final progress = !_hasError && _isReady && duration > Duration.zero
         ? (position.inMilliseconds / duration.inMilliseconds).clamp(0.0, 1.0)
         : 0.0;
-    final timeLabel = !_hasError && _isReady
-        ? '${_formatDuration(position)} / ${_formatDuration(duration)}'
-        : widget.fallbackLabel;
     final isPlaying = value?.isPlaying ?? false;
+    final elapsedLabel = !_hasError && _isReady
+        ? _formatClock(position)
+        : widget.fallbackLabel;
+    final totalLabel =
+        !_hasError && _isReady ? _formatClock(duration) : null;
+    final speedLabel = _speedOptions[_speedIndex] == 1.0
+        ? '1x'
+        : '${_speedOptions[_speedIndex].toStringAsFixed(1).replaceAll('.0', '')}x';
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           IconButton.filled(
             key: const Key('voice_note_play_pause_button'),
@@ -141,35 +165,156 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
               disabledForegroundColor: Colors.white70,
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(999),
-                  child: LinearProgressIndicator(
-                    value: progress,
-                    minHeight: 4,
-                    backgroundColor: widget.accentColor.withValues(alpha: 0.18),
-                    valueColor: AlwaysStoppedAnimation(widget.accentColor),
+                SizedBox(
+                  height: 28,
+                  child: _PlaybackWaveform(
+                    samples: _waveform,
+                    progress: progress,
+                    accentColor: widget.accentColor,
+                    mutedColor: widget.accentColor.withValues(alpha: 0.28),
                   ),
                 ),
-                const SizedBox(height: 6),
-                Text(
-                  _hasError ? 'Voice note unavailable' : timeLabel,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.64),
-                  ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Text(
+                      _hasError ? 'Voice note unavailable' : elapsedLabel,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color:
+                            theme.colorScheme.onSurface.withValues(alpha: 0.72),
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      ),
+                    ),
+                    if (totalLabel != null) ...[
+                      Text(
+                        ' · $totalLabel',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurface
+                              .withValues(alpha: 0.52),
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ],
             ),
           ),
+          const SizedBox(width: 8),
+          TextButton(
+            key: const Key('voice_note_speed_button'),
+            onPressed: _hasError
+                ? null
+                : () {
+                    unawaited(_cycleSpeed());
+                  },
+            style: TextButton.styleFrom(
+              minimumSize: const Size(36, 32),
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              foregroundColor: theme.colorScheme.onSurface.withValues(alpha: 0.72),
+              backgroundColor:
+                  theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
+            ),
+            child: Text(speedLabel),
+          ),
         ],
       ),
     );
+  }
+}
+
+class _PlaybackWaveform extends StatelessWidget {
+  const _PlaybackWaveform({
+    required this.samples,
+    required this.progress,
+    required this.accentColor,
+    required this.mutedColor,
+  });
+
+  final List<double> samples;
+  final double progress;
+  final Color accentColor;
+  final Color mutedColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return CustomPaint(
+      painter: _PlaybackWaveformPainter(
+        samples: samples,
+        progress: progress,
+        playedColor: accentColor,
+        unplayedColor: mutedColor,
+      ),
+      child: const SizedBox.expand(),
+    );
+  }
+}
+
+class _PlaybackWaveformPainter extends CustomPainter {
+  _PlaybackWaveformPainter({
+    required this.samples,
+    required this.progress,
+    required this.playedColor,
+    required this.unplayedColor,
+  });
+
+  final List<double> samples;
+  final double progress;
+  final Color playedColor;
+  final Color unplayedColor;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (samples.isEmpty) {
+      return;
+    }
+
+    const barWidth = 3.0;
+    const gap = 2.0;
+    final totalWidth = samples.length * (barWidth + gap) - gap;
+    final startX = math.max(0.0, (size.width - totalWidth) / 2);
+    final playheadX = startX + totalWidth * progress;
+
+    for (var index = 0; index < samples.length; index++) {
+      final x = startX + index * (barWidth + gap);
+      final barCenterX = x + barWidth / 2;
+      final amplitude = samples[index];
+      final barHeight = math.max(4.0, amplitude * size.height);
+      final top = (size.height - barHeight) / 2;
+      final paint = Paint()
+        ..color = barCenterX <= playheadX ? playedColor : unplayedColor
+        ..strokeCap = StrokeCap.round
+        ..strokeWidth = barWidth;
+      canvas.drawLine(
+        Offset(barCenterX, top),
+        Offset(barCenterX, top + barHeight),
+        paint,
+      );
+    }
+
+    final dotPaint = Paint()..color = playedColor;
+    canvas.drawCircle(
+      Offset(playheadX.clamp(startX, startX + totalWidth), size.height / 2),
+      5,
+      dotPaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _PlaybackWaveformPainter oldDelegate) {
+    return oldDelegate.samples != samples ||
+        oldDelegate.progress != progress ||
+        oldDelegate.playedColor != playedColor ||
+        oldDelegate.unplayedColor != unplayedColor;
   }
 }

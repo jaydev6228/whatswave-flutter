@@ -45,7 +45,7 @@ import 'widgets/lazy_heavy_attachment.dart';
 import 'widgets/location_map_preview.dart';
 import 'widgets/video_thumbnail_source.dart';
 import 'widgets/voice_note_bubble.dart';
-import 'widgets/voice_note_recorder_sheet.dart';
+import 'widgets/composer_voice_button.dart';
 
 class ConversationScreen extends StatefulWidget {
   const ConversationScreen({
@@ -596,6 +596,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
           ),
         _ComposerBar(
           composerBarKey: _composerBarKey,
+          threadId: thread.id,
           controller: _composerController,
           focusNode: _composerFocusNode,
           isBusy: widget.controller.isThreadBusy(thread.id),
@@ -606,8 +607,11 @@ class _ConversationScreenState extends State<ConversationScreen> {
           onSendTap: () async {
             _handleSendTap(thread.id);
           },
-          onVoiceNoteTap: () async {
-            _handleVoiceNoteTap(thread.id);
+          onVoiceRecorded: (attachment) async {
+            await _sendOutboundAttachments(
+              threadId: thread.id,
+              attachments: [attachment],
+            );
           },
         ),
       ],
@@ -794,23 +798,6 @@ class _ConversationScreenState extends State<ConversationScreen> {
       caption: caption.isEmpty ? null : caption,
       clearComposerAfterSend:
           type == ChatAttachmentType.photo || type == ChatAttachmentType.video,
-    );
-  }
-
-  Future<void> _handleVoiceNoteTap(String threadId) async {
-    if (widget.controller.isThreadBusy(threadId)) {
-      return;
-    }
-
-    final recorded =
-        await showVoiceNoteRecorderSheet(context, threadId: threadId);
-    if (!mounted || recorded == null) {
-      return;
-    }
-
-    await _sendOutboundAttachments(
-      threadId: threadId,
-      attachments: [recorded],
     );
   }
 
@@ -2007,45 +1994,87 @@ class _BlockedContactBanner extends StatelessWidget {
   }
 }
 
-class _ComposerBar extends StatelessWidget {
+class _ComposerBar extends StatefulWidget {
   const _ComposerBar({
     required this.composerBarKey,
+    required this.threadId,
     required this.controller,
     required this.isBusy,
     required this.lockedMinHeight,
     required this.onAttachmentTap,
     required this.onSendTap,
-    required this.onVoiceNoteTap,
+    required this.onVoiceRecorded,
     this.focusNode,
   });
 
   final GlobalKey composerBarKey;
+  final String threadId;
   final TextEditingController controller;
   final bool isBusy;
   final double? lockedMinHeight;
   final ValueChanged<ChatAttachmentType> onAttachmentTap;
   final VoidCallback onSendTap;
-  final VoidCallback onVoiceNoteTap;
+  final ValueChanged<ChatAttachment> onVoiceRecorded;
   final FocusNode? focusNode;
 
   @override
+  State<_ComposerBar> createState() => _ComposerBarState();
+}
+
+class _ComposerBarState extends State<_ComposerBar> {
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_handleComposerDraftChanged);
+    widget.focusNode?.addListener(_handleComposerDraftChanged);
+  }
+
+  @override
+  void didUpdateWidget(covariant _ComposerBar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_handleComposerDraftChanged);
+      widget.controller.addListener(_handleComposerDraftChanged);
+    }
+    if (oldWidget.focusNode != widget.focusNode) {
+      oldWidget.focusNode?.removeListener(_handleComposerDraftChanged);
+      widget.focusNode?.addListener(_handleComposerDraftChanged);
+    }
+    if (oldWidget.isBusy != widget.isBusy) {
+      _handleComposerDraftChanged();
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_handleComposerDraftChanged);
+    widget.focusNode?.removeListener(_handleComposerDraftChanged);
+    super.dispose();
+  }
+
+  void _handleComposerDraftChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  bool get _canSendText =>
+      widget.controller.text.trim().isNotEmpty && !widget.isBusy;
+
+  @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<TextEditingValue>(
-      valueListenable: controller,
-      builder: (context, value, _) {
-        final canSendText = value.text.trim().isNotEmpty && !isBusy;
-        return _ComposerBarContent(
-          composerBarKey: composerBarKey,
-          controller: controller,
-          focusNode: focusNode,
-          isBusy: isBusy,
-          canSendText: canSendText,
-          lockedMinHeight: lockedMinHeight,
-          onAttachmentTap: onAttachmentTap,
-          onSendTap: onSendTap,
-          onVoiceNoteTap: onVoiceNoteTap,
-        );
-      },
+    return _ComposerBarContent(
+      composerBarKey: widget.composerBarKey,
+      threadId: widget.threadId,
+      controller: widget.controller,
+      focusNode: widget.focusNode,
+      isBusy: widget.isBusy,
+      canSendText: _canSendText,
+      lockedMinHeight: widget.lockedMinHeight,
+      onAttachmentTap: widget.onAttachmentTap,
+      onSendTap: widget.onSendTap,
+      onVoiceRecorded: widget.onVoiceRecorded,
+      onComposerDraftChanged: _handleComposerDraftChanged,
     );
   }
 }
@@ -2053,24 +2082,28 @@ class _ComposerBar extends StatelessWidget {
 class _ComposerBarContent extends StatelessWidget {
   const _ComposerBarContent({
     required this.composerBarKey,
+    required this.threadId,
     required this.controller,
     required this.isBusy,
     required this.canSendText,
     required this.lockedMinHeight,
     required this.onAttachmentTap,
     required this.onSendTap,
-    required this.onVoiceNoteTap,
+    required this.onVoiceRecorded,
+    required this.onComposerDraftChanged,
     this.focusNode,
   });
 
   final GlobalKey composerBarKey;
+  final String threadId;
   final TextEditingController controller;
   final bool isBusy;
   final bool canSendText;
   final double? lockedMinHeight;
   final ValueChanged<ChatAttachmentType> onAttachmentTap;
   final VoidCallback onSendTap;
-  final VoidCallback onVoiceNoteTap;
+  final ValueChanged<ChatAttachment> onVoiceRecorded;
+  final VoidCallback onComposerDraftChanged;
   final FocusNode? focusNode;
 
   @override
@@ -2160,6 +2193,7 @@ class _ComposerBarContent extends StatelessWidget {
               key: const Key('conversation_composer_field'),
               controller: controller,
               focusNode: focusNode,
+              onChanged: (_) => onComposerDraftChanged(),
               minLines: 1,
               maxLines: 4,
               keyboardType: TextInputType.multiline,
@@ -2179,6 +2213,7 @@ class _ComposerBarContent extends StatelessWidget {
           const SizedBox(width: 10),
           if (canSendText)
             LiquidGlassIconButton(
+              key: const ValueKey('composer_send_action'),
               actionKey: const Key('conversation_send_button'),
               icon: Icons.send_rounded,
               size: 48,
@@ -2197,12 +2232,11 @@ class _ComposerBarContent extends StatelessWidget {
                   : null,
             )
           else
-            _ComposerIconButton(
-              actionKey: const Key('conversation_voice_button'),
-              tooltip: 'Voice message',
+            ComposerVoiceButton(
+              key: const Key('conversation_voice_button'),
+              threadId: threadId,
               enabled: !isBusy,
-              onTap: onVoiceNoteTap,
-              icon: Icons.mic_none_rounded,
+              onRecorded: onVoiceRecorded,
             ),
         ],
       ),

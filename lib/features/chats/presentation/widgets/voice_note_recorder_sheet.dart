@@ -1,18 +1,11 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:record/record.dart';
 
 import '../../../../app/theme/app_palette.dart';
 import '../../domain/chat_attachment.dart';
-
-/// A minimum-viable recording length -- anything shorter almost certainly
-/// means an accidental tap rather than an intended voice note, so it's
-/// discarded quietly instead of sending a near-silent blip.
-const Duration _minimumVoiceNoteDuration = Duration(milliseconds: 500);
+import 'voice_note_recording_session.dart';
 
 /// Opens a modal recording flow for a voice-note attachment: recording
 /// starts immediately, a live waveform + duration timer count up, and the
@@ -44,13 +37,9 @@ class _VoiceNoteRecorderSheet extends StatefulWidget {
 }
 
 class _VoiceNoteRecorderSheetState extends State<_VoiceNoteRecorderSheet> {
-  final AudioRecorder _recorder = AudioRecorder();
+  final VoiceNoteRecordingSession _session = VoiceNoteRecordingSession();
   _RecorderStage _stage = _RecorderStage.starting;
-  Timer? _ticker;
-  StreamSubscription<Amplitude>? _amplitudeSubscription;
-  Duration _elapsed = Duration.zero;
-  String? _recordingPath;
-  final List<double> _waveformSamples = <double>[];
+  Timer? _uiTicker;
 
   @override
   void initState() {
@@ -60,88 +49,40 @@ class _VoiceNoteRecorderSheetState extends State<_VoiceNoteRecorderSheet> {
 
   @override
   void dispose() {
-    _ticker?.cancel();
-    unawaited(_amplitudeSubscription?.cancel());
-    unawaited(_recorder.dispose());
+    _uiTicker?.cancel();
+    unawaited(_session.dispose());
     super.dispose();
   }
 
   Future<void> _startRecording() async {
-    bool hasPermission;
-    try {
-      hasPermission = await _recorder.hasPermission();
-    } catch (_) {
-      hasPermission = false;
-    }
+    final started = await _session.start();
     if (!mounted) {
       return;
     }
-    if (!hasPermission) {
+    if (!started) {
       setState(() => _stage = _RecorderStage.permissionDenied);
       return;
     }
-
-    try {
-      final documentsDirectory = await getApplicationDocumentsDirectory();
-      final voiceNotesDirectory =
-          Directory('${documentsDirectory.path}/voice_notes');
-      await voiceNotesDirectory.create(recursive: true);
-      final path =
-          '${voiceNotesDirectory.path}/voice_${DateTime.now().microsecondsSinceEpoch}.m4a';
-      await _recorder.start(
-        const RecordConfig(encoder: AudioEncoder.aacLc),
-        path: path,
-      );
-      if (!mounted) {
-        return;
+    _uiTicker = Timer.periodic(const Duration(milliseconds: 200), (_) {
+      if (mounted &&
+          (_stage == _RecorderStage.recording ||
+              _stage == _RecorderStage.paused)) {
+        setState(() {});
       }
-      _recordingPath = path;
-      _elapsed = Duration.zero;
-      _waveformSamples.clear();
-      _ticker = Timer.periodic(const Duration(milliseconds: 200), (_) {
-        if (mounted && _stage == _RecorderStage.recording) {
-          setState(() => _elapsed += const Duration(milliseconds: 200));
-        }
-      });
-      _amplitudeSubscription = _recorder
-          .onAmplitudeChanged(const Duration(milliseconds: 120))
-          .listen((amplitude) {
-        if (!mounted || _stage != _RecorderStage.recording) {
-          return;
-        }
-        final normalized = _normalizeAmplitude(amplitude.current);
-        setState(() {
-          _waveformSamples.add(normalized);
-          if (_waveformSamples.length > 48) {
-            _waveformSamples.removeAt(0);
-          }
-        });
-      });
-      setState(() => _stage = _RecorderStage.recording);
-    } catch (_) {
-      if (mounted) {
-        setState(() => _stage = _RecorderStage.error);
-      }
-    }
-  }
-
-  double _normalizeAmplitude(double decibels) {
-    if (decibels.isNaN || decibels <= -60) {
-      return 0.08;
-    }
-    return ((decibels + 60) / 60).clamp(0.08, 1.0);
+    });
+    setState(() => _stage = _RecorderStage.recording);
   }
 
   Future<void> _togglePause() async {
     if (_stage == _RecorderStage.recording) {
-      await _recorder.pause();
+      await _session.pause();
       if (mounted) {
         setState(() => _stage = _RecorderStage.paused);
       }
       return;
     }
     if (_stage == _RecorderStage.paused) {
-      await _recorder.resume();
+      await _session.resume();
       if (mounted) {
         setState(() => _stage = _RecorderStage.recording);
       }
@@ -149,68 +90,23 @@ class _VoiceNoteRecorderSheetState extends State<_VoiceNoteRecorderSheet> {
   }
 
   Future<void> _stopAndSend() async {
-    _ticker?.cancel();
-    await _amplitudeSubscription?.cancel();
-    String? finalPath;
-    try {
-      finalPath = await _recorder.stop();
-    } catch (_) {
-      finalPath = null;
-    }
-    finalPath ??= _recordingPath;
+    _uiTicker?.cancel();
+    final attachment = await _session.finish(
+      threadId: widget.threadId,
+      elapsed: _session.elapsed,
+    );
     if (!mounted) {
       return;
     }
-
-    if (finalPath == null || _elapsed < _minimumVoiceNoteDuration) {
-      if (finalPath != null) {
-        unawaited(_tryDeleteFile(finalPath));
-      }
-      Navigator.of(context).pop();
-      return;
-    }
-
-    final attachment = ChatAttachment(
-      id: '${widget.threadId}-voice-${DateTime.now().microsecondsSinceEpoch}',
-      type: ChatAttachmentType.voiceNote,
-      title: 'Voice note',
-      details: _formatDuration(_elapsed),
-      tintColor: AppPalette.purple,
-      aspectRatio: 1.55,
-      localMediaPath: finalPath,
-    );
     Navigator.of(context).pop(attachment);
   }
 
   Future<void> _discard() async {
-    _ticker?.cancel();
-    await _amplitudeSubscription?.cancel();
-    try {
-      await _recorder.stop();
-    } catch (_) {
-      // Already stopped/never started.
-    }
-    final path = _recordingPath;
-    if (path != null) {
-      unawaited(_tryDeleteFile(path));
-    }
+    _uiTicker?.cancel();
+    await _session.discard();
     if (mounted) {
       Navigator.of(context).pop();
     }
-  }
-
-  Future<void> _tryDeleteFile(String path) async {
-    try {
-      await File(path).delete();
-    } catch (_) {
-      // Best-effort cleanup.
-    }
-  }
-
-  String _formatDuration(Duration duration) {
-    final minutes = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
-    final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
-    return '$minutes:$seconds';
   }
 
   @override
@@ -274,11 +170,11 @@ class _VoiceNoteRecorderSheetState extends State<_VoiceNoteRecorderSheet> {
                       children: [
                         SizedBox(
                           height: 36,
-                          child: _RecordingWaveform(samples: _waveformSamples),
+                          child: _RecordingWaveform(samples: _session.samples),
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          _formatDuration(_elapsed),
+                          formatVoiceNoteDuration(_session.elapsed),
                           key: const Key('voice_recorder_timer'),
                           textAlign: TextAlign.center,
                           style: theme.textTheme.titleMedium?.copyWith(
