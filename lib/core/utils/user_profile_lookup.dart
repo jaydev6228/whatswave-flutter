@@ -11,33 +11,50 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 /// that snapshotted it, until whatever wrote the snapshot happens to write
 /// it again.
 class UserProfileLookup {
-  const UserProfileLookup({required FirebaseFirestore firestore})
+  UserProfileLookup({required FirebaseFirestore firestore})
       : _firestore = firestore;
 
   final FirebaseFirestore _firestore;
+  final Map<String, UserProfileSnapshot?> _cache = <String, UserProfileSnapshot?>{};
 
   /// Returns null if [uid] has no published profile yet (e.g. they haven't
   /// signed in since this registry existed) or the read fails for any
   /// reason -- callers should fall back to whatever locally-known identity
   /// they already have rather than treat this as fatal.
   Future<UserProfileSnapshot?> fetch(String uid) async {
+    if (_cache.containsKey(uid)) {
+      return _cache[uid];
+    }
+
     try {
       final doc = await _firestore.collection('userProfiles').doc(uid).get();
       final data = doc.data();
       final name = data?['name'] as String?;
       if (name == null || name.isEmpty) {
+        _cache[uid] = null;
         return null;
       }
-      return UserProfileSnapshot(
+      final snapshot = UserProfileSnapshot(
         name: name,
         avatarLabel: data?['avatarLabel'] as String?,
         accentColorArgb: data?['accentColorArgb'] as int?,
         avatarUrl: data?['avatarUrl'] as String?,
         username: data?['username'] as String?,
       );
+      _cache[uid] = snapshot;
+      return snapshot;
     } on FirebaseException {
+      _cache[uid] = null;
       return null;
     }
+  }
+
+  void invalidate(String uid) {
+    _cache.remove(uid);
+  }
+
+  void clearCache() {
+    _cache.clear();
   }
 }
 

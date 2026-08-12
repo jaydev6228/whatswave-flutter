@@ -45,6 +45,8 @@ class ChatsController extends ChangeNotifier {
   bool _showArchivedOnly = false;
   List<ChatThread> _threads = const <ChatThread>[];
   final Set<String> _busyThreadIds = <String>{};
+  final Set<String> _fullyLoadedThreadIds = <String>{};
+  final Set<String> _loadingMessageThreadIds = <String>{};
 
   bool get hasLoaded => _hasLoaded;
   bool get isLoading => _isLoading;
@@ -175,6 +177,12 @@ class ChatsController extends ChangeNotifier {
 
   bool isThreadBusy(String threadId) => _busyThreadIds.contains(threadId);
 
+  bool isThreadMessagesLoading(String threadId) =>
+      _loadingMessageThreadIds.contains(threadId);
+
+  bool hasFullyLoadedMessages(String threadId) =>
+      _fullyLoadedThreadIds.contains(threadId);
+
   Future<void> ensureLoaded() async {
     if (_hasLoaded || _isLoading) {
       return;
@@ -192,7 +200,7 @@ class ChatsController extends ChangeNotifier {
     notifyListeners();
 
     try {
-      _threads = await _repository.fetchThreads();
+      _threads = _mergeIncomingThreads(await _repository.fetchThreads());
       _hasLoaded = true;
       _listenForLiveThreads();
     } on ChatRepositoryException catch (error) {
@@ -219,9 +227,78 @@ class ChatsController extends ChangeNotifier {
       return;
     }
     _liveThreadsSubscription = stream.listen((threads) {
-      _threads = threads;
+      _threads = _mergeIncomingThreads(threads);
       notifyListeners();
     });
+  }
+
+  Future<void> ensureThreadMessagesLoaded(String threadId) async {
+    if (_fullyLoadedThreadIds.contains(threadId) ||
+        _loadingMessageThreadIds.contains(threadId)) {
+      return;
+    }
+
+    _loadingMessageThreadIds.add(threadId);
+    notifyListeners();
+
+    try {
+      final fullThread = await _repository.fetchThreadWithMessages(threadId);
+      _fullyLoadedThreadIds.add(threadId);
+      _threads = _threads
+          .map(
+            (thread) {
+              if (thread.id != threadId) {
+                return thread;
+              }
+              return fullThread.copyWith(
+                messages: _mergeMessages(thread.messages, fullThread.messages),
+              );
+            },
+          )
+          .toList(growable: false);
+    } on ChatRepositoryException catch (error) {
+      _errorMessage = error.message;
+    } catch (_) {
+      _errorMessage = 'We could not load that chat right now.';
+    }
+
+    _loadingMessageThreadIds.remove(threadId);
+    notifyListeners();
+  }
+
+  List<ChatThread> _mergeIncomingThreads(List<ChatThread> incoming) {
+    return incoming
+        .map((thread) {
+          final cached = threadById(thread.id);
+          if (cached == null || !_fullyLoadedThreadIds.contains(thread.id)) {
+            return thread;
+          }
+
+          final mergedMessages = _mergeMessages(cached.messages, thread.messages);
+          return thread.copyWith(messages: mergedMessages);
+        })
+        .toList(growable: false);
+  }
+
+  List<ChatMessage> _mergeMessages(
+    List<ChatMessage> cachedMessages,
+    List<ChatMessage> incomingMessages,
+  ) {
+    if (incomingMessages.isEmpty) {
+      return cachedMessages;
+    }
+
+    final mergedById = <String, ChatMessage>{
+      for (final message in cachedMessages) message.id: message,
+    };
+    for (final message in incomingMessages) {
+      // Incoming wins for the same id so edits, reactions, and deletes apply.
+      mergedById[message.id] = message;
+    }
+
+    final merged = mergedById.values.toList(growable: false)
+      ..sort((a, b) => a.sentAt.compareTo(b.sentAt));
+    return List<ChatMessage>.unmodifiable(merged);
   }
 
   @override
@@ -491,17 +568,36 @@ class ChatsController extends ChangeNotifier {
     );
   }
 
-  Future<void> openThread(String threadId) async {
+  void openThread(String threadId) {
+    _markThreadReadOptimistic(threadId);
+    unawaited(_markThreadReadRemote(threadId));
+  }
+
+  void _markThreadReadOptimistic(String threadId) {
     final thread = threadById(threadId);
     if (thread == null || thread.unreadCount == 0) {
       return;
     }
 
-    await _runThreadMutation(
-      threadId,
-      () => _repository.markThreadRead(threadId),
-      fallbackError: 'We could not open that chat right now.',
-    );
+    _threads = _threads
+        .map(
+          (entry) =>
+              entry.id == threadId ? entry.copyWith(unreadCount: 0) : entry,
+        )
+        .toList(growable: false);
+    notifyListeners();
+  }
+
+  Future<void> _markThreadReadRemote(String threadId) async {
+    try {
+      await _repository.markThreadRead(threadId);
+    } on ChatRepositoryException catch (error) {
+      _errorMessage = error.message;
+      notifyListeners();
+    } catch (_) {
+      _errorMessage = 'We could not open that chat right now.';
+      notifyListeners();
+    }
   }
 
   Future<bool> sendTextMessage({
@@ -700,6 +796,60 @@ class ChatsController extends ChangeNotifier {
     return outcome;
   }
 
+  bool _isSummaryMessageSnapshot(
+    List<ChatMessage> incomingMessages,
+    List<ChatMessage> cachedMessages,
+  ) {
+    return incomingMessages.length == 1 && cachedMessages.length > 1;
+  }
+
+  Future<void> _refreshFullyLoadedThread(String threadId) async {
+    try {
+      final fullThread = await _repository.fetchThreadWithMessages(threadId);
+      _threads = _threads
+          .map(
+            (thread) => thread.id == threadId ? fullThread : thread,
+          )
+          .toList(growable: false);
+      notifyListeners();
+    } catch (_) {
+      // Best-effort refresh after a summary-only mutation response.
+    }
+  }
+
+  List<ChatThread> _reconcileMutatedThread({
+    required List<ChatThread> incoming,
+    required String mutatedThreadId,
+  }) {
+    if (!_fullyLoadedThreadIds.contains(mutatedThreadId)) {
+      return _mergeIncomingThreads(incoming);
+    }
+
+    final incomingThread = incoming
+        .cast<ChatThread?>()
+        .firstWhere((thread) => thread?.id == mutatedThreadId, orElse: () => null);
+    final cachedThread = threadById(mutatedThreadId);
+    if (incomingThread == null || cachedThread == null) {
+      return _mergeIncomingThreads(incoming);
+    }
+
+    if (_isSummaryMessageSnapshot(
+      incomingThread.messages,
+      cachedThread.messages,
+    )) {
+      unawaited(_refreshFullyLoadedThread(mutatedThreadId));
+      return _mergeIncomingThreads(incoming);
+    }
+
+    return incoming
+        .map(
+          (thread) => thread.id == mutatedThreadId
+              ? incomingThread
+              : _mergeIncomingThreads([thread]).first,
+        )
+        .toList(growable: false);
+  }
+
   Future<bool> _runThreadMutation(
     String threadId,
     Future<List<ChatThread>> Function() action, {
@@ -714,7 +864,11 @@ class ChatsController extends ChangeNotifier {
     var didSucceed = false;
 
     try {
-      _threads = await action();
+      final incoming = await action();
+      _threads = _reconcileMutatedThread(
+        incoming: incoming,
+        mutatedThreadId: threadId,
+      );
       if (clearSearch && _showArchivedOnly) {
         final thread = threadById(threadId);
         if (thread != null && !thread.isArchived) {

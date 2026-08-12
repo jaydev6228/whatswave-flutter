@@ -50,6 +50,12 @@ class _AppShellState extends State<AppShell> {
   bool _trackedInitialTab = false;
 
   @override
+  void initState() {
+    super.initState();
+    widget.chatsController.ensureLoaded();
+  }
+
+  @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (_trackedInitialTab) {

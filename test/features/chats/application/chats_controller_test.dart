@@ -185,9 +185,10 @@ void main() {
 
       expect(controller.threadById('family')?.unreadCount, 12);
 
-      await controller.openThread('family');
+      controller.openThread('family');
 
       expect(controller.threadById('family')?.unreadCount, 0);
+      await Future<void>.delayed(Duration.zero);
     });
 
     test('sends text and attachment messages into a thread', () async {
@@ -454,7 +455,12 @@ class _FailingChatRepository implements ChatRepository {
   }
 
   @override
-  Future<List<ChatThread>> markThreadRead(String threadId) {
+  Future<ChatThread> fetchThreadWithMessages(String threadId) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<void> markThreadRead(String threadId) {
     throw UnimplementedError();
   }
 
@@ -625,7 +631,11 @@ class _SendFailingChatRepository implements ChatRepository {
   }
 
   @override
-  Future<List<ChatThread>> markThreadRead(String threadId) =>
+  Future<ChatThread> fetchThreadWithMessages(String threadId) =>
+      _delegate.fetchThreadWithMessages(threadId);
+
+  @override
+  Future<void> markThreadRead(String threadId) =>
       _delegate.markThreadRead(threadId);
 
   @override

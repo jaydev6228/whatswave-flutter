@@ -10,6 +10,10 @@ import '../domain/story_reply_context.dart';
 abstract class ChatRepository {
   Future<List<ChatThread>> fetchThreads();
 
+  /// Full message history for one thread -- used when opening a conversation
+  /// after [fetchThreads] returned lightweight summary rows.
+  Future<ChatThread> fetchThreadWithMessages(String threadId);
+
   /// Live thread updates, so a message someone else sends shows up (new
   /// preview, unread count, list position) without needing to relaunch or
   /// manually refresh. Null for implementations with no real-time backing
@@ -119,7 +123,8 @@ abstract class ChatRepository {
   /// Fake/demo thread with no uid to check membership against).
   Future<List<ChatThread>> groupThreadsSharedWith(String participantUid);
 
-  Future<List<ChatThread>> markThreadRead(String threadId);
+  /// Clears unread for the caller only -- does not refetch the whole inbox.
+  Future<void> markThreadRead(String threadId);
 
   /// Removes a thread from the caller's own chat list only -- the other
   /// participant keeps theirs, and it reappears for the caller if that

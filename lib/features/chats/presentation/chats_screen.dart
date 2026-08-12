@@ -64,7 +64,11 @@ class _ChatsScreenState extends State<ChatsScreen> {
     _scrollController = ScrollController();
     _imagePicker = ImagePicker();
     widget.controller.ensureLoaded();
-    widget.updatesController.ensureLoaded();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        widget.updatesController.ensureLoaded();
+      }
+    });
   }
 
   @override
@@ -79,11 +83,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
   Widget build(BuildContext context) {
     final animateTypingIndicators = _resolveTypingIndicatorAnimation();
     return AnimatedBuilder(
-      animation: Listenable.merge([
-        widget.controller,
-        widget.updatesController,
-        widget.authController,
-      ]),
+      animation: widget.controller,
       builder: (context, _) {
         final theme = Theme.of(context);
         final visibleThreads = widget.controller.inboxThreads(
@@ -141,14 +141,19 @@ class _ChatsScreenState extends State<ChatsScreen> {
                   ),
                 ),
                 SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.only(bottom: 4),
-                    child: _StatusStrip(
-                      controller: widget.updatesController,
-                      chatsController: widget.controller,
-                      imagePicker: _imagePicker,
-                      currentUser: widget.authController.currentUser,
-                    ),
+                  child: ListenableBuilder(
+                    listenable: widget.updatesController,
+                    builder: (context, _) {
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 4),
+                        child: _StatusStrip(
+                          controller: widget.updatesController,
+                          chatsController: widget.controller,
+                          imagePicker: _imagePicker,
+                          currentUser: widget.authController.currentUser,
+                        ),
+                      );
+                    },
                   ),
                 ),
                 SliverToBoxAdapter(
@@ -269,10 +274,7 @@ class _ChatsScreenState extends State<ChatsScreen> {
                           final thread = visibleThreads[index];
                           return _ArchiveableChatListItem(
                             thread: thread,
-                            story: widget.updatesController.storyForParticipant(
-                              avatarLabel: thread.avatarLabel,
-                              name: thread.name,
-                            ),
+                            updatesController: widget.updatesController,
                             animateTypingIndicators: animateTypingIndicators,
                             isBusy: widget.controller.isThreadBusy(thread.id),
                             isArchivedView: false,
@@ -308,10 +310,8 @@ class _ChatsScreenState extends State<ChatsScreen> {
 
   Future<void> _openThread(ChatThread thread) async {
     _dismissSearchFocus();
-    await widget.controller.openThread(thread.id);
-    if (!mounted) {
-      return;
-    }
+    widget.controller.openThread(thread.id);
+    widget.controller.ensureThreadMessagesLoaded(thread.id);
 
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -584,10 +584,7 @@ class _ArchivedChatsScreenState extends State<ArchivedChatsScreen> {
                           final thread = archivedThreads[index];
                           return _ArchiveableChatListItem(
                             thread: thread,
-                            story: widget.updatesController.storyForParticipant(
-                              avatarLabel: thread.avatarLabel,
-                              name: thread.name,
-                            ),
+                            updatesController: widget.updatesController,
                             animateTypingIndicators: false,
                             isBusy: widget.controller.isThreadBusy(thread.id),
                             isArchivedView: true,
@@ -620,10 +617,8 @@ class _ArchivedChatsScreenState extends State<ArchivedChatsScreen> {
   }
 
   Future<void> _openArchivedThread(ChatThread thread) async {
-    await widget.controller.openThread(thread.id);
-    if (!mounted) {
-      return;
-    }
+    widget.controller.openThread(thread.id);
+    widget.controller.ensureThreadMessagesLoaded(thread.id);
 
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
@@ -664,7 +659,7 @@ class _ArchivedChatsScreenState extends State<ArchivedChatsScreen> {
 class _ArchiveableChatListItem extends StatelessWidget {
   const _ArchiveableChatListItem({
     required this.thread,
-    required this.story,
+    required this.updatesController,
     required this.animateTypingIndicators,
     required this.isBusy,
     required this.isArchivedView,
@@ -676,7 +671,7 @@ class _ArchiveableChatListItem extends StatelessWidget {
   });
 
   final ChatThread thread;
-  final StatusStory? story;
+  final UpdatesController updatesController;
   final bool animateTypingIndicators;
   final bool isBusy;
   final bool isArchivedView;
@@ -743,7 +738,7 @@ class _ArchiveableChatListItem extends StatelessWidget {
           },
           child: _ChatTile(
             thread: thread,
-            story: story,
+            updatesController: updatesController,
             animateTypingIndicators: animateTypingIndicators,
             isBusy: isBusy,
             onOpen: onOpen,
@@ -801,7 +796,7 @@ class _ArchiveableChatListItem extends StatelessWidget {
 class _ChatTile extends StatelessWidget {
   const _ChatTile({
     required this.thread,
-    required this.story,
+    required this.updatesController,
     required this.animateTypingIndicators,
     required this.isBusy,
     required this.onOpen,
@@ -809,7 +804,7 @@ class _ChatTile extends StatelessWidget {
   });
 
   final ChatThread thread;
-  final StatusStory? story;
+  final UpdatesController updatesController;
   final bool animateTypingIndicators;
   final bool isBusy;
   final VoidCallback onOpen;
@@ -842,7 +837,7 @@ class _ChatTile extends StatelessWidget {
             children: [
               _ChatAvatar(
                 thread: thread,
-                story: story,
+                updatesController: updatesController,
                 size: 56,
                 onTap: onStoryTap,
               ),
@@ -969,18 +964,35 @@ class _ChatTile extends StatelessWidget {
 class _ChatAvatar extends StatelessWidget {
   const _ChatAvatar({
     required this.thread,
-    required this.story,
+    required this.updatesController,
     required this.size,
     this.onTap,
   });
 
   final ChatThread thread;
-  final StatusStory? story;
+  final UpdatesController updatesController;
   final double size;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
+    if (!thread.hasStory) {
+      return _buildAvatar(context, story: null);
+    }
+
+    return ListenableBuilder(
+      listenable: updatesController,
+      builder: (context, _) {
+        final story = updatesController.storyForParticipant(
+          avatarLabel: thread.avatarLabel,
+          name: thread.name,
+        );
+        return _buildAvatar(context, story: story);
+      },
+    );
+  }
+
+  Widget _buildAvatar(BuildContext context, {required StatusStory? story}) {
     final avatar = thread.hasStory
         ? StatusRingAvatar(
             key: ValueKey<String>('chat_story_ring_${thread.id}'),

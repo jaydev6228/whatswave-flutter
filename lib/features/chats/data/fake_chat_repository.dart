@@ -37,6 +37,12 @@ class FakeChatRepository implements ChatRepository {
   }
 
   @override
+  Future<ChatThread> fetchThreadWithMessages(String threadId) async {
+    await _wait();
+    return _deepCopyThread(_threadForId(threadId));
+  }
+
+  @override
   Stream<List<ChatThread>>? watchThreads() => null;
 
   @override
@@ -339,7 +345,7 @@ class FakeChatRepository implements ChatRepository {
   }
 
   @override
-  Future<List<ChatThread>> markThreadRead(String threadId) async {
+  Future<void> markThreadRead(String threadId) async {
     await _wait();
     final thread = _threadForId(threadId);
     _threads = _threads
@@ -348,7 +354,6 @@ class FakeChatRepository implements ChatRepository {
               entry.id == thread.id ? entry.copyWith(unreadCount: 0) : entry,
         )
         .toList(growable: false);
-    return _deepCopyThreads(_threads);
   }
 
   @override
@@ -626,6 +631,8 @@ class FakeChatRepository implements ChatRepository {
       threads.map(_cloneThread),
     );
   }
+
+  static ChatThread _deepCopyThread(ChatThread thread) => _cloneThread(thread);
 
   static ChatThread _cloneThread(ChatThread thread) {
     return thread.copyWith(

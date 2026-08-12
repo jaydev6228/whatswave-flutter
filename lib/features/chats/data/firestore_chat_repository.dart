@@ -53,6 +53,8 @@ class FirestoreChatRepository implements ChatRepository {
   final FirebaseFirestore _firestore;
   final fb_auth.FirebaseAuth _firebaseAuth;
   final MediaUploader _mediaUploader;
+  late final UserProfileLookup _profileLookup =
+      UserProfileLookup(firestore: _firestore);
 
   CollectionReference<Map<String, dynamic>> get _threadsRef =>
       _firestore.collection('chatThreads');
@@ -73,7 +75,7 @@ class FirestoreChatRepository implements ChatRepository {
           await _threadsRef.where('participantUids', arrayContains: uid).get();
       return Future.wait(
         _visibleDocs(snapshot.docs, uid)
-            .map((doc) => _threadFromDoc(doc, currentUid: uid)),
+            .map((doc) => _threadFromDoc(doc, currentUid: uid, summaryOnly: true)),
       );
     } on FirebaseException catch (e) {
       throw ChatRepositoryException(e.message ?? 'Could not load your chats.');
@@ -89,9 +91,31 @@ class FirestoreChatRepository implements ChatRepository {
         .asyncMap(
           (snapshot) => Future.wait(
             _visibleDocs(snapshot.docs, uid)
-                .map((doc) => _threadFromDoc(doc, currentUid: uid)),
+                .map((doc) => _threadFromDoc(doc, currentUid: uid, summaryOnly: true)),
           ),
         );
+  }
+
+  @override
+  Future<ChatThread> fetchThreadWithMessages(String threadId) async {
+    final uid = _requireCurrentUid;
+    try {
+      final doc = await _threadsRef.doc(threadId).get();
+      if (!doc.exists) {
+        throw const ChatRepositoryException('That chat is no longer available.');
+      }
+      final hiddenFor =
+          (doc.data()?['hiddenFor'] as List<dynamic>?)?.cast<String>() ??
+              const <String>[];
+      if (hiddenFor.contains(uid)) {
+        throw const ChatRepositoryException('That chat is no longer available.');
+      }
+      return _threadFromDoc(doc, currentUid: uid);
+    } on ChatRepositoryException {
+      rethrow;
+    } on FirebaseException catch (e) {
+      throw ChatRepositoryException(e.message ?? 'Could not load that chat.');
+    }
   }
 
   /// Excludes threads the caller deleted from their own list (see
@@ -465,14 +489,13 @@ class FirestoreChatRepository implements ChatRepository {
   }
 
   @override
-  Future<List<ChatThread>> markThreadRead(String threadId) async {
+  Future<void> markThreadRead(String threadId) async {
     final uid = _requireCurrentUid;
     try {
       await _threadsRef.doc(threadId).update({'unreadCounts.$uid': 0});
     } on FirebaseException catch (e) {
       throw ChatRepositoryException(e.message ?? 'Could not update that chat.');
     }
-    return fetchThreads();
   }
 
   @override
@@ -698,6 +721,7 @@ class FirestoreChatRepository implements ChatRepository {
   Future<ChatThread> _threadFromDoc(
     DocumentSnapshot<Map<String, dynamic>> doc, {
     required String currentUid,
+    bool summaryOnly = false,
   }) async {
     final data = doc.data() ?? const <String, dynamic>{};
 
@@ -734,7 +758,7 @@ class FirestoreChatRepository implements ChatRepository {
       final adminUids =
           (data['groupAdminUids'] as List<dynamic>?)?.cast<String>() ??
               const <String>[];
-      final lookup = UserProfileLookup(firestore: _firestore);
+      final lookup = _profileLookup;
       participants = await Future.wait(
         participantUids.map((memberUid) async {
           final profile = await lookup.fetch(memberUid);
@@ -767,8 +791,7 @@ class FirestoreChatRepository implements ChatRepository {
         }
       }
 
-      final profile =
-          await UserProfileLookup(firestore: _firestore).fetch(otherUid);
+      final profile = await _profileLookup.fetch(otherUid);
       if (profile != null) {
         name = profile.name;
         avatarLabel = profile.avatarLabel ?? avatarLabel;
@@ -777,21 +800,11 @@ class FirestoreChatRepository implements ChatRepository {
       }
     }
 
-    final messagesSnapshot =
-        await doc.reference.collection('messages').orderBy('sentAt').get();
-
-    final messages = messagesSnapshot.docs
-        // "Deleted for me" -- hidden from this reader's own view only;
-        // every other participant's read of the same doc is unaffected.
-        .where((messageDoc) {
-          final hiddenFor =
-              (messageDoc.data()['hiddenFor'] as List<dynamic>?) ??
-                  const <dynamic>[];
-          return !hiddenFor.contains(currentUid);
-        })
-        .map(
-            (messageDoc) => _messageFromDoc(messageDoc, currentUid: currentUid))
-        .toList(growable: false);
+    final messages = await _messagesForThread(
+      doc.reference,
+      currentUid: currentUid,
+      summaryOnly: summaryOnly,
+    );
 
     return ChatThread(
       id: doc.id,
@@ -816,6 +829,38 @@ class FirestoreChatRepository implements ChatRepository {
       participantUids: isGroup ? participantUids : null,
       groupDescription: groupDescription,
     );
+  }
+
+  Future<List<ChatMessage>> _messagesForThread(
+    DocumentReference<Map<String, dynamic>> threadRef, {
+    required String currentUid,
+    required bool summaryOnly,
+  }) async {
+    final QuerySnapshot<Map<String, dynamic>> messagesSnapshot;
+    if (summaryOnly) {
+      messagesSnapshot = await threadRef
+          .collection('messages')
+          .orderBy('sentAt', descending: true)
+          .limit(1)
+          .get();
+    } else {
+      messagesSnapshot =
+          await threadRef.collection('messages').orderBy('sentAt').get();
+    }
+
+    final messages = messagesSnapshot.docs
+        .where((messageDoc) {
+          final hiddenFor =
+              (messageDoc.data()['hiddenFor'] as List<dynamic>?) ??
+                  const <dynamic>[];
+          return !hiddenFor.contains(currentUid);
+        })
+        .map(
+          (messageDoc) => _messageFromDoc(messageDoc, currentUid: currentUid),
+        )
+        .toList(growable: false);
+
+    return messages;
   }
 
   ChatMessage _messageFromDoc(

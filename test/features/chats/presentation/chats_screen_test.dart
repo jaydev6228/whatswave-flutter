@@ -230,16 +230,13 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text(longMessage), findsOneWidget);
-    expect(
-      messageListController.offset,
-      closeTo(messageListController.position.maxScrollExtent, 0.1),
-    );
-    expect(messageListController.offset, greaterThan(offsetBeforeFinalSend));
+    expect(messageListController.offset, closeTo(0, 0.1));
+    expect(messageListController.offset, lessThan(offsetBeforeFinalSend));
     final latestMessageBottom =
         tester.getBottomLeft(find.byKey(lastSentMessageKey)).dy;
     final messageListBottom =
         tester.getBottomLeft(find.byKey(messageListKey)).dy;
-    expect(messageListBottom - latestMessageBottom, closeTo(12, 2));
+    expect(messageListBottom - latestMessageBottom, closeTo(24, 4));
 
     await tester.tap(
       find.byKey(const Key('conversation_attachment_menu_button')),
@@ -1391,7 +1388,7 @@ void main() {
     expect(previewTop - titleBottom, lessThan(8));
   });
 
-  testWidgets('keeps short conversations naturally top aligned',
+  testWidgets('keeps short conversations anchored near the composer',
       (tester) async {
     final topAlignedThread = ChatThread(
       id: 'top-thread',
@@ -1446,8 +1443,8 @@ void main() {
     final lastMessageBottom = tester.getBottomLeft(lastMessageFinder).dy;
 
     expect(messageListController.position.maxScrollExtent, 0);
-    expect(firstMessageTop - messageListTop, lessThan(96));
-    expect(messageListBottom - lastMessageBottom, greaterThan(120));
+    expect(messageListBottom - lastMessageBottom, closeTo(24, 4));
+    expect(firstMessageTop - messageListTop, greaterThan(80));
   });
 
   testWidgets(
@@ -1662,7 +1659,12 @@ class _FailingChatRepository implements ChatRepository {
   }
 
   @override
-  Future<List<Never>> markThreadRead(String threadId) {
+  Future<void> markThreadRead(String threadId) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<ChatThread> fetchThreadWithMessages(String threadId) {
     throw UnimplementedError();
   }
 
@@ -1849,7 +1851,11 @@ class _FlakySendChatRepository implements ChatRepository {
   }
 
   @override
-  Future<List<ChatThread>> markThreadRead(String threadId) =>
+  Future<ChatThread> fetchThreadWithMessages(String threadId) =>
+      _delegate.fetchThreadWithMessages(threadId);
+
+  @override
+  Future<void> markThreadRead(String threadId) =>
       _delegate.markThreadRead(threadId);
 
   @override

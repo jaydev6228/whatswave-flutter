@@ -286,6 +286,10 @@ class TrackedChatRepository implements ChatRepository {
   Future<List<ChatThread>> fetchThreads() => _delegate.fetchThreads();
 
   @override
+  Future<ChatThread> fetchThreadWithMessages(String threadId) =>
+      _delegate.fetchThreadWithMessages(threadId);
+
+  @override
   Stream<List<ChatThread>>? watchThreads() => _delegate.watchThreads();
 
   @override
@@ -400,7 +404,7 @@ class TrackedChatRepository implements ChatRepository {
   }
 
   @override
-  Future<List<ChatThread>> markThreadRead(String threadId) {
+  Future<void> markThreadRead(String threadId) {
     return _delegate.markThreadRead(threadId);
   }
 

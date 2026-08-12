@@ -127,6 +127,11 @@ class _ConversationScreenState extends State<ConversationScreen> {
     _composerController = TextEditingController();
     _messageListController = ScrollController();
     _composerFocusNode = FocusNode();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        widget.controller.ensureThreadMessagesLoaded(widget.threadId);
+      }
+    });
   }
 
   @override
@@ -189,7 +194,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
         if (_lastRenderedThreadId != thread.id) {
           _lastRenderedThreadId = thread.id;
           _lastKnownLatestMessageId = thread.latestMessage?.id;
-          _scheduleScrollToLatestMessage(animated: false);
+          // reverse: true keeps the latest messages at scroll offset 0 --
+          // no jump-to-bottom pass needed on first open.
+          _stickToBottom = true;
         } else {
           // A message landed in this already-open thread -- either our own
           // send confirming, or (the previously-missing case) the other
@@ -235,6 +242,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
         _lastKnownBottomInset = bottomInset;
 
         final visibleMessages = _visibleMessagesForThread(thread);
+        final displayMessages = _displayMessagesForList(visibleMessages);
 
         return Scaffold(
           appBar: AppBar(
@@ -408,6 +416,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
                         child: ListView.builder(
                           key: const Key('conversation_message_list'),
                           controller: _messageListController,
+                          reverse: true,
                           keyboardDismissBehavior:
                               ScrollViewKeyboardDismissBehavior.onDrag,
                           padding: EdgeInsets.fromLTRB(
@@ -416,13 +425,17 @@ class _ConversationScreenState extends State<ConversationScreen> {
                             16,
                             _messageListBottomPadding,
                           ),
-                          itemCount: visibleMessages.length,
+                          itemCount: displayMessages.length,
                           itemBuilder: (context, index) {
-                            final message = visibleMessages[index];
-                            final previous =
-                                index == 0 ? null : visibleMessages[index - 1];
-                            final shouldShowDayChip = previous == null ||
-                                !_isSameDay(previous.sentAt, message.sentAt);
+                            final message = displayMessages[index];
+                            final olderMessage = index + 1 < displayMessages.length
+                                ? displayMessages[index + 1]
+                                : null;
+                            final shouldShowDayChip = olderMessage == null ||
+                                !_isSameDay(
+                                  message.sentAt,
+                                  olderMessage.sentAt,
+                                );
 
                             return KeyedSubtree(
                               key: _messageKeys.putIfAbsent(
@@ -849,14 +862,11 @@ class _ConversationScreenState extends State<ConversationScreen> {
       // scroll-up and must never be fought.
       final contentGrew =
           previousMax != null && metrics.maxScrollExtent > previousMax + 0.5;
-      final wasAtPreviousBottom =
-          previousMax != null && (metrics.pixels - previousMax).abs() <= 40;
+      final wasAtPreviousBottom = metrics.pixels.abs() <= 40;
       if (_stickToBottom && contentGrew && wasAtPreviousBottom) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted && _messageListController.hasClients) {
-            _messageListController.jumpTo(
-              _messageListController.position.maxScrollExtent,
-            );
+            _messageListController.jumpTo(0);
           }
         });
       }
@@ -919,8 +929,16 @@ class _ConversationScreenState extends State<ConversationScreen> {
     if (!_messageListController.hasClients) {
       return true;
     }
-    final latestOffset = _messageListController.position.maxScrollExtent;
-    return (_messageListController.offset - latestOffset).abs() <= tolerance;
+    return _messageListController.offset.abs() <= tolerance;
+  }
+
+  /// Newest-first order for [ListView.builder] with [reverse: true] so scroll
+  /// offset 0 sits on the latest messages without a jump on open.
+  List<ChatMessage> _displayMessagesForList(List<ChatMessage> messages) {
+    if (messages.length <= 1) {
+      return messages;
+    }
+    return messages.reversed.toList(growable: false);
   }
 
   double? get _currentComposerHeight {
@@ -1501,8 +1519,8 @@ class _ConversationScreenState extends State<ConversationScreen> {
       return;
     }
 
-    final targetOffset = _messageListController.position.maxScrollExtent;
-    final distance = (_messageListController.offset - targetOffset).abs();
+    const targetOffset = 0.0;
+    final distance = _messageListController.offset.abs();
     final shouldAnimate = animated &&
         distance > 24 &&
         !(MediaQuery.maybeOf(context)?.disableAnimations ?? false);
