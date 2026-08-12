@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
@@ -14,10 +15,9 @@ import '../../domain/chat_attachment.dart';
 const Duration _minimumVoiceNoteDuration = Duration(milliseconds: 500);
 
 /// Opens a modal recording flow for a voice-note attachment: recording
-/// starts immediately, a live duration timer counts up, and the user either
-/// sends (returns the finished [ChatAttachment]) or discards it (returns
-/// null and deletes the recorded file). Mic access is requested via
-/// `record`'s own permission check.
+/// starts immediately, a live waveform + duration timer count up, and the
+/// user either sends (returns the finished [ChatAttachment]) or discards it
+/// (returns null and deletes the recorded file).
 Future<ChatAttachment?> showVoiceNoteRecorderSheet(
   BuildContext context, {
   required String threadId,
@@ -26,11 +26,12 @@ Future<ChatAttachment?> showVoiceNoteRecorderSheet(
     context: context,
     isDismissible: false,
     enableDrag: false,
+    isScrollControlled: true,
     builder: (sheetContext) => _VoiceNoteRecorderSheet(threadId: threadId),
   );
 }
 
-enum _RecorderStage { starting, permissionDenied, recording, error }
+enum _RecorderStage { starting, permissionDenied, recording, paused, error }
 
 class _VoiceNoteRecorderSheet extends StatefulWidget {
   const _VoiceNoteRecorderSheet({required this.threadId});
@@ -46,8 +47,10 @@ class _VoiceNoteRecorderSheetState extends State<_VoiceNoteRecorderSheet> {
   final AudioRecorder _recorder = AudioRecorder();
   _RecorderStage _stage = _RecorderStage.starting;
   Timer? _ticker;
+  StreamSubscription<Amplitude>? _amplitudeSubscription;
   Duration _elapsed = Duration.zero;
   String? _recordingPath;
+  final List<double> _waveformSamples = <double>[];
 
   @override
   void initState() {
@@ -58,6 +61,7 @@ class _VoiceNoteRecorderSheetState extends State<_VoiceNoteRecorderSheet> {
   @override
   void dispose() {
     _ticker?.cancel();
+    unawaited(_amplitudeSubscription?.cancel());
     unawaited(_recorder.dispose());
     super.dispose();
   }
@@ -93,10 +97,25 @@ class _VoiceNoteRecorderSheetState extends State<_VoiceNoteRecorderSheet> {
       }
       _recordingPath = path;
       _elapsed = Duration.zero;
+      _waveformSamples.clear();
       _ticker = Timer.periodic(const Duration(milliseconds: 200), (_) {
-        if (mounted) {
+        if (mounted && _stage == _RecorderStage.recording) {
           setState(() => _elapsed += const Duration(milliseconds: 200));
         }
+      });
+      _amplitudeSubscription = _recorder
+          .onAmplitudeChanged(const Duration(milliseconds: 120))
+          .listen((amplitude) {
+        if (!mounted || _stage != _RecorderStage.recording) {
+          return;
+        }
+        final normalized = _normalizeAmplitude(amplitude.current);
+        setState(() {
+          _waveformSamples.add(normalized);
+          if (_waveformSamples.length > 48) {
+            _waveformSamples.removeAt(0);
+          }
+        });
       });
       setState(() => _stage = _RecorderStage.recording);
     } catch (_) {
@@ -106,8 +125,32 @@ class _VoiceNoteRecorderSheetState extends State<_VoiceNoteRecorderSheet> {
     }
   }
 
+  double _normalizeAmplitude(double decibels) {
+    if (decibels.isNaN || decibels <= -60) {
+      return 0.08;
+    }
+    return ((decibels + 60) / 60).clamp(0.08, 1.0);
+  }
+
+  Future<void> _togglePause() async {
+    if (_stage == _RecorderStage.recording) {
+      await _recorder.pause();
+      if (mounted) {
+        setState(() => _stage = _RecorderStage.paused);
+      }
+      return;
+    }
+    if (_stage == _RecorderStage.paused) {
+      await _recorder.resume();
+      if (mounted) {
+        setState(() => _stage = _RecorderStage.recording);
+      }
+    }
+  }
+
   Future<void> _stopAndSend() async {
     _ticker?.cancel();
+    await _amplitudeSubscription?.cancel();
     String? finalPath;
     try {
       finalPath = await _recorder.stop();
@@ -141,10 +184,11 @@ class _VoiceNoteRecorderSheetState extends State<_VoiceNoteRecorderSheet> {
 
   Future<void> _discard() async {
     _ticker?.cancel();
+    await _amplitudeSubscription?.cancel();
     try {
       await _recorder.stop();
     } catch (_) {
-      // Already stopped/never started -- nothing to clean up via stop().
+      // Already stopped/never started.
     }
     final path = _recordingPath;
     if (path != null) {
@@ -159,8 +203,7 @@ class _VoiceNoteRecorderSheetState extends State<_VoiceNoteRecorderSheet> {
     try {
       await File(path).delete();
     } catch (_) {
-      // Best-effort cleanup -- a leftover temp recording doesn't block
-      // anything the user asked for.
+      // Best-effort cleanup.
     }
   }
 
@@ -173,11 +216,12 @@ class _VoiceNoteRecorderSheetState extends State<_VoiceNoteRecorderSheet> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isRecording = _stage == _RecorderStage.recording;
+    final isActive = _stage == _RecorderStage.recording ||
+        _stage == _RecorderStage.paused;
 
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(24, 24, 24, 28),
+        padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -214,43 +258,74 @@ class _VoiceNoteRecorderSheetState extends State<_VoiceNoteRecorderSheet> {
                 child: const Text('Close'),
               ),
             ] else ...[
-              _RecordingPulse(isActive: isRecording),
-              const SizedBox(height: 16),
-              Text(
-                _formatDuration(_elapsed),
-                key: const Key('voice_recorder_timer'),
-                style: theme.textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                isRecording ? 'Recording…' : 'Starting…',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.64),
-                ),
-              ),
-              const SizedBox(height: 26),
               Row(
-                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   IconButton.filledTonal(
                     key: const Key('voice_recorder_discard_button'),
-                    onPressed: isRecording ? _discard : null,
+                    onPressed: isActive ? _discard : null,
                     icon: const Icon(Icons.delete_outline_rounded),
-                    iconSize: 26,
+                    iconSize: 24,
                     tooltip: 'Discard',
                   ),
-                  const SizedBox(width: 28),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        SizedBox(
+                          height: 36,
+                          child: _RecordingWaveform(samples: _waveformSamples),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          _formatDuration(_elapsed),
+                          key: const Key('voice_recorder_timer'),
+                          textAlign: TextAlign.center,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  if (_stage == _RecorderStage.recording ||
+                      _stage == _RecorderStage.paused)
+                    IconButton.filledTonal(
+                      key: const Key('voice_recorder_pause_button'),
+                      onPressed: _togglePause,
+                      icon: Icon(
+                        _stage == _RecorderStage.paused
+                            ? Icons.play_arrow_rounded
+                            : Icons.pause_rounded,
+                      ),
+                      iconSize: 24,
+                      tooltip: _stage == _RecorderStage.paused
+                          ? 'Resume'
+                          : 'Pause',
+                    ),
+                  const SizedBox(width: 8),
                   IconButton.filled(
                     key: const Key('voice_recorder_send_button'),
-                    onPressed: isRecording ? _stopAndSend : null,
+                    onPressed: isActive ? _stopAndSend : null,
                     icon: const Icon(Icons.send_rounded),
-                    iconSize: 26,
+                    iconSize: 22,
                     tooltip: 'Send',
                   ),
                 ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _stage == _RecorderStage.paused
+                    ? 'Paused'
+                    : _stage == _RecorderStage.recording
+                        ? 'Recording…'
+                        : 'Starting…',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.64),
+                ),
               ),
             ],
           ],
@@ -260,43 +335,76 @@ class _VoiceNoteRecorderSheetState extends State<_VoiceNoteRecorderSheet> {
   }
 }
 
-/// A pulsing red mic badge while recording -- the live "you're being
-/// recorded" affordance every voice-message UI needs.
-class _RecordingPulse extends StatefulWidget {
-  const _RecordingPulse({required this.isActive});
+class _RecordingWaveform extends StatelessWidget {
+  const _RecordingWaveform({required this.samples});
 
-  final bool isActive;
-
-  @override
-  State<_RecordingPulse> createState() => _RecordingPulseState();
-}
-
-class _RecordingPulseState extends State<_RecordingPulse>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 900),
-  )..repeat(reverse: true);
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
+  final List<double> samples;
 
   @override
   Widget build(BuildContext context) {
-    return FadeTransition(
-      opacity: Tween<double>(begin: 0.35, end: 1).animate(_controller),
-      child: Container(
-        width: 64,
-        height: 64,
-        decoration: const BoxDecoration(
-          color: AppPalette.rose,
-          shape: BoxShape.circle,
-        ),
-        child: const Icon(Icons.mic_rounded, color: Colors.white, size: 32),
+    final theme = Theme.of(context);
+    final barColor = theme.colorScheme.primary;
+
+    return CustomPaint(
+      painter: _WaveformPainter(
+        samples: samples,
+        color: barColor,
       ),
+      child: const SizedBox.expand(),
     );
+  }
+}
+
+class _WaveformPainter extends CustomPainter {
+  _WaveformPainter({
+    required this.samples,
+    required this.color,
+  });
+
+  final List<double> samples;
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    const barWidth = 3.0;
+    const gap = 2.0;
+    final paint = Paint()
+      ..color = color
+      ..strokeCap = StrokeCap.round;
+
+    if (samples.isEmpty) {
+      final midY = size.height / 2;
+      for (var x = 0.0; x < size.width; x += barWidth + gap) {
+        paint.strokeWidth = barWidth;
+        canvas.drawLine(
+          Offset(x + barWidth / 2, midY - 2),
+          Offset(x + barWidth / 2, midY + 2),
+          paint,
+        );
+      }
+      return;
+    }
+
+    final startX = math.max(
+      0.0,
+      size.width - samples.length * (barWidth + gap),
+    );
+    for (var index = 0; index < samples.length; index++) {
+      final amplitude = samples[index];
+      final x = startX + index * (barWidth + gap);
+      final barHeight = math.max(4.0, amplitude * size.height);
+      final top = (size.height - barHeight) / 2;
+      paint.strokeWidth = barWidth;
+      canvas.drawLine(
+        Offset(x + barWidth / 2, top),
+        Offset(x + barWidth / 2, top + barHeight),
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _WaveformPainter oldDelegate) {
+    return oldDelegate.samples != samples || oldDelegate.color != color;
   }
 }

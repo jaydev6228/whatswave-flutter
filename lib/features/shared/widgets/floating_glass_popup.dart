@@ -59,8 +59,10 @@ Future<T?> showFloatingGlassPopup<T>(
     controller.reverse().whenCompleteOrCancel(() {
       entry.remove();
       controller.dispose();
+      if (!completer.isCompleted) {
+        completer.complete(result);
+      }
     });
-    completer.complete(result);
   }
 
   entry = OverlayEntry(

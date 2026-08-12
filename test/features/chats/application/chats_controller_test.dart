@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:whatswave/app/theme/app_palette.dart';
 import 'package:whatswave/core/permissions/app_permission_service.dart';
 import 'package:whatswave/core/permissions/device_location_service.dart';
 import 'package:whatswave/core/sample/demo_data.dart';
@@ -394,6 +396,276 @@ void main() {
         'GPS is unavailable right now.',
       );
     });
+
+    test(
+        'sendCurrentLocation keeps prior messages when repository returns summaries',
+        () async {
+      final fullThreads = DemoData.buildChatThreads();
+      final controller = ChatsController(
+        repository: _SummaryOnlyAfterSendRepository(
+          delegate: FakeChatRepository(
+            initialThreads: fullThreads,
+            latency: Duration.zero,
+          ),
+        ),
+        permissionService: MemoryAppPermissionService(),
+        locationService: const _FakeDeviceLocationService(
+          fix: DeviceLocationFix(latitude: 35.6595, longitude: 139.7005),
+        ),
+      );
+
+      await controller.loadThreads();
+      await controller.ensureThreadMessagesLoaded('ava-patel');
+
+      final messagesBefore =
+          controller.threadById('ava-patel')!.messages.length;
+      expect(messagesBefore, greaterThan(1));
+
+      final outcome = await controller.sendCurrentLocation(
+        threadId: 'ava-patel',
+      );
+
+      expect(outcome, LocationShareOutcome.sent);
+      expect(
+        controller.threadById('ava-patel')!.messages.length,
+        greaterThan(messagesBefore),
+      );
+    });
+
+    test(
+        'sendAttachmentMessage keeps prior messages when repository returns summaries',
+        () async {
+      final fullThreads = DemoData.buildChatThreads();
+      final controller = ChatsController(
+        repository: _SummaryOnlyAfterSendRepository(
+          delegate: FakeChatRepository(
+            initialThreads: fullThreads,
+            latency: Duration.zero,
+          ),
+        ),
+      );
+
+      await controller.loadThreads();
+      await controller.ensureThreadMessagesLoaded('ava-patel');
+
+      final messagesBefore =
+          controller.threadById('ava-patel')!.messages.length;
+      expect(messagesBefore, greaterThan(1));
+
+      final didSend = await controller.sendAttachmentMessage(
+        threadId: 'ava-patel',
+        attachments: const [
+          ChatAttachment(
+            id: 'test-file',
+            type: ChatAttachmentType.file,
+            title: 'Notes.docx',
+            details: '12 KB • shared from Files',
+            tintColor: AppPalette.amber,
+          ),
+        ],
+      );
+
+      expect(didSend, isTrue);
+      expect(
+        controller.threadById('ava-patel')!.messages.length,
+        greaterThan(messagesBefore),
+      );
+    });
+
+    test(
+        'sendTextMessage keeps prior messages when repository returns summaries',
+        () async {
+      final fullThreads = DemoData.buildChatThreads();
+      final controller = ChatsController(
+        repository: _SummaryOnlyAfterSendRepository(
+          delegate: FakeChatRepository(
+            initialThreads: fullThreads,
+            latency: Duration.zero,
+          ),
+        ),
+      );
+
+      await controller.loadThreads();
+      await controller.ensureThreadMessagesLoaded('ava-patel');
+
+      final messagesBefore =
+          controller.threadById('ava-patel')!.messages.length;
+      expect(messagesBefore, greaterThan(1));
+
+      final didSend = await controller.sendTextMessage(
+        threadId: 'ava-patel',
+        text: 'Hi',
+      );
+
+      expect(didSend, isTrue);
+      expect(
+        controller.threadById('ava-patel')!.messages.length,
+        greaterThan(messagesBefore),
+      );
+    });
+
+    test(
+        'second summary send keeps file and text when repository returns summaries',
+        () async {
+      final fullThreads = DemoData.buildChatThreads();
+      final controller = ChatsController(
+        repository: _SummaryOnlyAfterSendRepository(
+          delegate: FakeChatRepository(
+            initialThreads: fullThreads,
+            latency: Duration.zero,
+          ),
+        ),
+      );
+
+      await controller.loadThreads();
+      await controller.ensureThreadMessagesLoaded('ava-patel');
+
+      final messagesBefore =
+          controller.threadById('ava-patel')!.messages.length;
+
+      final didSendFile = await controller.sendAttachmentMessage(
+        threadId: 'ava-patel',
+        attachments: const [
+          ChatAttachment(
+            id: 'test-file',
+            type: ChatAttachmentType.file,
+            title: 'Notes.docx',
+            details: '12 KB • shared from Files',
+            tintColor: AppPalette.amber,
+          ),
+        ],
+      );
+      expect(didSendFile, isTrue);
+
+      final afterFile =
+          controller.threadById('ava-patel')!.messages.length;
+      expect(afterFile, greaterThan(messagesBefore));
+
+      final didSendText = await controller.sendTextMessage(
+        threadId: 'ava-patel',
+        text: 'Hi',
+      );
+      expect(didSendText, isTrue);
+      expect(
+        controller.threadById('ava-patel')!.messages.length,
+        greaterThan(afterFile),
+      );
+    });
+
+    test('watchThreads summary update does not shrink visible history', () async {
+      final repo = _WatchSummaryRepository(
+        delegate: FakeChatRepository(
+          initialThreads: DemoData.buildChatThreads(),
+          latency: Duration.zero,
+        ),
+      );
+      final controller = ChatsController(repository: repo);
+
+      await controller.loadThreads();
+      final countBefore =
+          controller.threadById('ava-patel')!.messages.length;
+      expect(countBefore, greaterThan(1));
+      expect(controller.hasFullyLoadedMessages('ava-patel'), isFalse);
+
+      repo.emitSummaryInbox();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(
+        controller.threadById('ava-patel')!.messages.length,
+        countBefore,
+      );
+    });
+
+    test(
+        'deleteMessage removes message optimistically on fully loaded thread',
+        () async {
+      await controller.loadThreads();
+      await controller.ensureThreadMessagesLoaded('ava-patel');
+
+      final thread = controller.threadById('ava-patel')!;
+      final messageId = thread.messages.first.id;
+      final countBefore = thread.messages.length;
+
+      final didDelete = await controller.deleteMessage(
+        threadId: 'ava-patel',
+        messageId: messageId,
+        forEveryone: false,
+      );
+
+      expect(didDelete, isTrue);
+      expect(
+        controller.threadById('ava-patel')!.messages.length,
+        countBefore - 1,
+      );
+      expect(
+        controller.threadById('ava-patel')!.messages.any(
+              (message) => message.id == messageId,
+            ),
+        isFalse,
+      );
+    });
+
+    test(
+        'stale summary response after send still restores full history via sync',
+        () async {
+      final fullThreads = DemoData.buildChatThreads();
+      final controller = ChatsController(
+        repository: _StaleSummaryAfterSendRepository(
+          delegate: FakeChatRepository(
+            initialThreads: fullThreads,
+            latency: Duration.zero,
+          ),
+        ),
+      );
+
+      await controller.loadThreads();
+      await controller.ensureThreadMessagesLoaded('ava-patel');
+
+      final messagesBefore =
+          controller.threadById('ava-patel')!.messages.length;
+      expect(messagesBefore, greaterThan(1));
+
+      final didSend = await controller.sendTextMessage(
+        threadId: 'ava-patel',
+        text: 'Another line',
+      );
+
+      expect(didSend, isTrue);
+      expect(
+        controller.threadById('ava-patel')!.messages.length,
+        greaterThan(messagesBefore),
+      );
+    });
+
+    test(
+        'background sync does not rebuild when server history already matches',
+        () async {
+      final fullThreads = DemoData.buildChatThreads();
+      final controller = ChatsController(
+        repository: _SummaryOnlyAfterSendRepository(
+          delegate: FakeChatRepository(
+            initialThreads: fullThreads,
+            latency: Duration.zero,
+          ),
+        ),
+      );
+
+      await controller.loadThreads();
+      await controller.ensureThreadMessagesLoaded('ava-patel');
+      var rebuildCount = 0;
+      controller.addListener(() => rebuildCount++);
+
+      final didSend = await controller.sendTextMessage(
+        threadId: 'ava-patel',
+        text: 'Smooth send',
+      );
+      expect(didSend, isTrue);
+
+      final rebuildsAfterSend = rebuildCount;
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      expect(rebuildCount, rebuildsAfterSend);
+    });
   });
 }
 
@@ -410,6 +682,172 @@ class _FakeDeviceLocationService implements DeviceLocationService {
     }
     return fix!;
   }
+}
+
+/// Mimics Firestore mutations that refetch the inbox with one preview message
+/// per thread instead of full histories.
+class _SummaryOnlyAfterSendRepository implements ChatRepository {
+  _SummaryOnlyAfterSendRepository({required FakeChatRepository delegate})
+      : _delegate = delegate;
+
+  final FakeChatRepository _delegate;
+
+  List<ChatThread> _summaryOnly(List<ChatThread> threads) {
+    return threads
+        .map(
+          (thread) => thread.messages.isEmpty
+              ? thread
+              : thread.copyWith(
+                  messages: [thread.messages.last],
+                ),
+        )
+        .toList(growable: false);
+  }
+
+  @override
+  Future<List<ChatThread>> fetchThreads() => _delegate.fetchThreads();
+
+  @override
+  Stream<List<ChatThread>>? watchThreads() => _delegate.watchThreads();
+
+  @override
+  Future<ChatThread> fetchThreadWithMessages(String threadId) =>
+      _delegate.fetchThreadWithMessages(threadId);
+
+  @override
+  Future<void> markThreadRead(String threadId) =>
+      _delegate.markThreadRead(threadId);
+
+  @override
+  Future<List<ChatThread>> sendAttachmentMessage({
+    required String threadId,
+    required List<ChatAttachment> attachments,
+    String? caption,
+    MessageReplyPreview? replyPreview,
+  }) async {
+    return _summaryOnly(
+      await _delegate.sendAttachmentMessage(
+        threadId: threadId,
+        attachments: attachments,
+        caption: caption,
+        replyPreview: replyPreview,
+      ),
+    );
+  }
+
+  @override
+  Future<List<ChatThread>> sendTextMessage({
+    required String threadId,
+    required String text,
+    StoryReplyContext? storyReplyContext,
+    MessageReplyPreview? replyPreview,
+  }) async {
+    return _summaryOnly(
+      await _delegate.sendTextMessage(
+        threadId: threadId,
+        text: text,
+        storyReplyContext: storyReplyContext,
+        replyPreview: replyPreview,
+      ),
+    );
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+/// Emits summary-only inbox snapshots on [watchThreads], mimicking Firestore
+/// live updates while keeping full histories available on first load.
+class _WatchSummaryRepository implements ChatRepository {
+  _WatchSummaryRepository({required FakeChatRepository delegate})
+      : _delegate = delegate;
+
+  final FakeChatRepository _delegate;
+  final StreamController<List<ChatThread>> _updates =
+      StreamController<List<ChatThread>>.broadcast();
+
+  List<ChatThread> _summaryOnly(List<ChatThread> threads) {
+    return threads
+        .map(
+          (thread) => thread.messages.isEmpty
+              ? thread
+              : thread.copyWith(
+                  messages: [thread.messages.last],
+                ),
+        )
+        .toList(growable: false);
+  }
+
+  void emitSummaryInbox() {
+    _delegate.fetchThreads().then((threads) {
+      _updates.add(_summaryOnly(threads));
+    });
+  }
+
+  @override
+  Future<List<ChatThread>> fetchThreads() => _delegate.fetchThreads();
+
+  @override
+  Stream<List<ChatThread>>? watchThreads() => _updates.stream;
+
+  @override
+  Future<ChatThread> fetchThreadWithMessages(String threadId) =>
+      _delegate.fetchThreadWithMessages(threadId);
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+/// Returns the previous latest message after send, reproducing a stale
+/// Firestore limit(1) read racing the new write.
+class _StaleSummaryAfterSendRepository implements ChatRepository {
+  _StaleSummaryAfterSendRepository({required FakeChatRepository delegate})
+      : _delegate = delegate;
+
+  final FakeChatRepository _delegate;
+  List<ChatThread>? _preSendSnapshot;
+
+  List<ChatThread> _summaryOnly(List<ChatThread> threads) {
+    return threads
+        .map(
+          (thread) => thread.messages.isEmpty
+              ? thread
+              : thread.copyWith(
+                  messages: [thread.messages.last],
+                ),
+        )
+        .toList(growable: false);
+  }
+
+  @override
+  Future<List<ChatThread>> fetchThreads() => _delegate.fetchThreads();
+
+  @override
+  Stream<List<ChatThread>>? watchThreads() => _delegate.watchThreads();
+
+  @override
+  Future<ChatThread> fetchThreadWithMessages(String threadId) =>
+      _delegate.fetchThreadWithMessages(threadId);
+
+  @override
+  Future<List<ChatThread>> sendTextMessage({
+    required String threadId,
+    required String text,
+    StoryReplyContext? storyReplyContext,
+    MessageReplyPreview? replyPreview,
+  }) async {
+    _preSendSnapshot = _summaryOnly(await _delegate.fetchThreads());
+    await _delegate.sendTextMessage(
+      threadId: threadId,
+      text: text,
+      storyReplyContext: storyReplyContext,
+      replyPreview: replyPreview,
+    );
+    return _preSendSnapshot!;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _FailingChatRepository implements ChatRepository {

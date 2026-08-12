@@ -42,6 +42,10 @@ class _DeferredHeavyAttachmentState extends State<DeferredHeavyAttachment> {
   }
 }
 
+/// Fixed footprint for map bubbles so placeholder → real map never changes
+/// list height and makes nearby messages jump on send/rebuild.
+const double _locationMapBubbleAspectRatio = 1.45;
+
 /// A lightweight map placeholder that upgrades to [LocationMapSnippet] after
 /// the first frame -- avoids fetching OSM tiles during fast scroll.
 class LazyLocationMapSnippet extends StatelessWidget {
@@ -57,20 +61,24 @@ class LazyLocationMapSnippet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return DeferredHeavyAttachment(
-      placeholder: ColoredBox(
-        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
-        child: Center(
-          child: Icon(
-            Icons.location_on_rounded,
-            color: theme.colorScheme.primary.withValues(alpha: 0.72),
-            size: 40,
+    return AspectRatio(
+      aspectRatio: _locationMapBubbleAspectRatio,
+      child: DeferredHeavyAttachment(
+        key: ValueKey('lazy_map_${latitude}_$longitude'),
+        placeholder: ColoredBox(
+          color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
+          child: Center(
+            child: Icon(
+              Icons.location_on_rounded,
+              color: theme.colorScheme.primary.withValues(alpha: 0.72),
+              size: 40,
+            ),
           ),
         ),
-      ),
-      childBuilder: (_) => LocationMapSnippet(
-        latitude: latitude,
-        longitude: longitude,
+        childBuilder: (_) => LocationMapSnippet(
+          latitude: latitude,
+          longitude: longitude,
+        ),
       ),
     );
   }

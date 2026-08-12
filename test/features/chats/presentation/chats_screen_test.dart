@@ -27,6 +27,7 @@ import 'package:whatswave/features/chats/domain/message_reply_preview.dart';
 import 'package:whatswave/features/chats/domain/story_reply_context.dart';
 import 'package:whatswave/core/media/avatar_photo_picker.dart';
 import 'package:whatswave/features/chats/presentation/chats_screen.dart';
+import 'package:whatswave/features/chats/presentation/widgets/lazy_heavy_attachment.dart';
 import 'package:whatswave/features/chats/presentation/widgets/location_map_preview.dart';
 import 'package:whatswave/features/updates/presentation/widgets/status_ring_avatar.dart';
 
@@ -136,8 +137,6 @@ void main() {
     const composerFieldKey = Key('conversation_composer_field');
     const sendButtonKey = Key('conversation_send_button');
     const messageListKey = Key('conversation_message_list');
-    const lastSentMessageKey =
-        ValueKey<String>('conversation_message_ava-patel-message-12');
     const longMessage =
         'Handoff is almost ready.\nI kept the hero motion, tightened the spacing, and left notes for QA.\nPlease review the final build tonight.';
 
@@ -215,6 +214,8 @@ void main() {
     await tester.tap(find.byKey(sendButtonKey));
     await tester.pump();
 
+    expect(find.text(longMessage), findsOneWidget);
+
     expect(
       tester.widget<TextField>(find.byKey(composerFieldKey)).controller!.text,
       isEmpty,
@@ -232,8 +233,20 @@ void main() {
     expect(find.text(longMessage), findsOneWidget);
     expect(messageListController.offset, closeTo(0, 0.1));
     expect(messageListController.offset, lessThan(offsetBeforeFinalSend));
+    final latestMessageBubble = find.ancestor(
+      of: find.textContaining('Please review the final build tonight'),
+      matching: find.byWidgetPredicate(
+        (widget) =>
+            widget.key is ValueKey<String> &&
+            (widget.key! as ValueKey<String>).value
+                .startsWith('conversation_message_') &&
+            (widget.key! as ValueKey<String>).value !=
+                'conversation_message_list',
+      ),
+    );
+    expect(latestMessageBubble, findsOneWidget);
     final latestMessageBottom =
-        tester.getBottomLeft(find.byKey(lastSentMessageKey)).dy;
+        tester.getBottomLeft(latestMessageBubble).dy;
     final messageListBottom =
         tester.getBottomLeft(find.byKey(messageListKey)).dy;
     expect(messageListBottom - latestMessageBottom, closeTo(24, 4));
@@ -271,13 +284,123 @@ void main() {
       find.byKey(const Key('conversation_attachment_menu_button')),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('conversation_location_button')));
-    await tester.pumpAndSettle();
+    await _openLocationSendPreview(tester);
+    await _confirmLocationSendFromPreview(tester);
 
-    // The location bubble renders a real map snippet with a pin rather
-    // than a title/subtitle text row.
-    expect(find.byType(LocationMapSnippet), findsOneWidget);
+    // The location bubble renders a lazy map snippet (placeholder or real map).
+    expect(find.byType(LazyLocationMapSnippet), findsOneWidget);
   });
+
+  testWidgets(
+    'typing in the composer stays when opening the location picker',
+    (tester) async {
+      const composerFieldKey = Key('conversation_composer_field');
+      const draftText = 'bug test for media';
+
+      await _pumpChatsScreen(
+        tester,
+        device: iphoneProProfile,
+        controller: ChatsController(
+          repository: FakeChatRepository(latency: Duration.zero),
+          permissionService: MemoryAppPermissionService(),
+          locationService: const _FakeDeviceLocationService(
+            fix: DeviceLocationFix(latitude: 37.7879, longitude: -122.4075),
+          ),
+        ),
+      );
+
+      await tester.tap(find.byKey(const Key('chat_tile_ava-patel')));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byKey(composerFieldKey), draftText);
+      await tester.pump();
+
+      await tester.tap(
+        find.byKey(const Key('conversation_attachment_menu_button')),
+      );
+      await tester.pumpAndSettle();
+      await _openLocationSendPreview(tester);
+
+      expect(
+        find.byKey(const Key('location_send_preview_screen')),
+        findsOneWidget,
+      );
+      expect(
+        tester.widget<TextField>(find.byKey(composerFieldKey)).controller!.text,
+        draftText,
+      );
+
+      await tester.tap(find.byKey(const Key('location_send_preview_close_button')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(
+        tester.widget<TextField>(find.byKey(composerFieldKey)).controller!.text,
+        draftText,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('conversation_message_list')),
+          matching: find.text(draftText),
+        ),
+        findsNothing,
+      );
+    },
+  );
+
+  testWidgets(
+    'rapid duplicate-text sends after location never shrink visible history',
+    (tester) async {
+      const composerFieldKey = Key('conversation_composer_field');
+      const sendButtonKey = Key('conversation_send_button');
+      const duplicateText = 'Sdfsd';
+
+      await _pumpChatsScreen(
+        tester,
+        device: iphoneProProfile,
+        controller: ChatsController(
+          repository: FakeChatRepository(latency: Duration.zero),
+          permissionService: MemoryAppPermissionService(),
+          locationService: const _FakeDeviceLocationService(
+            fix: DeviceLocationFix(latitude: 37.7879, longitude: -122.4075),
+          ),
+        ),
+      );
+
+      await tester.tap(find.byKey(const Key('chat_tile_design-sprint')));
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const Key('conversation_attachment_menu_button')),
+      );
+      await tester.pumpAndSettle();
+      await _openLocationSendPreview(tester);
+      await _confirmLocationSendFromPreview(tester);
+
+      var peakCount = _groupChatVisibleMessageCount(tester);
+
+      for (var index = 0; index < 7; index++) {
+        await tester.enterText(find.byKey(composerFieldKey), duplicateText);
+        await tester.pump();
+        await tester.tap(find.byKey(sendButtonKey));
+        await tester.pump();
+
+        final midFlightCount = _groupChatVisibleMessageCount(tester);
+        expect(
+          midFlightCount,
+          greaterThanOrEqualTo(peakCount),
+          reason: 'Message count shrank mid-send on iteration $index',
+        );
+
+        await tester.pumpAndSettle();
+        final settledCount = _groupChatVisibleMessageCount(tester);
+        expect(settledCount, greaterThan(peakCount));
+        peakCount = settledCount;
+      }
+
+      expect(find.text(duplicateText), findsNWidgets(7));
+    },
+  );
 
   testWidgets('long-pressing a bubble reacts, and reacting again removes it',
       (tester) async {
@@ -988,6 +1111,9 @@ void main() {
     await tester.tap(find.byKey(const Key('chat_tile_ava-patel')));
     await tester.pumpAndSettle();
 
+    expect(find.byKey(const Key('conversation_voice_button')), findsOneWidget);
+    expect(find.byKey(const Key('conversation_send_button')), findsNothing);
+
     await tester.tap(
       find.byKey(const Key('conversation_attachment_menu_button')),
     );
@@ -1577,6 +1703,44 @@ void main() {
     expect(find.text('Repository offline'), findsOneWidget);
     expect(find.byKey(const Key('chat_search_field')), findsOneWidget);
   });
+}
+
+int _groupChatVisibleMessageCount(WidgetTester tester) {
+  final subtitleFinder = find.textContaining(' messages');
+  expect(subtitleFinder, findsOneWidget);
+  final text = tester.widget<Text>(subtitleFinder).data!;
+  final match = RegExp(r'(\d+) messages').firstMatch(text);
+  expect(match, isNotNull);
+  return int.parse(match!.group(1)!);
+}
+
+Future<void> _openLocationSendPreview(WidgetTester tester) async {
+  await tester.tap(find.byKey(const Key('conversation_location_button')));
+  await tester.pump();
+  // Attachment popup completes only after its close animation finishes.
+  await tester.pump(const Duration(milliseconds: 200));
+  await tester.pump(const Duration(milliseconds: 300));
+}
+
+Future<void> _confirmLocationSendFromPreview(WidgetTester tester) async {
+  expect(
+    find.byKey(const Key('location_send_preview_screen')),
+    findsOneWidget,
+  );
+  await tester.ensureVisible(
+    find.byKey(const Key('location_send_selected_location_button')),
+  );
+  await tester.pump();
+  await tester.tap(
+    find.byKey(const Key('location_send_selected_location_button')),
+  );
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 350));
+  expect(
+    find.byKey(const Key('location_send_preview_screen')),
+    findsNothing,
+  );
+  await tester.pump(const Duration(milliseconds: 400));
 }
 
 Future<void> _pumpChatsScreen(

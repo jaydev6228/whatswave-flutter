@@ -37,6 +37,8 @@ import '../domain/story_reply_context.dart';
 import 'attachment_viewer_screen.dart';
 import 'contact_info_screen.dart';
 import 'forward_message_screen.dart';
+import 'document_send_preview_screen.dart';
+import 'location_send_preview_screen.dart';
 import 'media_send_preview_screen.dart';
 import 'widgets/emoji_reaction_picker_screen.dart';
 import 'widgets/lazy_heavy_attachment.dart';
@@ -68,6 +70,8 @@ class ConversationScreen extends StatefulWidget {
 class _ConversationScreenState extends State<ConversationScreen> {
   static const double _messageListBottomPadding = 12;
   static const Duration _sentMessageEntryDuration = Duration(milliseconds: 220);
+  static const Duration _ownSendScrollSuppression = Duration(milliseconds: 700);
+  static const Duration _outboundEchoMatchWindow = Duration(minutes: 2);
 
   final GlobalKey _composerBarKey = GlobalKey();
   final ImagePicker _imagePicker = ImagePicker();
@@ -78,9 +82,15 @@ class _ConversationScreenState extends State<ConversationScreen> {
   String? _lastKnownLatestMessageId;
   double? _lastKnownBottomInset;
   String? _animatedMessageId;
+  bool _skipNextMessageEntryAnimation = false;
+  bool _suppressAutoScrollForOwnSend = false;
+  String? _activeOutboundLocalId;
+  final Map<String, String> _stableListKeysByMessageId = <String, String>{};
   final List<ChatMessage> _localMessages = <ChatMessage>[];
   Timer? _composerUnlockTimer;
   Timer? _animatedMessageCleanupTimer;
+  Timer? _ownSendScrollSuppressionTimer;
+  DateTime? _suppressBottomSnapUntil;
 
   /// True whenever the message list should stay pinned to its true bottom
   /// -- set on open, on sending, and whenever an incoming message arrives
@@ -130,6 +140,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
     _composerController = TextEditingController();
     _messageListController = ScrollController();
     _composerFocusNode = FocusNode();
+    widget.controller.addListener(_reconcileOutboundSendWithController);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         widget.controller.ensureThreadMessagesLoaded(widget.threadId);
@@ -139,8 +150,10 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
   @override
   void dispose() {
+    widget.controller.removeListener(_reconcileOutboundSendWithController);
     _composerUnlockTimer?.cancel();
     _animatedMessageCleanupTimer?.cancel();
+    _ownSendScrollSuppressionTimer?.cancel();
     _highlightClearTimer?.cancel();
     _highlightedMessageIdNotifier.dispose();
     _composerController.dispose();
@@ -160,6 +173,90 @@ class _ConversationScreenState extends State<ConversationScreen> {
     _lastRenderedThreadId = null;
     _lastKnownLatestMessageId = null;
     _animatedMessageId = null;
+    _activeOutboundLocalId = null;
+    _stableListKeysByMessageId.clear();
+    _ownSendScrollSuppressionTimer?.cancel();
+    _suppressBottomSnapUntil = null;
+  }
+
+  ChatThread? _threadForMessageList() {
+    return widget.controller.threadById(widget.threadId);
+  }
+
+  bool get _hasOutboundSending => _localMessages.any(
+        (message) => message.deliveryState == MessageDeliveryState.sending,
+      );
+
+  String _messageListKeyFor(ChatMessage message) {
+    return _stableListKeysByMessageId[message.id] ?? message.id;
+  }
+
+  void _beginOutboundSend({
+    required String threadId,
+    required ChatMessage localMessage,
+  }) {
+    _activeOutboundLocalId = localMessage.id;
+    _stableListKeysByMessageId[localMessage.id] = localMessage.id;
+    _upsertLocalMessage(localMessage);
+    _extendOwnSendScrollSuppression();
+  }
+
+  /// When the controller publishes persisted echoes, finalize every in-flight
+  /// optimistic bubble *before* [ListenableBuilder] rebuilds.
+  void _reconcileOutboundSendWithController() {
+    if (!mounted) {
+      return;
+    }
+
+    final liveThread = widget.controller.threadById(widget.threadId);
+    if (liveThread == null) {
+      return;
+    }
+
+    for (final localMessage in _localMessages.toList(growable: false)) {
+      if (localMessage.deliveryState != MessageDeliveryState.sending) {
+        continue;
+      }
+      if (_findPersistedMatch(liveThread, localMessage) == null) {
+        continue;
+      }
+      _finalizeOutgoingSend(thread: liveThread, localMessage: localMessage);
+    }
+  }
+
+  void _endOutboundSend() {
+    _activeOutboundLocalId = null;
+  }
+
+  bool get _shouldSuppressBottomSnap {
+    if (_hasOutboundSending) {
+      return true;
+    }
+    final until = _suppressBottomSnapUntil;
+    return until != null && DateTime.now().isBefore(until);
+  }
+
+  void _extendOwnSendScrollSuppression() {
+    _suppressAutoScrollForOwnSend = true;
+    _suppressBottomSnapUntil =
+        DateTime.now().add(_ownSendScrollSuppression);
+    _ownSendScrollSuppressionTimer?.cancel();
+    _ownSendScrollSuppressionTimer = Timer(_ownSendScrollSuppression, () {
+      if (!mounted) {
+        return;
+      }
+      _suppressAutoScrollForOwnSend = false;
+      _suppressBottomSnapUntil = null;
+    });
+  }
+
+  /// Pins the reader to the bottom without forcing a scroll jump -- use when
+  /// the list is already sitting on the latest messages (offset ~0).
+  void _scrollToLatestIfNeeded({required bool wasNearLatest}) {
+    _stickToBottom = true;
+    if (!wasNearLatest) {
+      _scheduleScrollToLatestMessage(animated: true);
+    }
   }
 
   @override
@@ -172,7 +269,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
             child: ListenableBuilder(
               listenable: widget.controller,
               builder: (context, _) {
-                final thread = widget.controller.threadById(widget.threadId);
+                final thread = _threadForMessageList();
                 if (thread == null) {
                   return Center(
                     child: Text(
@@ -384,7 +481,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
                 }
                 final messageId = rawId.substring(prefix.length);
                 return displayMessages.indexWhere(
-                  (message) => message.id == messageId,
+                  (message) => _messageListKeyFor(message) == messageId,
                 );
               },
               keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
@@ -441,36 +538,42 @@ class _ConversationScreenState extends State<ConversationScreen> {
                   isSelected: _selectedMessageIds.contains(message.id),
                   onToggleSelection: () => _toggleMessageSelection(message.id),
                 );
-                final messageBody = message.id == _animatedMessageId
+                final listKey = _messageListKeyFor(message);
+                final shouldAnimateEntry = listKey == _animatedMessageId ||
+                    message.id == _animatedMessageId;
+                final messageBody = shouldAnimateEntry
                     ? _AnimatedMessageEntry(
-                        key: ValueKey('conversation_message_${message.id}'),
-                        animateOnMount: true,
+                        key: ValueKey('conversation_message_$listKey'),
+                        animateOnMount: !_skipNextMessageEntryAnimation,
                         isMine: message.isFromCurrentUser,
                         child: bubble,
                       )
                     : KeyedSubtree(
-                        key: ValueKey('conversation_message_${message.id}'),
+                        key: ValueKey('conversation_message_$listKey'),
                         child: bubble,
                       );
 
                 return RepaintBoundary(
-                  child: KeyedSubtree(
-                    key: _messageKeys.putIfAbsent(
-                      message.id,
-                      GlobalKey.new,
-                    ),
-                    child: Column(
-                      children: [
-                        if (shouldShowDayChip)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 14),
-                            child:
-                                _DayDivider(label: _dayLabelFor(message.sentAt)),
-                          ),
-                        messageBody,
-                        if (index != displayMessages.length - 1)
-                          SizedBox(height: message.hasReactions ? 30 : 12),
-                      ],
+                  child: _KeepAliveMessageItem(
+                    child: KeyedSubtree(
+                      key: _messageKeys.putIfAbsent(
+                        message.id,
+                        GlobalKey.new,
+                      ),
+                      child: Column(
+                        children: [
+                          if (shouldShowDayChip)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 14),
+                              child: _DayDivider(
+                                label: _dayLabelFor(message.sentAt),
+                              ),
+                            ),
+                          messageBody,
+                          if (index != displayMessages.length - 1)
+                            SizedBox(height: message.hasReactions ? 30 : 12),
+                        ],
+                      ),
                     ),
                   ),
                 );
@@ -503,6 +606,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
           onSendTap: () async {
             _handleSendTap(thread.id);
           },
+          onVoiceNoteTap: () async {
+            _handleVoiceNoteTap(thread.id);
+          },
         ),
       ],
     );
@@ -517,10 +623,12 @@ class _ConversationScreenState extends State<ConversationScreen> {
       final latestMessageId = thread.latestMessage?.id;
       if (latestMessageId != null &&
           latestMessageId != _lastKnownLatestMessageId) {
-        final wasNearLatest = _isNearLatestMessage();
         _lastKnownLatestMessageId = latestMessageId;
-        if (wasNearLatest) {
-          _scheduleScrollToLatestMessage(animated: true);
+        if (!_suppressAutoScrollForOwnSend) {
+          final wasNearLatest = _isNearLatestMessage();
+          if (wasNearLatest) {
+            _scheduleScrollToLatestMessage(animated: true);
+          }
         }
         if (thread.unreadCount > 0) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -534,7 +642,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
     if (_lastKnownBottomInset != null &&
-        bottomInset != _lastKnownBottomInset) {
+        bottomInset != _lastKnownBottomInset &&
+        !_suppressAutoScrollForOwnSend &&
+        !_hasOutboundSending) {
       _scheduleScrollToLatestMessage(animated: true);
     }
     _lastKnownBottomInset = bottomInset;
@@ -612,7 +722,27 @@ class _ConversationScreenState extends State<ConversationScreen> {
     ChatAttachmentType type,
   ) async {
     if (type == ChatAttachmentType.location) {
-      await _shareCurrentLocation(threadId);
+      final draft = await Navigator.of(context).push<LocationSendDraft>(
+        MaterialPageRoute<LocationSendDraft>(
+          builder: (_) => LocationSendPreviewScreen(
+            threadId: threadId,
+            locationService: widget.controller.locationService,
+          ),
+          fullscreenDialog: true,
+        ),
+      );
+      if (!mounted || draft == null) {
+        return;
+      }
+      await _sendOutboundAttachments(
+        threadId: threadId,
+        attachments: [draft.attachment],
+        caption: draft.caption,
+      );
+      return;
+    }
+
+    if (type == ChatAttachmentType.voiceNote) {
       return;
     }
 
@@ -624,32 +754,73 @@ class _ConversationScreenState extends State<ConversationScreen> {
       return;
     }
 
-    var caption = _composerController.text.trim();
+    var caption = '';
 
-    // Photo/video get a WhatsApp-style review step first -- caption, rotate,
-    // and color-pencil markup -- instead of sending the instant they're
-    // picked. Other attachment types (file/location/voice note) still send
-    // immediately; none of them have a meaningful visual preview/edit step.
     if (type == ChatAttachmentType.photo || type == ChatAttachmentType.video) {
+      final composerCaption = _composerController.text.trim();
       final draft = await Navigator.of(context).push<MediaSendDraft>(
         MaterialPageRoute<MediaSendDraft>(
           builder: (_) => MediaSendPreviewScreen(
             attachments: pickedAttachments!,
-            initialCaption: caption.isEmpty ? null : caption,
+            initialCaption: composerCaption.isEmpty ? null : composerCaption,
           ),
           fullscreenDialog: true,
         ),
       );
       if (!mounted || draft == null) {
-        // Cancelled from the preview screen -- nothing was sent.
         return;
       }
       pickedAttachments = draft.attachments;
       caption = draft.caption?.trim() ?? '';
+    } else if (type == ChatAttachmentType.file) {
+      final draft = await Navigator.of(context).push<DocumentSendDraft>(
+        MaterialPageRoute<DocumentSendDraft>(
+          builder: (_) => DocumentSendPreviewScreen(
+            attachment: pickedAttachments!.single,
+          ),
+          fullscreenDialog: true,
+        ),
+      );
+      if (!mounted || draft == null) {
+        return;
+      }
+      pickedAttachments = [draft.attachment];
+      caption = draft.caption?.trim() ?? '';
     }
 
-    final attachments = pickedAttachments;
-    final trimmedCaption = caption;
+    await _sendOutboundAttachments(
+      threadId: threadId,
+      attachments: pickedAttachments,
+      caption: caption.isEmpty ? null : caption,
+      clearComposerAfterSend:
+          type == ChatAttachmentType.photo || type == ChatAttachmentType.video,
+    );
+  }
+
+  Future<void> _handleVoiceNoteTap(String threadId) async {
+    if (widget.controller.isThreadBusy(threadId)) {
+      return;
+    }
+
+    final recorded =
+        await showVoiceNoteRecorderSheet(context, threadId: threadId);
+    if (!mounted || recorded == null) {
+      return;
+    }
+
+    await _sendOutboundAttachments(
+      threadId: threadId,
+      attachments: [recorded],
+    );
+  }
+
+  Future<void> _sendOutboundAttachments({
+    required String threadId,
+    required List<ChatAttachment> attachments,
+    String? caption,
+    bool clearComposerAfterSend = false,
+  }) async {
+    final trimmedCaption = caption?.trim() ?? '';
     final wasNearLatest = _isNearLatestMessage();
     final replyPreview = _pendingReply;
     final localMessage = _buildLocalMessage(
@@ -660,14 +831,16 @@ class _ConversationScreenState extends State<ConversationScreen> {
     );
 
     _lockComposerHeight();
-    _upsertLocalMessage(localMessage);
+    _beginOutboundSend(threadId: threadId, localMessage: localMessage);
     _markMessageForAnimation(localMessage.id);
-    _composerController.clear();
+    if (clearComposerAfterSend) {
+      _composerController.clear();
+    }
     _pendingReply = null;
     if (mounted) {
       setState(() {});
     }
-    _scheduleScrollToLatestMessage(animated: !wasNearLatest);
+    _scrollToLatestIfNeeded(wasNearLatest: wasNearLatest);
 
     final didSend = await widget.controller.sendAttachmentMessage(
       threadId: threadId,
@@ -681,6 +854,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
     }
 
     if (!didSend) {
+      _endOutboundSend();
       _upsertLocalMessage(
         localMessage.copyWith(
           deliveryState: MessageDeliveryState.failed,
@@ -688,50 +862,16 @@ class _ConversationScreenState extends State<ConversationScreen> {
       );
       _releaseComposerReset();
     } else {
-      _removeLocalMessage(localMessage.id);
-      _scheduleScrollToLatestMessage(animated: false);
+      final thread = widget.controller.threadById(threadId);
+      if (thread != null) {
+        _finalizeOutgoingSend(thread: thread, localMessage: localMessage);
+      } else {
+        _endOutboundSend();
+        _removeLocalMessage(localMessage.id);
+      }
       _scheduleComposerReset(clearDraft: false);
     }
     setState(() {});
-  }
-
-  /// Unlike [_handleAttachmentTap]'s demo attachments, there's nothing to
-  /// show optimistically here -- permission + a GPS fix both take a moment,
-  /// so the composer's own busy state (driven by [ChatsController.isThreadBusy])
-  /// is the only feedback until this resolves.
-  Future<void> _shareCurrentLocation(String threadId) async {
-    final trimmedCaption = _composerController.text.trim();
-    final wasNearLatest = _isNearLatestMessage();
-
-    final outcome = await widget.controller.sendCurrentLocation(
-      threadId: threadId,
-      caption: trimmedCaption.isEmpty ? null : trimmedCaption,
-    );
-
-    if (!mounted) {
-      return;
-    }
-
-    switch (outcome) {
-      case LocationShareOutcome.sent:
-        _composerController.clear();
-        _scheduleScrollToLatestMessage(animated: !wasNearLatest);
-      case LocationShareOutcome.permissionDenied:
-        await showLocationPermissionDeniedDialog(
-          context,
-          onOpenSettings: widget.controller.openLocationSettings,
-          message: 'Allow location access to share your current location.',
-        );
-      case LocationShareOutcome.failed:
-        await showLocationErrorDialog(
-          context,
-          widget.controller.locationFailureMessage ??
-              'We could not share your location right now.',
-        );
-    }
-    if (mounted) {
-      setState(() {});
-    }
   }
 
   Future<void> _handleAttachmentPreviewTap(
@@ -772,7 +912,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
       replyPreview: replyPreview,
     );
     _composerUnlockTimer?.cancel();
-    _upsertLocalMessage(localMessage);
+    _beginOutboundSend(threadId: threadId, localMessage: localMessage);
     _markMessageForAnimation(localMessage.id);
     _composerController.clear();
     _composerLockedMinHeight = null;
@@ -780,7 +920,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
     if (mounted) {
       setState(() {});
     }
-    _scheduleScrollToLatestMessage(animated: !wasNearLatest);
+    _scrollToLatestIfNeeded(wasNearLatest: wasNearLatest);
 
     final didSend = await widget.controller.sendTextMessage(
       threadId: threadId,
@@ -793,16 +933,93 @@ class _ConversationScreenState extends State<ConversationScreen> {
     }
 
     if (!didSend) {
+      _endOutboundSend();
       _upsertLocalMessage(
         localMessage.copyWith(
           deliveryState: MessageDeliveryState.failed,
         ),
       );
     } else {
-      _removeLocalMessage(localMessage.id);
-      _scheduleScrollToLatestMessage(animated: false);
+      final thread = widget.controller.threadById(threadId);
+      if (thread != null) {
+        _finalizeOutgoingSend(thread: thread, localMessage: localMessage);
+      } else {
+        _endOutboundSend();
+        _removeLocalMessage(localMessage.id);
+      }
     }
     setState(() {});
+  }
+
+  void _finalizeOutgoingSend({
+    required ChatThread thread,
+    required ChatMessage localMessage,
+  }) {
+    final freshThread = widget.controller.threadById(thread.id) ?? thread;
+    final persisted = _findPersistedMatch(freshThread, localMessage);
+    final alreadyFinalized =
+        !_localMessages.any((entry) => entry.id == localMessage.id);
+
+    _lastKnownLatestMessageId = freshThread.latestMessage?.id;
+    if (_activeOutboundLocalId == localMessage.id) {
+      _activeOutboundLocalId = null;
+    }
+    _extendOwnSendScrollSuppression();
+
+    if (!alreadyFinalized) {
+      _removeLocalMessage(localMessage.id);
+    }
+
+    if (persisted != null) {
+      _stableListKeysByMessageId[persisted.id] = localMessage.id;
+      _markMessageForAnimation(localMessage.id, animate: false);
+    }
+  }
+
+  ChatMessage? _findPersistedMatch(
+    ChatThread thread,
+    ChatMessage localMessage,
+  ) {
+    for (final message in thread.messages.reversed) {
+      if (_messageMatchesLocal(message, localMessage)) {
+        return message;
+      }
+    }
+    return null;
+  }
+
+  bool _messageMatchesLocal(ChatMessage persisted, ChatMessage localMessage) {
+    if (!persisted.isFromCurrentUser || !localMessage.isFromCurrentUser) {
+      return false;
+    }
+
+    // Never treat an older same-text bubble as the echo for a new send.
+    if (persisted.sentAt.isBefore(
+      localMessage.sentAt.subtract(_outboundEchoMatchWindow),
+    )) {
+      return false;
+    }
+
+    if (localMessage.hasText || persisted.hasText) {
+      if (persisted.text.trim() != localMessage.text.trim()) {
+        return false;
+      }
+    }
+
+    if (localMessage.hasAttachments) {
+      if (persisted.attachments.length != localMessage.attachments.length) {
+        return false;
+      }
+      for (var index = 0; index < localMessage.attachments.length; index++) {
+        if (localMessage.attachments[index].type !=
+            persisted.attachments[index].type) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    return localMessage.hasText && persisted.hasText;
   }
 
   void _scheduleScrollToLatestMessage({bool animated = true}) {
@@ -837,6 +1054,10 @@ class _ConversationScreenState extends State<ConversationScreen> {
       final previousMax = _lastObservedMaxScrollExtent;
       _lastObservedMaxScrollExtent = metrics.maxScrollExtent;
 
+      if (_hasOutboundSending || _shouldSuppressBottomSnap) {
+        return false;
+      }
+
       // Only re-snap when content actually grew (an async image/map/etc.
       // finished laying out) while the reader was sitting right at the
       // previous bottom -- never just because pixels doesn't currently
@@ -860,6 +1081,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _bottomSnapScheduled = false;
       if (!mounted || !_stickToBottom || !_messageListController.hasClients) {
+        return;
+      }
+      if (_messageListController.offset.abs() <= 0.5) {
         return;
       }
       _messageListController.jumpTo(0);
@@ -901,9 +1125,10 @@ class _ConversationScreenState extends State<ConversationScreen> {
     });
   }
 
-  void _markMessageForAnimation(String messageId) {
+  void _markMessageForAnimation(String messageId, {bool animate = true}) {
     _animatedMessageCleanupTimer?.cancel();
     _animatedMessageId = messageId;
+    _skipNextMessageEntryAnimation = !animate;
     _animatedMessageCleanupTimer = Timer(
       _sentMessageEntryDuration + const Duration(milliseconds: 140),
       () {
@@ -912,6 +1137,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
         }
         setState(() {
           _animatedMessageId = null;
+          _skipNextMessageEntryAnimation = false;
         });
       },
     );
@@ -944,55 +1170,28 @@ class _ConversationScreenState extends State<ConversationScreen> {
       return thread.messages;
     }
 
-    final localMessages = _localMessages.where(
-      (message) => !_messageHasPersisted(thread, message),
+    // Hide at most one server echo per in-flight local send. Never hide
+    // older same-text bubbles -- that was dropping visible history when
+    // users spammed similar test messages after a media attachment.
+    final hiddenEchoIds = <String>{};
+    for (final localMessage in _localMessages) {
+      if (localMessage.deliveryState != MessageDeliveryState.sending) {
+        continue;
+      }
+      final echo = _findPersistedMatch(thread, localMessage);
+      if (echo != null) {
+        hiddenEchoIds.add(echo.id);
+      }
+    }
+
+    final serverMessages = thread.messages.where(
+      (message) => !hiddenEchoIds.contains(message.id),
     );
 
     return List<ChatMessage>.unmodifiable([
-      ...thread.messages,
-      ...localMessages,
+      ...serverMessages,
+      ..._localMessages,
     ]);
-  }
-
-  bool _messageHasPersisted(ChatThread thread, ChatMessage localMessage) {
-    if (localMessage.deliveryState != MessageDeliveryState.sending ||
-        widget.controller.isThreadBusy(thread.id)) {
-      return false;
-    }
-
-    final latestRealMessage = thread.latestMessage;
-    if (latestRealMessage == null || !latestRealMessage.isFromCurrentUser) {
-      return false;
-    }
-
-    return latestRealMessage.sentAt.isAfter(
-          localMessage.sentAt.subtract(const Duration(seconds: 1)),
-        ) &&
-        latestRealMessage.text.trim() == localMessage.text.trim() &&
-        _sameAttachments(
-          latestRealMessage.attachments,
-          localMessage.attachments,
-        );
-  }
-
-  bool _sameAttachments(
-    List<ChatAttachment> left,
-    List<ChatAttachment> right,
-  ) {
-    if (left.length != right.length) {
-      return false;
-    }
-
-    for (var index = 0; index < left.length; index++) {
-      final leftAttachment = left[index];
-      final rightAttachment = right[index];
-      if (leftAttachment.type != rightAttachment.type ||
-          leftAttachment.title != rightAttachment.title ||
-          leftAttachment.details != rightAttachment.details) {
-        return false;
-      }
-    }
-    return true;
   }
 
   void _upsertLocalMessage(ChatMessage message) {
@@ -1025,11 +1224,11 @@ class _ConversationScreenState extends State<ConversationScreen> {
     );
     final wasNearLatest = _isNearLatestMessage();
     widget.controller.clearError();
-    _upsertLocalMessage(sendingMessage);
+    _beginOutboundSend(threadId: threadId, localMessage: sendingMessage);
     if (mounted) {
       setState(() {});
     }
-    _scheduleScrollToLatestMessage(animated: !wasNearLatest);
+    _scrollToLatestIfNeeded(wasNearLatest: wasNearLatest);
 
     final didSend = failedMessage.hasAttachments
         ? await widget.controller.sendAttachmentMessage(
@@ -1047,9 +1246,15 @@ class _ConversationScreenState extends State<ConversationScreen> {
     }
 
     if (didSend) {
-      _removeLocalMessage(failedMessage.id);
-      _scheduleScrollToLatestMessage(animated: false);
+      final thread = widget.controller.threadById(threadId);
+      if (thread != null) {
+        _finalizeOutgoingSend(thread: thread, localMessage: failedMessage);
+      } else {
+        _endOutboundSend();
+        _removeLocalMessage(failedMessage.id);
+      }
     } else {
+      _endOutboundSend();
       _upsertLocalMessage(
         sendingMessage.copyWith(
           deliveryState: MessageDeliveryState.failed,
@@ -1627,12 +1832,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
       ];
     }
 
-    final recorded =
-        await showVoiceNoteRecorderSheet(context, threadId: threadId);
-    if (!mounted || recorded == null) {
-      return null;
-    }
-    return [recorded];
+    return null;
   }
 
   String _formatFileSize(int bytes) {
@@ -1815,6 +2015,7 @@ class _ComposerBar extends StatelessWidget {
     required this.lockedMinHeight,
     required this.onAttachmentTap,
     required this.onSendTap,
+    required this.onVoiceNoteTap,
     this.focusNode,
   });
 
@@ -1824,6 +2025,7 @@ class _ComposerBar extends StatelessWidget {
   final double? lockedMinHeight;
   final ValueChanged<ChatAttachmentType> onAttachmentTap;
   final VoidCallback onSendTap;
+  final VoidCallback onVoiceNoteTap;
   final FocusNode? focusNode;
 
   @override
@@ -1841,6 +2043,7 @@ class _ComposerBar extends StatelessWidget {
           lockedMinHeight: lockedMinHeight,
           onAttachmentTap: onAttachmentTap,
           onSendTap: onSendTap,
+          onVoiceNoteTap: onVoiceNoteTap,
         );
       },
     );
@@ -1856,6 +2059,7 @@ class _ComposerBarContent extends StatelessWidget {
     required this.lockedMinHeight,
     required this.onAttachmentTap,
     required this.onSendTap,
+    required this.onVoiceNoteTap,
     this.focusNode,
   });
 
@@ -1866,6 +2070,7 @@ class _ComposerBarContent extends StatelessWidget {
   final double? lockedMinHeight;
   final ValueChanged<ChatAttachmentType> onAttachmentTap;
   final VoidCallback onSendTap;
+  final VoidCallback onVoiceNoteTap;
   final FocusNode? focusNode;
 
   @override
@@ -1894,13 +2099,8 @@ class _ComposerBarContent extends StatelessWidget {
       final composerTopLeft = renderBox.localToGlobal(Offset.zero);
 
       const popupWidth = 216.0;
-      // 5 rows + 4 hairline dividers -- an estimate (matching the reaction
-      // tray's approach), not a measured layout. Positioning from the
-      // composer's own top (localToGlobal space) rather than subtracting
-      // from MediaQuery.size.height avoids a coordinate-space mismatch
-      // when the keyboard is open (view insets shrink MediaQuery.size but
-      // not the RenderBox's global offset space).
-      const popupHeight = 240.0;
+      // 4 rows + 3 hairline dividers -- voice moved to the composer bar.
+      const popupHeight = 192.0;
       const popupMargin = 12.0;
       final popupTop = composerTopLeft.dy - popupHeight - popupMargin;
 
@@ -1976,27 +2176,34 @@ class _ComposerBarContent extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(width: 12),
-          LiquidGlassIconButton(
-            actionKey: const Key('conversation_send_button'),
-            icon: Icons.send_rounded,
-            size: 48,
-            blurred: false,
-            selected: canSendText,
-            iconColor: canSendText
-                ? theme.colorScheme.primary
-                : theme.colorScheme.onSurface.withValues(alpha: 0.34),
-            borderColor:
-                theme.colorScheme.outlineVariant.withValues(alpha: 0.34),
-            onTap: !isBusy && canSendText ? onSendTap : null,
-            child: isBusy
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2.2),
-                  )
-                : null,
-          ),
+          const SizedBox(width: 10),
+          if (canSendText)
+            LiquidGlassIconButton(
+              actionKey: const Key('conversation_send_button'),
+              icon: Icons.send_rounded,
+              size: 48,
+              blurred: false,
+              selected: true,
+              iconColor: theme.colorScheme.primary,
+              borderColor:
+                  theme.colorScheme.outlineVariant.withValues(alpha: 0.34),
+              onTap: !isBusy ? onSendTap : null,
+              child: isBusy
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2.2),
+                    )
+                  : null,
+            )
+          else
+            _ComposerIconButton(
+              actionKey: const Key('conversation_voice_button'),
+              tooltip: 'Voice message',
+              enabled: !isBusy,
+              onTap: onVoiceNoteTap,
+              icon: Icons.mic_none_rounded,
+            ),
         ],
       ),
     );
@@ -2085,13 +2292,6 @@ class _AttachmentPickerPopup extends StatelessWidget {
         label: 'Location',
         type: ChatAttachmentType.location,
       ),
-      _AttachmentActionData(
-        actionKey: const Key('conversation_voice_button'),
-        icon: Icons.mic_none_rounded,
-        color: AppPalette.purple,
-        label: 'Voice',
-        type: ChatAttachmentType.voiceNote,
-      ),
     ];
 
     return LiquidGlassSurface(
@@ -2177,6 +2377,27 @@ class _AttachmentActionData {
   final Color color;
   final String label;
   final ChatAttachmentType type;
+}
+
+class _KeepAliveMessageItem extends StatefulWidget {
+  const _KeepAliveMessageItem({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_KeepAliveMessageItem> createState() => _KeepAliveMessageItemState();
+}
+
+class _KeepAliveMessageItemState extends State<_KeepAliveMessageItem>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return widget.child;
+  }
 }
 
 class _AnimatedMessageEntry extends StatefulWidget {
@@ -3393,6 +3614,7 @@ class _MediaAttachmentTileState extends State<_MediaAttachmentTile> {
                   Image(
                     image: imageProviderForStatusMediaPath(localPath)!,
                     fit: BoxFit.cover,
+                    gaplessPlayback: true,
                     loadingBuilder: (context, child, loadingProgress) {
                       if (loadingProgress == null) {
                         return child;

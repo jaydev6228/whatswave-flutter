@@ -39,6 +39,7 @@ class ChatsController extends ChangeNotifier {
   final AppPermissionService _permissionService;
   final DeviceLocationService _locationService;
   final ChatInboxCache _inboxCache;
+  DeviceLocationService get locationService => _locationService;
   StreamSubscription<List<ChatThread>>? _liveThreadsSubscription;
 
   bool _hasLoaded = false;
@@ -296,14 +297,84 @@ class ChatsController extends ChangeNotifier {
     return incoming
         .map((thread) {
           final cached = threadById(thread.id);
-          if (cached == null || !_fullyLoadedThreadIds.contains(thread.id)) {
+          if (cached == null) {
             return thread;
           }
 
-          final mergedMessages = _mergeMessages(cached.messages, thread.messages);
-          return thread.copyWith(messages: mergedMessages);
+          if (!_fullyLoadedThreadIds.contains(thread.id)) {
+            if (thread.messages.isNotEmpty &&
+                cached.messages.length > thread.messages.length) {
+              return thread.copyWith(
+                messages: _mergeMessages(cached.messages, thread.messages),
+              );
+            }
+            return thread;
+          }
+
+          return thread.copyWith(
+            messages: _mergeMessages(cached.messages, thread.messages),
+          );
         })
         .toList(growable: false);
+  }
+
+  ChatThread _mergeIncomingThread(ChatThread incoming) {
+    return _mergeIncomingThreads([incoming]).first;
+  }
+
+  bool _isSummaryMessageSnapshot(
+    List<ChatMessage> incomingMessages,
+    List<ChatMessage> cachedMessages,
+  ) {
+    return incomingMessages.length == 1 && cachedMessages.length > 1;
+  }
+
+  void _applyOptimisticMessageRemoval({
+    required String threadId,
+    required String messageId,
+    required bool forEveryone,
+  }) {
+    _threads = _threads
+        .map(
+          (thread) {
+            if (thread.id != threadId) {
+              return thread;
+            }
+            if (forEveryone) {
+              return thread.copyWith(
+                messages: thread.messages
+                    .map(
+                      (message) => message.id == messageId
+                          ? message.copyWith(
+                              text: '',
+                              attachments: const <ChatAttachment>[],
+                              isDeleted: true,
+                            )
+                          : message,
+                    )
+                    .toList(growable: false),
+              );
+            }
+            return thread.copyWith(
+              messages: thread.messages
+                  .where((message) => message.id != messageId)
+                  .toList(growable: false),
+            );
+          },
+        )
+        .toList(growable: false);
+    notifyListeners();
+  }
+
+  void _applyOptimisticClear(String threadId) {
+    _threads = _threads
+        .map(
+          (thread) => thread.id == threadId
+              ? thread.copyWith(messages: const <ChatMessage>[])
+              : thread,
+        )
+        .toList(growable: false);
+    notifyListeners();
   }
 
   List<ChatMessage> _mergeMessages(
@@ -410,10 +481,12 @@ class ChatsController extends ChangeNotifier {
   }
 
   Future<bool> clearThreadMessages(String threadId) async {
+    _applyOptimisticClear(threadId);
     return _runThreadMutation(
       threadId,
       () => _repository.clearThreadMessages(threadId),
       fallbackError: 'We could not clear that chat right now.',
+      notifyWhileBusy: false,
     );
   }
 
@@ -447,7 +520,7 @@ class ChatsController extends ChangeNotifier {
         avatarLabel: avatarLabel,
         accentColor: accentColor,
       );
-      _threads = await _repository.fetchThreads();
+      _threads = _mergeIncomingThreads(await _repository.fetchThreads());
       notifyListeners();
       return thread.id;
     } on ChatRepositoryException catch (error) {
@@ -481,7 +554,7 @@ class ChatsController extends ChangeNotifier {
         memberUids: memberUids,
         isCommunityGroup: isCommunityGroup,
       );
-      _threads = await _repository.fetchThreads();
+      _threads = _mergeIncomingThreads(await _repository.fetchThreads());
       notifyListeners();
       return thread.id;
     } on ChatRepositoryException catch (error) {
@@ -649,6 +722,7 @@ class ChatsController extends ChangeNotifier {
       ),
       fallbackError: 'We could not send that message right now.',
       clearSearch: false,
+      notifyWhileBusy: false,
     );
   }
 
@@ -681,6 +755,11 @@ class ChatsController extends ChangeNotifier {
     required String messageId,
     required bool forEveryone,
   }) {
+    _applyOptimisticMessageRemoval(
+      threadId: threadId,
+      messageId: messageId,
+      forEveryone: forEveryone,
+    );
     return _runThreadMutation(
       threadId,
       () => _repository.deleteMessage(
@@ -690,6 +769,7 @@ class ChatsController extends ChangeNotifier {
       ),
       fallbackError: 'We could not delete that message right now.',
       clearSearch: false,
+      notifyWhileBusy: false,
     );
   }
 
@@ -709,6 +789,7 @@ class ChatsController extends ChangeNotifier {
       ),
       fallbackError: 'We could not send that attachment right now.',
       clearSearch: false,
+      notifyWhileBusy: false,
     );
   }
 
@@ -802,11 +883,20 @@ class ChatsController extends ChangeNotifier {
           latitude: fix.latitude,
           longitude: fix.longitude,
         );
-        _threads = await _repository.sendAttachmentMessage(
+        final incoming = await _repository.sendAttachmentMessage(
           threadId: threadId,
           attachments: [attachment],
           caption: caption,
         );
+        _threads = _reconcileMutatedThread(
+          incoming: incoming,
+          mutatedThreadId: threadId,
+        );
+        if (_fullyLoadedThreadIds.contains(threadId)) {
+          unawaited(_syncOpenThreadMessagesInBackground(threadId));
+        } else {
+          unawaited(ensureThreadMessagesLoaded(threadId));
+        }
         outcome = LocationShareOutcome.sent;
       }
     } on DeviceLocationException catch (error) {
@@ -822,25 +912,67 @@ class ChatsController extends ChangeNotifier {
     return outcome;
   }
 
-  bool _isSummaryMessageSnapshot(
-    List<ChatMessage> incomingMessages,
-    List<ChatMessage> cachedMessages,
-  ) {
-    return incomingMessages.length == 1 && cachedMessages.length > 1;
-  }
+  /// Merges any missing server messages in the background without blocking
+  /// send UX or rebuilding the list when nothing changed.
+  Future<void> _syncOpenThreadMessagesInBackground(
+    String threadId, {
+    bool authoritative = false,
+  }) async {
+    if (!_fullyLoadedThreadIds.contains(threadId)) {
+      return;
+    }
 
-  Future<void> _refreshFullyLoadedThread(String threadId) async {
     try {
       final fullThread = await _repository.fetchThreadWithMessages(threadId);
+      final cached = threadById(threadId);
+      if (cached == null) {
+        return;
+      }
+
+      if (authoritative) {
+        if (_messageListsEquivalent(cached.messages, fullThread.messages)) {
+          return;
+        }
+        _threads = _threads
+            .map(
+              (thread) => thread.id == threadId ? fullThread : thread,
+            )
+            .toList(growable: false);
+        notifyListeners();
+        return;
+      }
+
+      final mergedMessages = _mergeMessages(cached.messages, fullThread.messages);
+      if (_messageListsEquivalent(cached.messages, mergedMessages)) {
+        return;
+      }
+
       _threads = _threads
           .map(
-            (thread) => thread.id == threadId ? fullThread : thread,
+            (thread) => thread.id == threadId
+                ? fullThread.copyWith(messages: mergedMessages)
+                : thread,
           )
           .toList(growable: false);
       notifyListeners();
     } catch (_) {
-      // Best-effort refresh after a summary-only mutation response.
+      // Best-effort; merged in-memory state remains usable.
     }
+  }
+
+  bool _messageListsEquivalent(
+    List<ChatMessage> left,
+    List<ChatMessage> right,
+  ) {
+    if (left.length != right.length) {
+      return false;
+    }
+    for (var index = 0; index < left.length; index++) {
+      if (left[index].id != right[index].id) {
+        return false;
+      }
+    }
+    return true;
   }
 
   List<ChatThread> _reconcileMutatedThread({
@@ -848,7 +980,18 @@ class ChatsController extends ChangeNotifier {
     required String mutatedThreadId,
   }) {
     if (!_fullyLoadedThreadIds.contains(mutatedThreadId)) {
-      return _mergeIncomingThreads(incoming);
+      return incoming.map((thread) {
+        if (thread.id != mutatedThreadId) {
+          return _mergeIncomingThread(thread);
+        }
+        final cached = threadById(mutatedThreadId);
+        if (cached == null || thread.messages.isEmpty) {
+          return thread;
+        }
+        return thread.copyWith(
+          messages: _mergeMessages(cached.messages, thread.messages),
+        );
+      }).toList(growable: false);
     }
 
     final incomingThread = incoming
@@ -859,19 +1002,40 @@ class ChatsController extends ChangeNotifier {
       return _mergeIncomingThreads(incoming);
     }
 
+    if (incomingThread.messages.isEmpty) {
+      return incoming
+          .map(
+            (thread) => thread.id == mutatedThreadId
+                ? incomingThread
+                : _mergeIncomingThread(thread),
+          )
+          .toList(growable: false);
+    }
+
     if (_isSummaryMessageSnapshot(
       incomingThread.messages,
       cachedThread.messages,
     )) {
-      unawaited(_refreshFullyLoadedThread(mutatedThreadId));
-      return _mergeIncomingThreads(incoming);
+      unawaited(_syncOpenThreadMessagesInBackground(mutatedThreadId));
+      return incoming
+          .map(
+            (thread) => thread.id == mutatedThreadId
+                ? incomingThread.copyWith(
+                    messages: _mergeMessages(
+                      cachedThread.messages,
+                      incomingThread.messages,
+                    ),
+                  )
+                : _mergeIncomingThread(thread),
+          )
+          .toList(growable: false);
     }
 
     return incoming
         .map(
           (thread) => thread.id == mutatedThreadId
               ? incomingThread
-              : _mergeIncomingThreads([thread]).first,
+              : _mergeIncomingThread(thread),
         )
         .toList(growable: false);
   }
@@ -882,19 +1046,33 @@ class ChatsController extends ChangeNotifier {
     required String fallbackError,
     VoidCallback? afterSuccess,
     bool clearSearch = true,
+    bool notifyWhileBusy = true,
   }) async {
     _busyThreadIds.add(threadId);
     _errorMessage = null;
-    notifyListeners();
+    if (notifyWhileBusy) {
+      notifyListeners();
+    }
 
     var didSucceed = false;
 
     try {
+      final latestBeforeMutation = threadById(threadId)?.latestMessage?.id;
       final incoming = await action();
       _threads = _reconcileMutatedThread(
         incoming: incoming,
         mutatedThreadId: threadId,
       );
+      if (_fullyLoadedThreadIds.contains(threadId)) {
+        final latestAfterMutation = threadById(threadId)?.latestMessage?.id;
+        if (latestAfterMutation == latestBeforeMutation) {
+          await _syncOpenThreadMessagesInBackground(threadId);
+        } else {
+          unawaited(_syncOpenThreadMessagesInBackground(threadId));
+        }
+      } else if (!_loadingMessageThreadIds.contains(threadId)) {
+        unawaited(ensureThreadMessagesLoaded(threadId));
+      }
       if (clearSearch && _showArchivedOnly) {
         final thread = threadById(threadId);
         if (thread != null && !thread.isArchived) {
@@ -905,8 +1083,20 @@ class ChatsController extends ChangeNotifier {
       didSucceed = true;
     } on ChatRepositoryException catch (error) {
       _errorMessage = error.message;
+      if (_fullyLoadedThreadIds.contains(threadId)) {
+        await _syncOpenThreadMessagesInBackground(
+          threadId,
+          authoritative: true,
+        );
+      }
     } catch (_) {
       _errorMessage = fallbackError;
+      if (_fullyLoadedThreadIds.contains(threadId)) {
+        await _syncOpenThreadMessagesInBackground(
+          threadId,
+          authoritative: true,
+        );
+      }
     }
 
     _busyThreadIds.remove(threadId);

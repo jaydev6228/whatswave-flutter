@@ -7,6 +7,14 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../shared/widgets/error_dialog.dart';
 
+/// OpenStreetMap tile settings shared by map previews and the location picker.
+const String osmTileUrlTemplate =
+    'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+const String osmUserAgentPackageName = 'com.tsjaydevra.whatswave';
+
+const String _osmTileUrlTemplate = osmTileUrlTemplate;
+const String _osmUserAgentPackageName = osmUserAgentPackageName;
+
 /// OpenStreetMap's community tile server -- no API key/billing setup
 /// required, unlike Google Maps' own Flutter map widget. `userAgentPackageName`
 /// identifies this app to the tile server per OSM's usage policy.
@@ -16,8 +24,6 @@ import '../../../shared/widgets/error_dialog.dart';
 /// a paid tile provider (Mapbox, MapTiler, Stadia Maps) or the official
 /// Google Maps Flutter SDK (with a billed API key) before shipping to
 /// production users.
-const String _osmTileUrlTemplate = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-const String _osmUserAgentPackageName = 'com.tsjaydevra.whatswave';
 
 /// A small, non-interactive map snippet with a pin -- the chat bubble's
 /// preview of a shared location, matching WhatsApp's map-thumbnail style
