@@ -39,6 +39,7 @@ import 'contact_info_screen.dart';
 import 'forward_message_screen.dart';
 import 'media_send_preview_screen.dart';
 import 'widgets/emoji_reaction_picker_screen.dart';
+import 'widgets/lazy_heavy_attachment.dart';
 import 'widgets/location_map_preview.dart';
 import 'widgets/video_thumbnail_source.dart';
 import 'widgets/voice_note_bubble.dart';
@@ -98,6 +99,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
   /// programmatic jump landing short of the final value) -- see
   /// [_handleMessageListNotification].
   double? _lastObservedMaxScrollExtent;
+  bool _bottomSnapScheduled = false;
 
   /// A GlobalKey per message, keyed by id and never removed once created --
   /// lets a reply's quote card (see [_jumpToMessage]) scroll to an
@@ -105,7 +107,8 @@ class _ConversationScreenState extends State<ConversationScreen> {
   /// only ever being able to jump to the list's bottom.
   final Map<String, GlobalKey> _messageKeys = <String, GlobalKey>{};
 
-  String? _highlightedMessageId;
+  final ValueNotifier<String?> _highlightedMessageIdNotifier =
+      ValueNotifier<String?>(null);
   Timer? _highlightClearTimer;
 
   /// Set by [MessageAction.reply] -- a snapshot of the message being
@@ -139,6 +142,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
     _composerUnlockTimer?.cancel();
     _animatedMessageCleanupTimer?.cancel();
     _highlightClearTimer?.cancel();
+    _highlightedMessageIdNotifier.dispose();
     _composerController.dispose();
     _messageListController.dispose();
     _composerFocusNode.dispose();
@@ -160,402 +164,380 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: Listenable.merge([
-        widget.controller,
-        widget.updatesController,
-      ]),
-      builder: (context, _) {
-        final theme = Theme.of(context);
-        final thread = widget.controller.threadById(widget.threadId);
-        final story = thread == null
-            ? null
-            : widget.updatesController.storyForParticipant(
-                avatarLabel: thread.avatarLabel,
-                name: thread.name,
-              );
-        final composerInteractionsLocked =
-            widget.controller.isThreadBusy(thread?.id ?? widget.threadId);
-        final canSendText = _composerController.text.trim().isNotEmpty &&
-            !composerInteractionsLocked;
-
-        if (thread == null) {
-          return Scaffold(
-            appBar: AppBar(title: const Text('Conversation')),
-            body: Center(
-              child: Text(
-                'This conversation is no longer available.',
-                style: theme.textTheme.titleMedium,
-              ),
-            ),
-          );
-        }
-
-        if (_lastRenderedThreadId != thread.id) {
-          _lastRenderedThreadId = thread.id;
-          _lastKnownLatestMessageId = thread.latestMessage?.id;
-          // reverse: true keeps the latest messages at scroll offset 0 --
-          // no jump-to-bottom pass needed on first open.
-          _stickToBottom = true;
-        } else {
-          // A message landed in this already-open thread -- either our own
-          // send confirming, or (the previously-missing case) the other
-          // participant's message arriving over the live watchThreads()
-          // stream. Follow it to the bottom only if the reader was already
-          // near the latest message, same convention as _retryFailedMessage.
-          final latestMessageId = thread.latestMessage?.id;
-          if (latestMessageId != null &&
-              latestMessageId != _lastKnownLatestMessageId) {
-            final wasNearLatest = _isNearLatestMessage();
-            _lastKnownLatestMessageId = latestMessageId;
-            if (wasNearLatest) {
-              _scheduleScrollToLatestMessage(animated: true);
-            }
-            if (thread.unreadCount > 0) {
-              // The reader is already looking at this thread, so a message
-              // landing live must not sit there as "unread" until they back
-              // out and back in -- mark it read now instead of leaving the
-              // chat list/tab badge to over-count something already seen.
-              // Deferred: openThread() -> notifyListeners() synchronously,
-              // and calling that mid-build would rebuild this same widget
-              // while it's still building.
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (mounted) {
-                  widget.controller.openThread(thread.id);
+    return Scaffold(
+      appBar: _ConversationAppBarHost(state: this),
+      body: Column(
+        children: [
+          Expanded(
+            child: ListenableBuilder(
+              listenable: widget.controller,
+              builder: (context, _) {
+                final thread = widget.controller.threadById(widget.threadId);
+                if (thread == null) {
+                  return Center(
+                    child: Text(
+                      'This conversation is no longer available.',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  );
                 }
-              });
-            }
-          }
-        }
+                return _buildMessageListPane(context, thread);
+              },
+            ),
+          ),
+          ListenableBuilder(
+            listenable: widget.controller,
+            builder: (context, _) {
+              final thread = widget.controller.threadById(widget.threadId);
+              if (thread == null || thread.isBlocked) {
+                if (thread != null) {
+                  return _BlockedContactBanner(name: thread.name);
+                }
+                return const SizedBox.shrink();
+              }
+              return _buildComposerPane(context, thread);
+            },
+          ),
+        ],
+      ),
+    );
+  }
 
-        // The keyboard showing/hiding resizes this Scaffold's body (default
-        // resizeToAvoidBottomInset), which shrinks or grows the message
-        // list's viewport without moving its scroll offset -- so the latest
-        // message ends up stranded behind the keyboard on open, or leaves a
-        // gap at the bottom on close. Re-pin to the latest message on every
-        // inset change so it always sits just above the keyboard/composer.
-        final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
-        if (_lastKnownBottomInset != null &&
-            bottomInset != _lastKnownBottomInset) {
-          _scheduleScrollToLatestMessage(animated: true);
-        }
-        _lastKnownBottomInset = bottomInset;
+  PreferredSizeWidget _buildConversationAppBar(
+    BuildContext context,
+    ChatThread? thread,
+  ) {
+    final theme = Theme.of(context);
 
-        final visibleMessages = _visibleMessagesForThread(thread);
-        final displayMessages = _displayMessagesForList(visibleMessages);
+    if (thread == null) {
+      return AppBar(title: const Text('Conversation'));
+    }
 
-        return Scaffold(
-          appBar: AppBar(
-            titleSpacing: 0,
-            leading: _isSelecting
-                ? IconButton(
-                    key: const Key('conversation_selection_close_button'),
-                    icon: const Icon(Icons.close_rounded),
-                    onPressed: _exitSelection,
-                  )
-                : null,
-            // Fixed-height chrome (the toolbar) with a two-line title stack
-            // -- clamp text scale so it can't outgrow that height at large
-            // accessibility scale. See docs/ui_layout_guidelines.md rule 4.
-            title: _isSelecting
-                ? Text('${_selectedMessageIds.length} selected')
-                : MediaQuery.withClampedTextScaling(
-                    maxScaleFactor: 1.3,
-                    child: Row(
-                      children: [
-                        GestureDetector(
-                          behavior: HitTestBehavior.opaque,
-                          onTap: thread.hasStory && story != null
-                              ? () => _openThreadStory(story)
-                              : null,
-                          child: thread.hasStory
-                              ? StatusRingAvatar(
-                                  label: thread.avatarLabel,
-                                  color: thread.accentColor,
-                                  avatarUrl: thread.avatarUrl,
-                                  totalSegments: story?.totalSegments ?? 1,
-                                  seenSegments: story?.clampedSeenSegments ?? 0,
-                                  size: 44,
-                                )
-                              : ThreadAvatar(
-                                  thread: thread,
-                                  size: 44,
-                                ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: GestureDetector(
-                            behavior: HitTestBehavior.opaque,
-                            onTap: () => _openContactInfo(thread.id),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  thread.name,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                Text(
-                                  thread.isGroup
-                                      ? 'Group chat • ${visibleMessages.length} messages'
-                                      : 'Secure chat preview',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: theme.textTheme.labelMedium?.copyWith(
-                                    color: theme.colorScheme.onSurface
-                                        .withValues(alpha: 0.72),
-                                  ),
-                                ),
-                              ],
+    final story = widget.updatesController.storyForParticipant(
+      avatarLabel: thread.avatarLabel,
+      name: thread.name,
+    );
+    final visibleMessages = _visibleMessagesForThread(thread);
+
+    return AppBar(
+      titleSpacing: 0,
+      leading: _isSelecting
+          ? IconButton(
+              key: const Key('conversation_selection_close_button'),
+              icon: const Icon(Icons.close_rounded),
+              onPressed: _exitSelection,
+            )
+          : null,
+      title: _isSelecting
+          ? Text('${_selectedMessageIds.length} selected')
+          : MediaQuery.withClampedTextScaling(
+              maxScaleFactor: 1.3,
+              child: Row(
+                children: [
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: thread.hasStory && story != null
+                        ? () => _openThreadStory(story)
+                        : null,
+                    child: thread.hasStory
+                        ? StatusRingAvatar(
+                            label: thread.avatarLabel,
+                            color: thread.accentColor,
+                            avatarUrl: thread.avatarUrl,
+                            totalSegments: story?.totalSegments ?? 1,
+                            seenSegments: story?.clampedSeenSegments ?? 0,
+                            size: 44,
+                          )
+                        : ThreadAvatar(
+                            thread: thread,
+                            size: 44,
+                          ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => _openContactInfo(thread.id),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            thread.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          Text(
+                            thread.isGroup
+                                ? 'Group chat • ${visibleMessages.length} messages'
+                                : 'Secure chat preview',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.labelMedium?.copyWith(
+                              color: theme.colorScheme.onSurface
+                                  .withValues(alpha: 0.72),
                             ),
                           ),
-                        ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+      actions: _isSelecting
+          ? [
+              if (_selectedMessagesInOrder(visibleMessages).length == 1 &&
+                  _selectedMessagesInOrder(visibleMessages).single.hasText)
+                IconButton(
+                  key: const Key('conversation_selection_copy_button'),
+                  icon: const Icon(Icons.content_copy_rounded),
+                  onPressed: () => _copySelectedMessage(visibleMessages),
+                ),
+              IconButton(
+                key: const Key('conversation_selection_forward_button'),
+                icon: const Icon(Icons.forward_rounded),
+                onPressed: () =>
+                    _forwardSelectedMessages(thread, visibleMessages),
+              ),
+              IconButton(
+                key: const Key('conversation_selection_star_button'),
+                icon: const Icon(Icons.star_border_rounded),
+                onPressed: () => _starSelectedMessages(visibleMessages),
+              ),
+              IconButton(
+                key: const Key('conversation_selection_delete_button'),
+                icon: const Icon(Icons.delete_outline_rounded),
+                onPressed: () => _deleteSelectedMessages(visibleMessages),
+              ),
+              const SizedBox(width: 4),
+            ]
+          : [
+              LiquidGlassIconButton(
+                icon: Icons.call_outlined,
+                tooltip: 'Audio call',
+                size: 44,
+                visualSize: 34,
+                blurred: false,
+                onTap: () {
+                  startCallFlow(
+                    context,
+                    controller: widget.callsController,
+                    contact: _callContactForThread(thread),
+                    type: CallType.audio,
+                  );
+                },
+              ),
+              const SizedBox(width: 4),
+              LiquidGlassIconButton(
+                icon: Icons.videocam_outlined,
+                tooltip: 'Video call',
+                size: 44,
+                visualSize: 34,
+                blurred: false,
+                onTap: () {
+                  startCallFlow(
+                    context,
+                    controller: widget.callsController,
+                    contact: _callContactForThread(thread),
+                    type: CallType.video,
+                  );
+                },
+              ),
+              const SizedBox(width: 8),
+            ],
+    );
+  }
+
+  Widget _buildMessageListPane(BuildContext context, ChatThread thread) {
+    _syncThreadScrollBehavior(context, thread);
+
+    final theme = Theme.of(context);
+    final visibleMessages = _visibleMessagesForThread(thread);
+    final displayMessages = _displayMessagesForList(visibleMessages);
+
+    return SafeArea(
+      bottom: false,
+      child: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onTap: () => FocusScope.of(context).unfocus(),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface.withValues(
+              alpha: theme.brightness == Brightness.dark ? 0.94 : 0.98,
+            ),
+          ),
+          child: NotificationListener<Notification>(
+            onNotification: _handleMessageListNotification,
+            child: ListView.builder(
+              key: const Key('conversation_message_list'),
+              controller: _messageListController,
+              reverse: true,
+              addRepaintBoundaries: true,
+              findChildIndexCallback: (Key key) {
+                if (key is! ValueKey<String>) {
+                  return null;
+                }
+                final rawId = key.value;
+                const prefix = 'conversation_message_';
+                if (!rawId.startsWith(prefix)) {
+                  return null;
+                }
+                final messageId = rawId.substring(prefix.length);
+                return displayMessages.indexWhere(
+                  (message) => message.id == messageId,
+                );
+              },
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              padding: EdgeInsets.fromLTRB(
+                16,
+                16,
+                16,
+                _messageListBottomPadding,
+              ),
+              itemCount: displayMessages.length,
+              itemBuilder: (context, index) {
+                final message = displayMessages[index];
+                final olderMessage = index + 1 < displayMessages.length
+                    ? displayMessages[index + 1]
+                    : null;
+                final shouldShowDayChip = olderMessage == null ||
+                    !_isSameDay(message.sentAt, olderMessage.sentAt);
+                final bubble = _MessageBubble(
+                  thread: thread,
+                  message: message,
+                  highlightMessageIdNotifier: _highlightedMessageIdNotifier,
+                  onRetryTap: message.isFromCurrentUser &&
+                          message.deliveryState ==
+                              MessageDeliveryState.failed &&
+                          _localMessages.any(
+                            (localMessage) => localMessage.id == message.id,
+                          )
+                      ? () => _retryFailedMessage(thread.id, message)
+                      : null,
+                  onAttachmentTap: (attachment) {
+                    _handleAttachmentPreviewTap(
+                      attachment,
+                      threadName: thread.name,
+                    );
+                  },
+                  onReactionTap: (emoji) {
+                    widget.controller.toggleMessageReaction(
+                      threadId: thread.id,
+                      messageId: message.id,
+                      emoji: emoji,
+                    );
+                  },
+                  onAction: (action) => _handleMessageAction(
+                    action,
+                    thread: thread,
+                    message: message,
+                  ),
+                  isStoryReplyAvailable: _isStoryReplyAvailable(message),
+                  onStoryReplyCardTap: message.hasStoryReplyContext
+                      ? () => _openStoryReplyCard(message.storyReplyContext!)
+                      : null,
+                  onReplyPreviewTap: _jumpToMessage,
+                  isSelectionMode: _isSelecting,
+                  isSelected: _selectedMessageIds.contains(message.id),
+                  onToggleSelection: () => _toggleMessageSelection(message.id),
+                );
+                final messageBody = message.id == _animatedMessageId
+                    ? _AnimatedMessageEntry(
+                        key: ValueKey('conversation_message_${message.id}'),
+                        animateOnMount: true,
+                        isMine: message.isFromCurrentUser,
+                        child: bubble,
+                      )
+                    : KeyedSubtree(
+                        key: ValueKey('conversation_message_${message.id}'),
+                        child: bubble,
+                      );
+
+                return RepaintBoundary(
+                  child: KeyedSubtree(
+                    key: _messageKeys.putIfAbsent(
+                      message.id,
+                      GlobalKey.new,
+                    ),
+                    child: Column(
+                      children: [
+                        if (shouldShowDayChip)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 14),
+                            child:
+                                _DayDivider(label: _dayLabelFor(message.sentAt)),
+                          ),
+                        messageBody,
+                        if (index != displayMessages.length - 1)
+                          SizedBox(height: message.hasReactions ? 30 : 12),
                       ],
                     ),
                   ),
-            actions: _isSelecting
-                ? [
-                    if (_selectedMessagesInOrder(visibleMessages).length == 1 &&
-                        _selectedMessagesInOrder(visibleMessages)
-                            .single
-                            .hasText)
-                      IconButton(
-                        key: const Key('conversation_selection_copy_button'),
-                        icon: const Icon(Icons.content_copy_rounded),
-                        onPressed: () => _copySelectedMessage(visibleMessages),
-                      ),
-                    IconButton(
-                      key: const Key('conversation_selection_forward_button'),
-                      icon: const Icon(Icons.forward_rounded),
-                      onPressed: () =>
-                          _forwardSelectedMessages(thread, visibleMessages),
-                    ),
-                    IconButton(
-                      key: const Key('conversation_selection_star_button'),
-                      icon: const Icon(Icons.star_border_rounded),
-                      onPressed: () => _starSelectedMessages(visibleMessages),
-                    ),
-                    IconButton(
-                      key: const Key('conversation_selection_delete_button'),
-                      icon: const Icon(Icons.delete_outline_rounded),
-                      onPressed: () => _deleteSelectedMessages(visibleMessages),
-                    ),
-                    const SizedBox(width: 4),
-                  ]
-                : [
-                    LiquidGlassIconButton(
-                      icon: Icons.call_outlined,
-                      tooltip: 'Audio call',
-                      // The tap target still clamps up to the 48dp minimum
-                      // (see LiquidGlassIconButton), but the drawn glass
-                      // circle is now visibly smaller than the 44pt header
-                      // avatar instead of matching/exceeding it, so the
-                      // avatar reads as the header's primary element.
-                      size: 44,
-                      visualSize: 34,
-                      // The app bar is a fixed, non-overlapping toolbar here
-                      // (not a floating sliver over scrolling content), so
-                      // there is no real content behind it for a blur to
-                      // reveal.
-                      blurred: false,
-                      onTap: () {
-                        startCallFlow(
-                          context,
-                          controller: widget.callsController,
-                          contact: _callContactForThread(thread),
-                          type: CallType.audio,
-                        );
-                      },
-                    ),
-                    const SizedBox(width: 4),
-                    LiquidGlassIconButton(
-                      icon: Icons.videocam_outlined,
-                      tooltip: 'Video call',
-                      size: 44,
-                      visualSize: 34,
-                      blurred: false,
-                      onTap: () {
-                        startCallFlow(
-                          context,
-                          controller: widget.callsController,
-                          contact: _callContactForThread(thread),
-                          type: CallType.video,
-                        );
-                      },
-                    ),
-                    const SizedBox(width: 8),
-                  ],
-          ),
-          body: SafeArea(
-            // The composer's own surface color, not SafeArea's reserved gap,
-            // should paint under the home indicator -- see _ComposerBar's
-            // bottom padding, which adds the inset back for its content.
-            bottom: false,
-            child: Column(
-              children: [
-                Expanded(
-                  child: GestureDetector(
-                    // Tapping empty space (background, between bubbles)
-                    // dismisses the keyboard, matching WhatsApp -- message
-                    // bubbles keep their own tap/long-press handling since
-                    // they claim the gesture first; this only ever fires
-                    // for taps nothing else already handled. Translucent,
-                    // not opaque, so it doesn't block the ListView's own
-                    // scroll/drag gesture recognition underneath it.
-                    behavior: HitTestBehavior.translucent,
-                    onTap: () => FocusScope.of(context).unfocus(),
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.surface.withValues(
-                          alpha:
-                              theme.brightness == Brightness.dark ? 0.94 : 0.98,
-                        ),
-                      ),
-                      child: NotificationListener<Notification>(
-                        onNotification: _handleMessageListNotification,
-                        child: ListView.builder(
-                          key: const Key('conversation_message_list'),
-                          controller: _messageListController,
-                          reverse: true,
-                          keyboardDismissBehavior:
-                              ScrollViewKeyboardDismissBehavior.onDrag,
-                          padding: EdgeInsets.fromLTRB(
-                            16,
-                            16,
-                            16,
-                            _messageListBottomPadding,
-                          ),
-                          itemCount: displayMessages.length,
-                          itemBuilder: (context, index) {
-                            final message = displayMessages[index];
-                            final olderMessage = index + 1 < displayMessages.length
-                                ? displayMessages[index + 1]
-                                : null;
-                            final shouldShowDayChip = olderMessage == null ||
-                                !_isSameDay(
-                                  message.sentAt,
-                                  olderMessage.sentAt,
-                                );
-
-                            return KeyedSubtree(
-                              key: _messageKeys.putIfAbsent(
-                                message.id,
-                                GlobalKey.new,
-                              ),
-                              child: Column(
-                                children: [
-                                  if (shouldShowDayChip)
-                                    Padding(
-                                      padding:
-                                          const EdgeInsets.only(bottom: 14),
-                                      child: _DayDivider(
-                                          label: _dayLabelFor(message.sentAt)),
-                                    ),
-                                  _AnimatedMessageEntry(
-                                    key: ValueKey(
-                                        'conversation_message_${message.id}'),
-                                    animateOnMount:
-                                        message.id == _animatedMessageId,
-                                    isMine: message.isFromCurrentUser,
-                                    child: _MessageBubble(
-                                      thread: thread,
-                                      message: message,
-                                      isHighlighted:
-                                          message.id == _highlightedMessageId,
-                                      onRetryTap: message.isFromCurrentUser &&
-                                              message.deliveryState ==
-                                                  MessageDeliveryState.failed &&
-                                              _localMessages.any(
-                                                (localMessage) =>
-                                                    localMessage.id ==
-                                                    message.id,
-                                              )
-                                          ? () => _retryFailedMessage(
-                                                thread.id,
-                                                message,
-                                              )
-                                          : null,
-                                      onAttachmentTap: (attachment) {
-                                        _handleAttachmentPreviewTap(
-                                          attachment,
-                                          threadName: thread.name,
-                                        );
-                                      },
-                                      onReactionTap: (emoji) {
-                                        widget.controller.toggleMessageReaction(
-                                          threadId: thread.id,
-                                          messageId: message.id,
-                                          emoji: emoji,
-                                        );
-                                      },
-                                      onAction: (action) =>
-                                          _handleMessageAction(
-                                        action,
-                                        thread: thread,
-                                        message: message,
-                                      ),
-                                      isStoryReplyAvailable:
-                                          _isStoryReplyAvailable(message),
-                                      onStoryReplyCardTap:
-                                          message.hasStoryReplyContext
-                                              ? () => _openStoryReplyCard(
-                                                    message.storyReplyContext!,
-                                                  )
-                                              : null,
-                                      onReplyPreviewTap: _jumpToMessage,
-                                      isSelectionMode: _isSelecting,
-                                      isSelected: _selectedMessageIds
-                                          .contains(message.id),
-                                      onToggleSelection: () =>
-                                          _toggleMessageSelection(message.id),
-                                    ),
-                                  ),
-                                  if (index != visibleMessages.length - 1)
-                                    // A reacted message's badge hangs 20px below
-                                    // its own bubble (see the Positioned(bottom:
-                                    // -20) above) -- needs real clearance from the
-                                    // next bubble instead of touching it.
-                                    SizedBox(
-                                        height: message.hasReactions ? 30 : 12),
-                                ],
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                if (thread.isBlocked)
-                  _BlockedContactBanner(name: thread.name)
-                else ...[
-                  if (_pendingReply != null)
-                    _ReplyPreviewBar(
-                      replyPreview: _pendingReply!,
-                      onCancel: _cancelReply,
-                    ),
-                  _ComposerBar(
-                    composerBarKey: _composerBarKey,
-                    controller: _composerController,
-                    focusNode: _composerFocusNode,
-                    isBusy: composerInteractionsLocked,
-                    canSendText: canSendText,
-                    lockedMinHeight: _composerLockedMinHeight,
-                    onAttachmentTap: (type) async {
-                      _handleAttachmentTap(thread.id, type);
-                    },
-                    onSendTap: () async {
-                      _handleSendTap(thread.id);
-                    },
-                    onChanged: (_) => setState(() {}),
-                  ),
-                ],
-              ],
+                );
+              },
             ),
           ),
-        );
-      },
+        ),
+      ),
     );
+  }
+
+  Widget _buildComposerPane(BuildContext context, ChatThread thread) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (_pendingReply != null)
+          _ReplyPreviewBar(
+            replyPreview: _pendingReply!,
+            onCancel: _cancelReply,
+          ),
+        _ComposerBar(
+          composerBarKey: _composerBarKey,
+          controller: _composerController,
+          focusNode: _composerFocusNode,
+          isBusy: widget.controller.isThreadBusy(thread.id),
+          lockedMinHeight: _composerLockedMinHeight,
+          onAttachmentTap: (type) async {
+            _handleAttachmentTap(thread.id, type);
+          },
+          onSendTap: () async {
+            _handleSendTap(thread.id);
+          },
+        ),
+      ],
+    );
+  }
+
+  void _syncThreadScrollBehavior(BuildContext context, ChatThread thread) {
+    if (_lastRenderedThreadId != thread.id) {
+      _lastRenderedThreadId = thread.id;
+      _lastKnownLatestMessageId = thread.latestMessage?.id;
+      _stickToBottom = true;
+    } else {
+      final latestMessageId = thread.latestMessage?.id;
+      if (latestMessageId != null &&
+          latestMessageId != _lastKnownLatestMessageId) {
+        final wasNearLatest = _isNearLatestMessage();
+        _lastKnownLatestMessageId = latestMessageId;
+        if (wasNearLatest) {
+          _scheduleScrollToLatestMessage(animated: true);
+        }
+        if (thread.unreadCount > 0) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              widget.controller.openThread(thread.id);
+            }
+          });
+        }
+      }
+    }
+
+    final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+    if (_lastKnownBottomInset != null &&
+        bottomInset != _lastKnownBottomInset) {
+      _scheduleScrollToLatestMessage(animated: true);
+    }
+    _lastKnownBottomInset = bottomInset;
   }
 
   Future<void> _openThreadStory(StatusStory story) {
@@ -605,10 +587,10 @@ class _ConversationScreenState extends State<ConversationScreen> {
     );
 
     _highlightClearTimer?.cancel();
-    setState(() => _highlightedMessageId = messageId);
+    _highlightedMessageIdNotifier.value = messageId;
     _highlightClearTimer = Timer(const Duration(milliseconds: 1200), () {
       if (mounted) {
-        setState(() => _highlightedMessageId = null);
+        _highlightedMessageIdNotifier.value = null;
       }
     });
   }
@@ -864,14 +846,24 @@ class _ConversationScreenState extends State<ConversationScreen> {
           previousMax != null && metrics.maxScrollExtent > previousMax + 0.5;
       final wasAtPreviousBottom = metrics.pixels.abs() <= 40;
       if (_stickToBottom && contentGrew && wasAtPreviousBottom) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted && _messageListController.hasClients) {
-            _messageListController.jumpTo(0);
-          }
-        });
+        _scheduleBottomSnap();
       }
     }
     return false;
+  }
+
+  void _scheduleBottomSnap() {
+    if (_bottomSnapScheduled) {
+      return;
+    }
+    _bottomSnapScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _bottomSnapScheduled = false;
+      if (!mounted || !_stickToBottom || !_messageListController.hasClients) {
+        return;
+      }
+      _messageListController.jumpTo(0);
+    });
   }
 
   void _lockComposerHeight() {
@@ -1745,6 +1737,29 @@ class _ReplyPreviewBar extends StatelessWidget {
 /// color and bottom-safe-area padding exactly (see the composer's own
 /// comment on why) so swapping between the two never shows a color seam
 /// under the home indicator.
+class _ConversationAppBarHost extends StatelessWidget implements PreferredSizeWidget {
+  const _ConversationAppBarHost({required this.state});
+
+  final _ConversationScreenState state;
+
+  @override
+  Size get preferredSize => const Size.fromHeight(kToolbarHeight);
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: Listenable.merge([
+        state.widget.controller,
+        state.widget.updatesController,
+      ]),
+      builder: (context, _) {
+        final thread = state.widget.controller.threadById(state.widget.threadId);
+        return state._buildConversationAppBar(context, thread);
+      },
+    );
+  }
+}
+
 class _BlockedContactBanner extends StatelessWidget {
   const _BlockedContactBanner({required this.name});
 
@@ -1797,11 +1812,50 @@ class _ComposerBar extends StatelessWidget {
     required this.composerBarKey,
     required this.controller,
     required this.isBusy,
+    required this.lockedMinHeight,
+    required this.onAttachmentTap,
+    required this.onSendTap,
+    this.focusNode,
+  });
+
+  final GlobalKey composerBarKey;
+  final TextEditingController controller;
+  final bool isBusy;
+  final double? lockedMinHeight;
+  final ValueChanged<ChatAttachmentType> onAttachmentTap;
+  final VoidCallback onSendTap;
+  final FocusNode? focusNode;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<TextEditingValue>(
+      valueListenable: controller,
+      builder: (context, value, _) {
+        final canSendText = value.text.trim().isNotEmpty && !isBusy;
+        return _ComposerBarContent(
+          composerBarKey: composerBarKey,
+          controller: controller,
+          focusNode: focusNode,
+          isBusy: isBusy,
+          canSendText: canSendText,
+          lockedMinHeight: lockedMinHeight,
+          onAttachmentTap: onAttachmentTap,
+          onSendTap: onSendTap,
+        );
+      },
+    );
+  }
+}
+
+class _ComposerBarContent extends StatelessWidget {
+  const _ComposerBarContent({
+    required this.composerBarKey,
+    required this.controller,
+    required this.isBusy,
     required this.canSendText,
     required this.lockedMinHeight,
     required this.onAttachmentTap,
     required this.onSendTap,
-    required this.onChanged,
     this.focusNode,
   });
 
@@ -1812,7 +1866,6 @@ class _ComposerBar extends StatelessWidget {
   final double? lockedMinHeight;
   final ValueChanged<ChatAttachmentType> onAttachmentTap;
   final VoidCallback onSendTap;
-  final ValueChanged<String> onChanged;
   final FocusNode? focusNode;
 
   @override
@@ -1912,7 +1965,6 @@ class _ComposerBar extends StatelessWidget {
               keyboardType: TextInputType.multiline,
               textCapitalization: TextCapitalization.sentences,
               textInputAction: TextInputAction.newline,
-              onChanged: onChanged,
               decoration: InputDecoration(
                 hintText: 'Message',
                 isDense: true,
@@ -2238,7 +2290,7 @@ class _MessageBubble extends StatelessWidget {
     this.onRetryTap,
     this.isStoryReplyAvailable = false,
     this.onStoryReplyCardTap,
-    this.isHighlighted = false,
+    this.highlightMessageIdNotifier,
     this.onReplyPreviewTap,
     this.isSelectionMode = false,
     this.isSelected = false,
@@ -2264,7 +2316,7 @@ class _MessageBubble extends StatelessWidget {
   /// Briefly true right after in-conversation search jumps to this message
   /// -- see ConversationScreen._jumpToMessage -- so the reader can spot
   /// which bubble the search landed on.
-  final bool isHighlighted;
+  final ValueNotifier<String?>? highlightMessageIdNotifier;
   final ValueChanged<ChatAttachment> onAttachmentTap;
   final ValueChanged<String> onReactionTap;
   final ValueChanged<MessageAction> onAction;
@@ -2280,6 +2332,24 @@ class _MessageBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (highlightMessageIdNotifier == null) {
+      return _buildWithHighlight(context, isHighlighted: false);
+    }
+    return ValueListenableBuilder<String?>(
+      valueListenable: highlightMessageIdNotifier!,
+      builder: (context, highlightedId, _) {
+        return _buildWithHighlight(
+          context,
+          isHighlighted: highlightedId == message.id,
+        );
+      },
+    );
+  }
+
+  Widget _buildWithHighlight(
+    BuildContext context, {
+    required bool isHighlighted,
+  }) {
     final theme = Theme.of(context);
     final isMine = message.isFromCurrentUser;
     final isFailed = message.deliveryState == MessageDeliveryState.failed;
@@ -2731,7 +2801,7 @@ class _MessageBubble extends StatelessWidget {
             child: InkWell(
               key: Key('attachment_preview_${attachment.id}'),
               onTap: () => onAttachmentTap(attachment),
-              child: LocationMapSnippet(
+              child: LazyLocationMapSnippet(
                 latitude: attachment.latitude!,
                 longitude: attachment.longitude!,
               ),
@@ -3264,7 +3334,7 @@ class _AttachmentPhotoGrid extends StatelessWidget {
 /// jcenter() Maven repo and fails to compile on any current Android
 /// Gradle setup). Falls back to a tinted swatch with a type icon when
 /// there's no local media to show, or thumbnail generation fails.
-class _MediaAttachmentTile extends StatelessWidget {
+class _MediaAttachmentTile extends StatefulWidget {
   const _MediaAttachmentTile({
     required this.attachment,
     required this.onTap,
@@ -3276,7 +3346,26 @@ class _MediaAttachmentTile extends StatelessWidget {
   final double? aspectRatio;
 
   @override
+  State<_MediaAttachmentTile> createState() => _MediaAttachmentTileState();
+}
+
+class _MediaAttachmentTileState extends State<_MediaAttachmentTile> {
+  Future<Uint8List?>? _videoThumbnailFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    final localPath = widget.attachment.localMediaPath;
+    if (widget.attachment.type == ChatAttachmentType.video &&
+        localPath != null &&
+        statusMediaSourceExists(localPath)) {
+      _videoThumbnailFuture = videoThumbnailFor(localPath);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final attachment = widget.attachment;
     final localPath = attachment.localMediaPath;
     final isPhoto = attachment.type == ChatAttachmentType.photo ||
         attachment.isImageDocument;
@@ -3286,7 +3375,7 @@ class _MediaAttachmentTile extends StatelessWidget {
         localPath != null &&
         statusMediaSourceExists(localPath);
     final resolvedAspectRatio =
-        (aspectRatio ?? attachment.aspectRatio).clamp(0.7, 1.5);
+        (widget.aspectRatio ?? attachment.aspectRatio).clamp(0.7, 1.5);
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(14),
@@ -3294,7 +3383,7 @@ class _MediaAttachmentTile extends StatelessWidget {
         color: Colors.transparent,
         child: InkWell(
           key: Key('attachment_preview_${attachment.id}'),
-          onTap: onTap,
+          onTap: widget.onTap,
           child: AspectRatio(
             aspectRatio: resolvedAspectRatio,
             child: Stack(
@@ -3314,7 +3403,7 @@ class _MediaAttachmentTile extends StatelessWidget {
                   )
                 else if (hasRealVideo)
                   FutureBuilder<Uint8List?>(
-                    future: videoThumbnailFor(localPath),
+                    future: _videoThumbnailFuture,
                     builder: (context, snapshot) {
                       final bytes = snapshot.data;
                       if (bytes == null) {
@@ -3355,13 +3444,13 @@ class _MediaAttachmentTile extends StatelessWidget {
 
   Widget _placeholder() {
     return ColoredBox(
-      color: attachment.tintColor.withValues(alpha: 0.18),
+      color: widget.attachment.tintColor.withValues(alpha: 0.18),
       child: Center(
         child: Icon(
-          attachment.type == ChatAttachmentType.video
+          widget.attachment.type == ChatAttachmentType.video
               ? Icons.videocam_outlined
               : Icons.photo_outlined,
-          color: attachment.tintColor,
+          color: widget.attachment.tintColor,
           size: 32,
         ),
       ),
@@ -3374,14 +3463,14 @@ class _MediaAttachmentTile extends StatelessWidget {
   /// differently from a genuinely-missing one.
   Widget _loadingPlaceholder() {
     return ColoredBox(
-      color: attachment.tintColor.withValues(alpha: 0.18),
+      color: widget.attachment.tintColor.withValues(alpha: 0.18),
       child: Center(
         child: SizedBox(
           width: 24,
           height: 24,
           child: CircularProgressIndicator(
             strokeWidth: 2.4,
-            color: attachment.tintColor,
+            color: widget.attachment.tintColor,
           ),
         ),
       ),

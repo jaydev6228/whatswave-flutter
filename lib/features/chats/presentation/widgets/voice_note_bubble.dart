@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
@@ -30,24 +32,43 @@ class VoiceNoteBubble extends StatefulWidget {
 }
 
 class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
-  late final VideoPlayerController _controller;
+  VideoPlayerController? _controller;
   bool _isReady = false;
   bool _hasError = false;
+  bool _isInitializing = false;
 
   @override
-  void initState() {
-    super.initState();
-    _controller = buildStatusMediaVideoController(widget.localMediaPath)
+  void dispose() {
+    _controller?.removeListener(_handleUpdate);
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  Future<void> _ensureController() async {
+    if (_controller != null || _isInitializing || _hasError) {
+      return;
+    }
+    _isInitializing = true;
+    final controller = buildStatusMediaVideoController(widget.localMediaPath)
       ..addListener(_handleUpdate);
-    _controller.initialize().then((_) {
-      if (mounted) {
-        setState(() => _isReady = true);
+    try {
+      await controller.initialize();
+      if (!mounted) {
+        controller.dispose();
+        return;
       }
-    }).catchError((_) {
+      setState(() {
+        _controller = controller;
+        _isReady = true;
+      });
+    } catch (_) {
+      controller.dispose();
       if (mounted) {
         setState(() => _hasError = true);
       }
-    });
+    } finally {
+      _isInitializing = false;
+    }
   }
 
   void _handleUpdate() {
@@ -56,26 +77,21 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
     }
   }
 
-  @override
-  void dispose() {
-    _controller.removeListener(_handleUpdate);
-    _controller.dispose();
-    super.dispose();
-  }
-
   Future<void> _togglePlayback() async {
-    if (!_isReady) {
+    await _ensureController();
+    final controller = _controller;
+    if (!_isReady || controller == null) {
       return;
     }
-    final value = _controller.value;
+    final value = controller.value;
     if (value.isPlaying) {
-      await _controller.pause();
+      await controller.pause();
       return;
     }
     if (value.duration > Duration.zero && value.position >= value.duration) {
-      await _controller.seekTo(Duration.zero);
+      await controller.seekTo(Duration.zero);
     }
-    await _controller.play();
+    await controller.play();
   }
 
   String _formatDuration(Duration duration) {
@@ -87,15 +103,17 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final value = _controller.value;
-    final duration = value.duration;
-    final position = value.position;
+    final controller = _controller;
+    final value = controller?.value;
+    final duration = value?.duration ?? Duration.zero;
+    final position = value?.position ?? Duration.zero;
     final progress = !_hasError && _isReady && duration > Duration.zero
         ? (position.inMilliseconds / duration.inMilliseconds).clamp(0.0, 1.0)
         : 0.0;
     final timeLabel = !_hasError && _isReady
         ? '${_formatDuration(position)} / ${_formatDuration(duration)}'
         : widget.fallbackLabel;
+    final isPlaying = value?.isPlaying ?? false;
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
@@ -103,11 +121,15 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
         children: [
           IconButton.filled(
             key: const Key('voice_note_play_pause_button'),
-            onPressed: !_hasError && _isReady ? _togglePlayback : null,
+            onPressed: _hasError
+                ? null
+                : () {
+                    unawaited(_togglePlayback());
+                  },
             icon: Icon(
               _hasError
                   ? Icons.error_outline_rounded
-                  : value.isPlaying
+                  : isPlaying
                       ? Icons.pause_rounded
                       : Icons.play_arrow_rounded,
             ),

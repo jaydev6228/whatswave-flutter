@@ -7,6 +7,7 @@ import '../../../app/theme/app_palette.dart';
 import '../../../core/permissions/app_permission_service.dart';
 import '../../../core/permissions/device_location_service.dart';
 import '../../calls/domain/call_permissions.dart';
+import '../data/chat_inbox_cache.dart';
 import '../data/chat_repository.dart';
 import '../domain/chat_attachment.dart';
 import '../domain/chat_message.dart';
@@ -28,13 +29,16 @@ class ChatsController extends ChangeNotifier {
     required ChatRepository repository,
     AppPermissionService? permissionService,
     DeviceLocationService? locationService,
+    ChatInboxCache? inboxCache,
   })  : _repository = repository,
         _permissionService = permissionService ?? MemoryAppPermissionService(),
-        _locationService = locationService ?? GeolocatorDeviceLocationService();
+        _locationService = locationService ?? GeolocatorDeviceLocationService(),
+        _inboxCache = inboxCache ?? ChatInboxCache();
 
   final ChatRepository _repository;
   final AppPermissionService _permissionService;
   final DeviceLocationService _locationService;
+  final ChatInboxCache _inboxCache;
   StreamSubscription<List<ChatThread>>? _liveThreadsSubscription;
 
   bool _hasLoaded = false;
@@ -199,10 +203,23 @@ class ChatsController extends ChangeNotifier {
     _errorMessage = null;
     notifyListeners();
 
+    if (!_hasLoaded) {
+      try {
+        final cachedThreads = await _inboxCache.load();
+        if (cachedThreads != null && cachedThreads.isNotEmpty) {
+          _threads = cachedThreads;
+          notifyListeners();
+        }
+      } catch (_) {
+        // Best-effort -- network fetch below remains the source of truth.
+      }
+    }
+
     try {
       _threads = _mergeIncomingThreads(await _repository.fetchThreads());
       _hasLoaded = true;
       _listenForLiveThreads();
+      unawaited(_persistInboxCache());
     } on ChatRepositoryException catch (error) {
       _errorMessage = error.message;
     } catch (_) {
@@ -228,8 +245,17 @@ class ChatsController extends ChangeNotifier {
     }
     _liveThreadsSubscription = stream.listen((threads) {
       _threads = _mergeIncomingThreads(threads);
+      unawaited(_persistInboxCache());
       notifyListeners();
     });
+  }
+
+  Future<void> _persistInboxCache() async {
+    try {
+      await _inboxCache.save(_chatsTabThreads.toList(growable: false));
+    } catch (_) {
+      // Best-effort persistence for cold-start previews.
+    }
   }
 
   Future<void> ensureThreadMessagesLoaded(String threadId) async {
