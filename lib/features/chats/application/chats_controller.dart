@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import '../../../core/models/status_story.dart';
 import '../../../app/theme/app_palette.dart';
 import '../../../core/permissions/app_permission_service.dart';
 import '../../../core/permissions/device_location_service.dart';
@@ -52,6 +53,7 @@ class ChatsController extends ChangeNotifier {
   final Set<String> _busyThreadIds = <String>{};
   final Set<String> _fullyLoadedThreadIds = <String>{};
   final Set<String> _loadingMessageThreadIds = <String>{};
+  final Set<String> _hiddenStoryKeys = <String>{};
 
   bool get hasLoaded => _hasLoaded;
   bool get isLoading => _isLoading;
@@ -180,6 +182,51 @@ class ChatsController extends ChangeNotifier {
     return null;
   }
 
+  /// Whether a contact's status should still be visible after their 1:1 chat
+  /// was deleted -- deleting a chat hides their story until a new chat starts.
+  bool shouldShowStoryForThread(ChatThread thread) {
+    if (!thread.hasStory || thread.isGroup) {
+      return thread.hasStory;
+    }
+    return !isStoryHidden(
+      avatarLabel: thread.avatarLabel,
+      name: thread.name,
+      participantUid: thread.participantUid,
+      threadId: thread.id,
+    );
+  }
+
+  bool isStoryHidden({
+    required String avatarLabel,
+    required String name,
+    String? participantUid,
+    String? threadId,
+  }) {
+    for (final key in _hiddenStoryKeys) {
+      if (_matchesHiddenStoryKey(
+        key: key,
+        avatarLabel: avatarLabel,
+        name: name,
+        participantUid: participantUid,
+        threadId: threadId,
+      )) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool isStatusStoryHidden(StatusStory story) {
+    if (story.isMine) {
+      return false;
+    }
+    return isStoryHidden(
+      avatarLabel: story.avatarLabel,
+      name: story.name,
+      participantUid: story.id,
+    );
+  }
+
   bool isThreadBusy(String threadId) => _busyThreadIds.contains(threadId);
 
   bool isThreadMessagesLoading(String threadId) =>
@@ -271,18 +318,22 @@ class ChatsController extends ChangeNotifier {
     try {
       final fullThread = await _repository.fetchThreadWithMessages(threadId);
       _fullyLoadedThreadIds.add(threadId);
-      _threads = _threads
-          .map(
-            (thread) {
-              if (thread.id != threadId) {
-                return thread;
-              }
-              return fullThread.copyWith(
-                messages: _mergeMessages(thread.messages, fullThread.messages),
-              );
-            },
-          )
-          .toList(growable: false);
+      if (threadById(threadId) == null) {
+        _threads = [fullThread, ..._threads];
+      } else {
+        _threads = _threads
+            .map(
+              (thread) {
+                if (thread.id != threadId) {
+                  return thread;
+                }
+                return fullThread.copyWith(
+                  messages: _mergeMessages(thread.messages, fullThread.messages),
+                );
+              },
+            )
+            .toList(growable: false);
+      }
     } on ChatRepositoryException catch (error) {
       _errorMessage = error.message;
     } catch (_) {
@@ -459,11 +510,17 @@ class ChatsController extends ChangeNotifier {
   }
 
   Future<bool> deleteThread(String threadId) async {
-    return _runThreadMutation(
+    final thread = threadById(threadId);
+    final didDelete = await _runThreadMutation(
       threadId,
       () => _repository.deleteThread(threadId),
       fallbackError: 'We could not delete that chat right now.',
     );
+    if (didDelete && thread != null && !thread.isGroup) {
+      _hideStoryForDeletedThread(thread);
+      notifyListeners();
+    }
+    return didDelete;
   }
 
   Future<bool> setThreadBlocked({
@@ -520,7 +577,19 @@ class ChatsController extends ChangeNotifier {
         avatarLabel: avatarLabel,
         accentColor: accentColor,
       );
-      _threads = _mergeIncomingThreads(await _repository.fetchThreads());
+      _unhideStoryForParticipant(
+        participantUid: participantUid,
+        avatarLabel: avatarLabel,
+        name: participantName,
+      );
+      var incoming = await _repository.fetchThreads();
+      if (!incoming.any((entry) => entry.id == thread.id)) {
+        incoming = [thread, ...incoming];
+      }
+      _threads = _mergeIncomingThreads(incoming);
+      if (threadById(thread.id) == null) {
+        _threads = [thread, ..._threads];
+      }
       notifyListeners();
       return thread.id;
     } on ChatRepositoryException catch (error) {
@@ -1102,5 +1171,92 @@ class ChatsController extends ChangeNotifier {
     _busyThreadIds.remove(threadId);
     notifyListeners();
     return didSucceed;
+  }
+
+  void _hideStoryForDeletedThread(ChatThread thread) {
+    _hiddenStoryKeys.add(_storyParticipantKey(
+      avatarLabel: thread.avatarLabel,
+      name: thread.name,
+    ));
+    _hiddenStoryKeys.add('thread:${thread.id}');
+    final participantUid = thread.participantUid;
+    if (participantUid != null && participantUid.isNotEmpty) {
+      _hiddenStoryKeys.add('uid:$participantUid');
+      _hiddenStoryKeys.add('thread:${_canonicalDirectThreadId(participantUid)}');
+    }
+  }
+
+  void _unhideStoryForParticipant({
+    required String participantUid,
+    required String avatarLabel,
+    required String name,
+  }) {
+    _hiddenStoryKeys.remove(_storyParticipantKey(
+      avatarLabel: avatarLabel,
+      name: name,
+    ));
+    _hiddenStoryKeys.remove('uid:$participantUid');
+    _hiddenStoryKeys.remove('thread:${_canonicalDirectThreadId(participantUid)}');
+    _hiddenStoryKeys.remove('thread:$participantUid');
+  }
+
+  String _storyParticipantKey({
+    required String avatarLabel,
+    required String name,
+  }) {
+    return '${avatarLabel.trim().toLowerCase()}|${name.trim().toLowerCase()}';
+  }
+
+  String _canonicalDirectThreadId(String participantUid) {
+    if (participantUid.startsWith('uid-')) {
+      return participantUid.substring(4);
+    }
+    return participantUid;
+  }
+
+  bool _matchesHiddenStoryKey({
+    required String key,
+    required String avatarLabel,
+    required String name,
+    String? participantUid,
+    String? threadId,
+  }) {
+    if (key.startsWith('uid:')) {
+      final hiddenUid = key.substring(4);
+      if (participantUid == hiddenUid) {
+        return true;
+      }
+      if (threadId == _canonicalDirectThreadId(hiddenUid)) {
+        return true;
+      }
+      return false;
+    }
+    if (key.startsWith('thread:')) {
+      final hiddenThreadId = key.substring(7);
+      if (threadId == hiddenThreadId) {
+        return true;
+      }
+      if (participantUid != null &&
+          _canonicalDirectThreadId(participantUid) == hiddenThreadId) {
+        return true;
+      }
+      return false;
+    }
+
+    final parts = key.split('|');
+    if (parts.length != 2) {
+      return false;
+    }
+    final normalizedAvatar = avatarLabel.trim().toLowerCase();
+    final normalizedName = name.trim().toLowerCase();
+    if (normalizedAvatar != parts[0]) {
+      return false;
+    }
+    final hiddenName = parts[1];
+    return normalizedName == hiddenName ||
+        normalizedName.startsWith('$hiddenName ') ||
+        hiddenName.startsWith('$normalizedName ') ||
+        normalizedName.startsWith(hiddenName) ||
+        hiddenName.startsWith(normalizedName);
   }
 }

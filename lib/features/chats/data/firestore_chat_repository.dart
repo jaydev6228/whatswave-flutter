@@ -174,6 +174,15 @@ class FirestoreChatRepository implements ChatRepository {
           'hasStory': false,
           'isArchived': false,
         });
+      } else {
+        final hiddenFor =
+            (existing.data()?['hiddenFor'] as List<dynamic>?)?.cast<String>() ??
+                const <String>[];
+        if (hiddenFor.contains(uid)) {
+          await docRef.update({
+            'hiddenFor': FieldValue.arrayRemove([uid]),
+          });
+        }
       }
       final doc = await docRef.get();
       return _threadFromDoc(doc, currentUid: uid);

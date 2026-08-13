@@ -196,6 +196,9 @@ class _AppShellState extends State<AppShell> {
       return;
     }
 
+    widget.chatsController.openThread(threadId);
+    widget.chatsController.ensureThreadMessagesLoaded(threadId);
+
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => ConversationScreen(

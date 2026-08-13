@@ -314,6 +314,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
       avatarLabel: thread.avatarLabel,
       name: thread.name,
     );
+    final showStory = widget.controller.shouldShowStoryForThread(thread);
     final visibleMessages = _visibleMessagesForThread(thread);
 
     return AppBar(
@@ -333,10 +334,10 @@ class _ConversationScreenState extends State<ConversationScreen> {
                 children: [
                   GestureDetector(
                     behavior: HitTestBehavior.opaque,
-                    onTap: thread.hasStory && story != null
+                    onTap: showStory && story != null
                         ? () => _openThreadStory(story)
                         : null,
-                    child: thread.hasStory
+                    child: showStory
                         ? StatusRingAvatar(
                             label: thread.avatarLabel,
                             color: thread.accentColor,

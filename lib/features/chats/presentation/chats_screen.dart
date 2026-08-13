@@ -274,13 +274,16 @@ class _ChatsScreenState extends State<ChatsScreen> {
                           final thread = visibleThreads[index];
                           return _ArchiveableChatListItem(
                             thread: thread,
+                            chatsController: widget.controller,
                             updatesController: widget.updatesController,
                             animateTypingIndicators: animateTypingIndicators,
                             isBusy: widget.controller.isThreadBusy(thread.id),
                             isArchivedView: false,
                             showDivider: index != visibleThreads.length - 1,
                             onOpen: () => _openThread(thread),
-                            onStoryTap: thread.hasStory
+                            onStoryTap: widget.controller.shouldShowStoryForThread(
+                              thread,
+                            )
                                 ? () => _openThreadStory(thread)
                                 : null,
                             onArchiveToggle: () async {
@@ -584,13 +587,16 @@ class _ArchivedChatsScreenState extends State<ArchivedChatsScreen> {
                           final thread = archivedThreads[index];
                           return _ArchiveableChatListItem(
                             thread: thread,
+                            chatsController: widget.controller,
                             updatesController: widget.updatesController,
                             animateTypingIndicators: false,
                             isBusy: widget.controller.isThreadBusy(thread.id),
                             isArchivedView: true,
                             showDivider: index != archivedThreads.length - 1,
                             onOpen: () => _openArchivedThread(thread),
-                            onStoryTap: thread.hasStory
+                            onStoryTap: widget.controller.shouldShowStoryForThread(
+                              thread,
+                            )
                                 ? () => _openArchivedThreadStory(thread)
                                 : null,
                             onArchiveToggle: () {
@@ -659,6 +665,7 @@ class _ArchivedChatsScreenState extends State<ArchivedChatsScreen> {
 class _ArchiveableChatListItem extends StatelessWidget {
   const _ArchiveableChatListItem({
     required this.thread,
+    required this.chatsController,
     required this.updatesController,
     required this.animateTypingIndicators,
     required this.isBusy,
@@ -671,6 +678,7 @@ class _ArchiveableChatListItem extends StatelessWidget {
   });
 
   final ChatThread thread;
+  final ChatsController chatsController;
   final UpdatesController updatesController;
   final bool animateTypingIndicators;
   final bool isBusy;
@@ -738,6 +746,7 @@ class _ArchiveableChatListItem extends StatelessWidget {
           },
           child: _ChatTile(
             thread: thread,
+            chatsController: chatsController,
             updatesController: updatesController,
             animateTypingIndicators: animateTypingIndicators,
             isBusy: isBusy,
@@ -796,6 +805,7 @@ class _ArchiveableChatListItem extends StatelessWidget {
 class _ChatTile extends StatelessWidget {
   const _ChatTile({
     required this.thread,
+    required this.chatsController,
     required this.updatesController,
     required this.animateTypingIndicators,
     required this.isBusy,
@@ -804,6 +814,7 @@ class _ChatTile extends StatelessWidget {
   });
 
   final ChatThread thread;
+  final ChatsController chatsController;
   final UpdatesController updatesController;
   final bool animateTypingIndicators;
   final bool isBusy;
@@ -837,6 +848,7 @@ class _ChatTile extends StatelessWidget {
             children: [
               _ChatAvatar(
                 thread: thread,
+                chatsController: chatsController,
                 updatesController: updatesController,
                 size: 56,
                 onTap: onStoryTap,
@@ -964,20 +976,26 @@ class _ChatTile extends StatelessWidget {
 class _ChatAvatar extends StatelessWidget {
   const _ChatAvatar({
     required this.thread,
+    required this.chatsController,
     required this.updatesController,
     required this.size,
     this.onTap,
   });
 
   final ChatThread thread;
+  final ChatsController chatsController;
   final UpdatesController updatesController;
   final double size;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    if (!thread.hasStory) {
-      return _buildAvatar(context, story: null);
+    final showStory = chatsController.shouldShowStoryForThread(thread);
+    if (!showStory) {
+      return ThreadAvatar(
+        thread: thread,
+        size: size,
+      );
     }
 
     return ListenableBuilder(
@@ -987,13 +1005,17 @@ class _ChatAvatar extends StatelessWidget {
           avatarLabel: thread.avatarLabel,
           name: thread.name,
         );
-        return _buildAvatar(context, story: story);
+        return _buildAvatar(context, story: story, showStory: showStory);
       },
     );
   }
 
-  Widget _buildAvatar(BuildContext context, {required StatusStory? story}) {
-    final avatar = thread.hasStory
+  Widget _buildAvatar(
+    BuildContext context, {
+    required StatusStory? story,
+    required bool showStory,
+  }) {
+    final avatar = showStory
         ? StatusRingAvatar(
             key: ValueKey<String>('chat_story_ring_${thread.id}'),
             label: thread.avatarLabel,
@@ -1008,7 +1030,7 @@ class _ChatAvatar extends StatelessWidget {
             size: size,
           );
 
-    if (!thread.hasStory || onTap == null) {
+    if (!showStory || onTap == null) {
       return avatar;
     }
 
@@ -1292,7 +1314,12 @@ class _StatusStrip extends StatelessWidget {
     final myStatus = controller.myStatus;
     final hasMyStatus = myStatus != null && myStatus.hasSegments;
     final otherStories = controller.stories
-        .where((story) => !story.isMine && story.hasSegments)
+        .where(
+          (story) =>
+              !story.isMine &&
+              story.hasSegments &&
+              !chatsController.isStatusStoryHidden(story),
+        )
         .toList(growable: false);
 
     return SingleChildScrollView(

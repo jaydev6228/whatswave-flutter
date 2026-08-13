@@ -61,22 +61,31 @@ class FakeChatRepository implements ChatRepository {
     required Color accentColor,
   }) async {
     await _wait();
+    final threadId = _directThreadIdForParticipant(participantUid);
     final existing = _threads
         .cast<ChatThread?>()
-        .firstWhere((entry) => entry?.id == participantUid, orElse: () => null);
+        .firstWhere((entry) => entry?.id == threadId, orElse: () => null);
     if (existing != null) {
       return existing;
     }
 
     final thread = ChatThread(
-      id: participantUid,
+      id: threadId,
       name: participantName,
       avatarLabel: avatarLabel,
       accentColor: accentColor,
+      participantUid: participantUid,
       messages: const [],
     );
     _threads = [thread, ..._threads];
     return thread;
+  }
+
+  String _directThreadIdForParticipant(String participantUid) {
+    if (participantUid.startsWith('uid-')) {
+      return participantUid.substring(4);
+    }
+    return participantUid;
   }
 
   @override

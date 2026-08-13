@@ -666,6 +666,33 @@ void main() {
 
       expect(rebuildCount, rebuildsAfterSend);
     });
+
+    test('deleting a 1:1 chat hides that contact story until chat restarts',
+        () async {
+      await controller.loadThreads();
+      final ava = controller.threadById('ava-patel')!;
+      expect(controller.shouldShowStoryForThread(ava), isTrue);
+
+      final didDelete = await controller.deleteThread('ava-patel');
+      expect(didDelete, isTrue);
+      expect(controller.isStoryHidden(
+        avatarLabel: ava.avatarLabel,
+        name: ava.name,
+      ), isTrue);
+
+      final threadId = await controller.startThreadWith(
+        participantUid: 'uid-ava-patel',
+        participantName: ava.name,
+        avatarLabel: ava.avatarLabel,
+        accentColor: ava.accentColor,
+      );
+      expect(threadId, 'ava-patel');
+      expect(controller.threadById('ava-patel'), isNotNull);
+      expect(controller.isStoryHidden(
+        avatarLabel: ava.avatarLabel,
+        name: 'Ava',
+      ), isFalse);
+    });
   });
 }
 

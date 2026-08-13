@@ -72,14 +72,6 @@ class FloatingTabBar extends StatelessWidget {
                         decoration: BoxDecoration(
                           color: theme.colorScheme.primary,
                           borderRadius: BorderRadius.circular(999),
-                          boxShadow: [
-                            BoxShadow(
-                              color: theme.colorScheme.primary
-                                  .withValues(alpha: 0.35),
-                              blurRadius: 12,
-                              offset: const Offset(0, 3),
-                            ),
-                          ],
                         ),
                       ),
                     ),
