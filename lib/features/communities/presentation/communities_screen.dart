@@ -4,12 +4,13 @@ import '../../calls/application/calls_controller.dart';
 import '../../chats/application/chats_controller.dart';
 import '../../shared/widgets/avatar_badge.dart';
 import '../../shared/widgets/empty_state_card.dart';
-import '../../shared/widgets/liquid_glass.dart';
 import '../../shared/widgets/search_field.dart';
 import '../../updates/application/updates_controller.dart';
 import '../application/communities_controller.dart';
 import '../domain/community_hub.dart';
 import 'community_detail_screen.dart';
+import 'community_time_format.dart';
+import 'community_unread.dart';
 
 const double _kCommunitiesScreenHorizontalPadding = 16;
 const double _kCommunitiesRowHorizontalPadding = 18;
@@ -52,7 +53,10 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: widget.controller,
+      animation: Listenable.merge([
+        widget.controller,
+        widget.chatsController,
+      ]),
       builder: (context, _) {
         final theme = Theme.of(context);
         if (!widget.controller.hasLoaded && widget.controller.isLoading) {
@@ -84,20 +88,13 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    'Communities',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: theme.textTheme.headlineMedium
-                                        ?.copyWith(
-                                      fontWeight: FontWeight.w900,
-                                    ),
-                                  ),
-                                ),
-                              ],
+                            Text(
+                              'Communities',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.headlineMedium?.copyWith(
+                                fontWeight: FontWeight.w900,
+                              ),
                             ),
                             if (widget.controller.errorMessage != null &&
                                 !widget.controller.hasLoaded) ...[
@@ -124,9 +121,10 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
                           ],
                         ),
                       ),
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 8),
                       _CommunitiesPane(
                         controller: widget.controller,
+                        chatsController: widget.chatsController,
                         onCreateCommunity: _showCreateCommunitySheet,
                         onOpenCommunity: _openCommunity,
                       ),
@@ -164,22 +162,24 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
+      showDragHandle: true,
       builder: (context) {
         return _CreateCommunitySheet(controller: widget.controller);
       },
     );
   }
-
 }
 
 class _CommunitiesPane extends StatelessWidget {
   const _CommunitiesPane({
     required this.controller,
+    required this.chatsController,
     required this.onCreateCommunity,
     required this.onOpenCommunity,
   });
 
   final CommunitiesController controller;
+  final ChatsController chatsController;
   final Future<void> Function() onCreateCommunity;
   final Future<void> Function(CommunityHub community) onOpenCommunity;
 
@@ -187,143 +187,94 @@ class _CommunitiesPane extends StatelessWidget {
   Widget build(BuildContext context) {
     final visibleCommunities = controller.visibleCommunities;
     final theme = Theme.of(context);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: _kCommunitiesScreenHorizontalPadding,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.groups_2_outlined,
+        Material(
+          color: Colors.transparent,
+          child: InkWell(
+            key: const Key('communities_create_button'),
+            onTap: onCreateCommunity,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: _kCommunitiesRowHorizontalPadding,
+                vertical: 12,
+              ),
+              child: Row(
+                children: [
+                  CircleAvatar(
+                    radius: 24,
+                    backgroundColor:
+                        theme.colorScheme.primary.withValues(alpha: 0.14),
+                    child: Icon(
+                      Icons.groups_rounded,
                       color: theme.colorScheme.primary,
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            'Create a community',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w800,
-                            ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'New community',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w800,
                           ),
-                          const SizedBox(height: 3),
-                          Text(
-                            'Keep announcements and related groups together.',
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.onSurface
-                                  .withValues(alpha: 0.7),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    FilledButton.tonalIcon(
-                      key: const Key('communities_create_button'),
-                      onPressed: onCreateCommunity,
-                      style: FilledButton.styleFrom(
-                        visualDensity: VisualDensity.compact,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 8,
                         ),
-                      ),
-                      icon: const Icon(Icons.add_rounded, size: 18),
-                      label: const Text('New'),
+                        const SizedBox(height: 3),
+                        Text(
+                          'Bring members together in topic-based groups.',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurface
+                                .withValues(alpha: 0.68),
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-              Divider(
-                height: 1,
-                indent: 34,
-                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.22),
-              ),
-              const SizedBox(height: 14),
-              const _CommunitiesSectionLabel(
-                title: 'Your communities',
-              ),
-              const SizedBox(height: 10),
-              // No fixed height (was SizedBox(height: 34)) -- see
-              // docs/ui_layout_guidelines.md rule 1.
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: [
-                    LiquidGlassChip(
-                      key: const Key('communities_filter_all'),
-                      label: 'All',
-                      isSelected: controller.communityFilter ==
-                          CommunityListFilter.all,
-                      onTap: () {
-                        controller.selectCommunityFilter(
-                          CommunityListFilter.all,
-                        );
-                      },
-                    ),
-                    const SizedBox(width: 8),
-                    LiquidGlassChip(
-                      key: const Key('communities_filter_unread'),
-                      label: 'Unread',
-                      isSelected: controller.communityFilter ==
-                          CommunityListFilter.unread,
-                      onTap: () {
-                        controller.selectCommunityFilter(
-                          CommunityListFilter.unread,
-                        );
-                      },
-                    ),
-                    const SizedBox(width: 8),
-                    LiquidGlassChip(
-                      key: const Key('communities_filter_announcements'),
-                      label: 'Announcements',
-                      isSelected: controller.communityFilter ==
-                          CommunityListFilter.announcements,
-                      onTap: () {
-                        controller.selectCommunityFilter(
-                          CommunityListFilter.announcements,
-                        );
-                      },
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-              if (visibleCommunities.isEmpty)
-                EmptyStateCard(
-                  dense: true,
-                  margin: EdgeInsets.zero,
-                  icon: Icons.groups_outlined,
-                  title: controller.searchQuery.trim().isEmpty
-                      ? 'No communities yet'
-                      : 'No matching communities',
-                  message: controller.searchQuery.trim().isEmpty
-                      ? 'Create your first community to organize announcements and shared groups.'
-                      : 'Try a different search or switch the community filter.',
-                ),
-            ],
+            ),
           ),
         ),
+        Divider(
+          height: 1,
+          indent: _kCommunitiesRowHorizontalPadding + 62,
+          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.22),
+        ),
+        if (visibleCommunities.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: _kCommunitiesScreenHorizontalPadding,
+              vertical: 18,
+            ),
+            child: EmptyStateCard(
+              dense: true,
+              margin: EdgeInsets.zero,
+              icon: Icons.groups_outlined,
+              title: controller.searchQuery.trim().isEmpty
+                  ? 'No communities yet'
+                  : 'No matching communities',
+              message: controller.searchQuery.trim().isEmpty
+                  ? 'Communities keep your announcement channel and related groups in one place.'
+                  : 'Try a different search term.',
+            ),
+          ),
         if (visibleCommunities.isNotEmpty)
           ...visibleCommunities.map((community) {
             return _CommunityCard(
               community: community,
+              unreadCount: CommunityUnread.totalForCommunity(
+                chatsController,
+                community,
+              ),
               onTap: () => onOpenCommunity(community),
             );
           }),
@@ -335,20 +286,17 @@ class _CommunitiesPane extends StatelessWidget {
 class _CommunityCard extends StatelessWidget {
   const _CommunityCard({
     required this.community,
+    required this.unreadCount,
     required this.onTap,
   });
 
   final CommunityHub community;
+  final int unreadCount;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final groupSummary = community.groups.take(3).map((group) {
-      return group.unreadCount > 0
-          ? '${group.name} ${group.unreadCount}'
-          : group.name;
-    }).join('  •  ');
 
     return Material(
       color: Colors.transparent,
@@ -370,7 +318,7 @@ class _CommunityCard extends StatelessWidget {
                   AvatarBadge(
                     label: community.avatarLabel,
                     color: community.accentColor,
-                    size: 54,
+                    size: 52,
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -390,104 +338,65 @@ class _CommunityCard extends StatelessWidget {
                                 ),
                               ),
                             ),
-                            if (community.unreadCount > 0)
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 7,
-                                  vertical: 4,
+                            Text(
+                              formatCommunityTimestamp(community.lastActivityAt),
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: theme.colorScheme.onSurface
+                                    .withValues(alpha: 0.56),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                community.listPreview,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  color: unreadCount > 0
+                                      ? theme.colorScheme.onSurface
+                                      : theme.colorScheme.onSurface
+                                          .withValues(alpha: 0.68),
+                                  fontWeight: unreadCount > 0
+                                      ? FontWeight.w700
+                                      : FontWeight.w500,
                                 ),
-                                decoration: BoxDecoration(
-                                  color: theme.colorScheme.primaryContainer,
-                                  borderRadius: BorderRadius.circular(999),
-                                ),
+                              ),
+                            ),
+                            if (unreadCount > 0) ...[
+                              const SizedBox(width: 8),
+                              CircleAvatar(
+                                radius: 10,
+                                backgroundColor: theme.colorScheme.primary,
                                 child: Text(
-                                  '${community.unreadCount}',
+                                  unreadCount > 99 ? '99+' : '$unreadCount',
                                   style: theme.textTheme.labelSmall?.copyWith(
-                                    color: theme.colorScheme.onPrimaryContainer,
+                                    color: theme.colorScheme.onPrimary,
                                     fontWeight: FontWeight.w800,
+                                    fontSize: 10,
                                   ),
                                 ),
                               ),
+                            ],
                           ],
                         ),
-                        const SizedBox(height: 3),
-                        Text(
-                          '${community.memberCount} members • ${community.groupCount} groups',
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: theme.colorScheme.onSurface
-                                .withValues(alpha: 0.64),
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 5),
-                        Text(
-                          community.announcement.headline,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          community.announcement.body,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurface
-                                .withValues(alpha: 0.74),
-                            height: 1.28,
-                          ),
-                        ),
-                        if (groupSummary.isNotEmpty) ...[
-                          const SizedBox(height: 6),
-                          Text(
-                            groupSummary,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.labelSmall?.copyWith(
-                              color: theme.colorScheme.onSurface
-                                  .withValues(alpha: 0.6),
-                            ),
-                          ),
-                        ],
                       ],
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Icon(
-                    Icons.chevron_right_rounded,
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.42),
                   ),
                 ],
               ),
             ),
             Divider(
               height: 1,
-              indent: _kCommunitiesRowHorizontalPadding + 66,
+              indent: _kCommunitiesRowHorizontalPadding + 64,
               color: theme.colorScheme.outlineVariant.withValues(alpha: 0.22),
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-
-class _CommunitiesSectionLabel extends StatelessWidget {
-  const _CommunitiesSectionLabel({required this.title});
-
-  final String title;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Text(
-      title,
-      style: theme.textTheme.titleSmall?.copyWith(
-        fontWeight: FontWeight.w800,
       ),
     );
   }
@@ -531,7 +440,7 @@ class _CreateCommunitySheetState extends State<_CreateCommunitySheet> {
             padding: EdgeInsets.only(
               left: 20,
               right: 20,
-              top: 20,
+              top: 8,
               bottom: MediaQuery.of(context).viewInsets.bottom + 20,
             ),
             child: Column(
@@ -540,21 +449,27 @@ class _CreateCommunitySheetState extends State<_CreateCommunitySheet> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Create community',
+                  'New community',
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                         fontWeight: FontWeight.w900,
                       ),
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 8),
                 Text(
-                  'Start with an announcement space and one shared group, then invite people in.',
-                  style: Theme.of(context).textTheme.bodyMedium,
+                  'Communities bring related groups together with an announcements channel only admins can post in.',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .onSurface
+                            .withValues(alpha: 0.72),
+                      ),
                 ),
                 const SizedBox(height: 18),
                 TextField(
                   key: const Key('communities_create_name_field'),
                   controller: _nameController,
                   textInputAction: TextInputAction.next,
+                  autofocus: true,
                   decoration: const InputDecoration(
                     labelText: 'Community name',
                   ),
@@ -563,9 +478,9 @@ class _CreateCommunitySheetState extends State<_CreateCommunitySheet> {
                 TextField(
                   key: const Key('communities_create_description_field'),
                   controller: _descriptionController,
-                  maxLines: 3,
+                  maxLines: 2,
                   decoration: const InputDecoration(
-                    labelText: 'Description',
+                    labelText: 'Description (optional)',
                   ),
                 ),
                 if (widget.controller.errorMessage != null) ...[
@@ -579,45 +494,34 @@ class _CreateCommunitySheetState extends State<_CreateCommunitySheet> {
                   ),
                 ],
                 const SizedBox(height: 18),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => Navigator.of(context).pop(),
-                        child: const Text('Cancel'),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: FilledButton(
-                        key: const Key('communities_create_submit_button'),
-                        onPressed: widget.controller.isCreatingCommunity
-                            ? null
-                            : () async {
-                                final navigator = Navigator.of(context);
-                                final didCreate =
-                                    await widget.controller.createCommunity(
-                                  title: _nameController.text,
-                                  description: _descriptionController.text,
-                                );
-                                if (!mounted) {
-                                  return;
-                                }
-                                if (didCreate) {
-                                  navigator.pop();
-                                }
-                              },
-                        child: widget.controller.isCreatingCommunity
-                            ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child:
-                                    CircularProgressIndicator(strokeWidth: 2),
-                              )
-                            : const Text('Create'),
-                      ),
-                    ),
-                  ],
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    key: const Key('communities_create_submit_button'),
+                    onPressed: widget.controller.isCreatingCommunity
+                        ? null
+                        : () async {
+                            final navigator = Navigator.of(context);
+                            final didCreate =
+                                await widget.controller.createCommunity(
+                              title: _nameController.text,
+                              description: _descriptionController.text,
+                            );
+                            if (!mounted) {
+                              return;
+                            }
+                            if (didCreate) {
+                              navigator.pop();
+                            }
+                          },
+                    child: widget.controller.isCreatingCommunity
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('Create community'),
+                  ),
                 ),
               ],
             ),

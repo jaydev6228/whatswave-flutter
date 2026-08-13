@@ -20,6 +20,11 @@ abstract class CommunitiesRepository {
     required String threadId,
   });
 
+  Future<CommunitiesOverview> attachAnnouncementThread({
+    required String communityId,
+    required String threadId,
+  });
+
   Future<CommunitiesOverview> inviteContactToCommunity({
     required String communityId,
     required String contactId,

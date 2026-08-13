@@ -716,6 +716,8 @@ class _ConversationScreenState extends State<ConversationScreen> {
         builder: (_) => ContactInfoScreen(
           controller: widget.controller,
           communitiesController: widget.communitiesController,
+          callsController: widget.callsController,
+          updatesController: widget.updatesController,
           threadId: threadId,
         ),
       ),

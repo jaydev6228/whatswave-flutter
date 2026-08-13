@@ -809,6 +809,17 @@ class TrackedCommunitiesRepository implements CommunitiesRepository {
   }
 
   @override
+  Future<CommunitiesOverview> attachAnnouncementThread({
+    required String communityId,
+    required String threadId,
+  }) {
+    return _delegate.attachAnnouncementThread(
+      communityId: communityId,
+      threadId: threadId,
+    );
+  }
+
+  @override
   Future<CommunitiesOverview> deleteCommunity(String communityId) async {
     try {
       final overview = await _delegate.deleteCommunity(communityId);

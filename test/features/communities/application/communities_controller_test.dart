@@ -100,9 +100,17 @@ void main() {
     );
 
     await controller.loadOverview();
+
+    final didCreate = await controller.createCommunity(
+      title: 'Thread Wiring Club',
+      description: 'Used to verify group thread creation after invite.',
+    );
+    expect(didCreate, isTrue);
+
     final community = controller.communities.first;
     expect(community.groups, isNotEmpty);
     expect(community.groups.first.threadId, isNull);
+    expect(community.announcementThreadId, isNull);
 
     final didInvite = await controller.inviteContactToCommunity(
       communityId: community.id,
@@ -110,9 +118,34 @@ void main() {
     );
 
     expect(didInvite, isTrue);
-    final threadId = controller.communityById(community.id)?.groups.first.threadId;
+    final updatedCommunity = controller.communityById(community.id)!;
+    final threadId = updatedCommunity.groups.first.threadId;
     expect(threadId, isNotNull);
+    expect(updatedCommunity.announcementThreadId, isNotNull);
     expect(chatsController.threadById(threadId!)?.isGroup, isTrue);
+  });
+
+  test('resolves community context for announcement and group threads',
+      () async {
+    final controller = CommunitiesController(
+      repository: FakeCommunitiesRepository(latency: Duration.zero),
+      permissionService: MemoryAppPermissionService(),
+    );
+
+    await controller.loadOverview();
+
+    final studio = controller.communityById('studio-community')!;
+    final announcementContext = controller.communityContextForThread(
+      studio.announcementThreadId!,
+    );
+    expect(announcementContext?.community.id, 'studio-community');
+    expect(announcementContext?.isAnnouncement, isTrue);
+
+    final groupContext = controller.communityContextForThread(
+      studio.groups.first.threadId!,
+    );
+    expect(groupContext?.community.id, 'studio-community');
+    expect(groupContext?.isAnnouncement, isFalse);
   });
 
   test('shares an app invite for an off-app contact', () async {

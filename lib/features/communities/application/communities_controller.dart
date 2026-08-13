@@ -7,9 +7,8 @@ import '../data/communities_overview.dart';
 import '../data/communities_repository.dart';
 import '../domain/community_contact.dart';
 import '../domain/community_hub.dart';
+import '../domain/community_thread_context.dart';
 import '../domain/contact_access_status.dart';
-
-enum CommunityListFilter { all, unread, announcements }
 
 enum ContactListFilter { all, onWhatsWave, invite }
 
@@ -46,7 +45,6 @@ class CommunitiesController extends ChangeNotifier {
   bool _isRequestingContactsAccess = false;
   String? _errorMessage;
   String _searchQuery = '';
-  CommunityListFilter _communityFilter = CommunityListFilter.all;
   ContactListFilter _contactFilter = ContactListFilter.all;
   ContactAccessStatus _contactAccessStatus = ContactAccessStatus.unknown;
   List<CommunityHub> _communities = const <CommunityHub>[];
@@ -61,7 +59,6 @@ class CommunitiesController extends ChangeNotifier {
   bool get isRequestingContactsAccess => _isRequestingContactsAccess;
   String? get errorMessage => _errorMessage;
   String get searchQuery => _searchQuery;
-  CommunityListFilter get communityFilter => _communityFilter;
   ContactListFilter get contactFilter => _contactFilter;
   ContactAccessStatus get contactAccessStatus => _contactAccessStatus;
   List<CommunityHub> get communities =>
@@ -72,14 +69,6 @@ class CommunitiesController extends ChangeNotifier {
   List<CommunityHub> get visibleCommunities {
     final normalizedQuery = _searchQuery.trim().toLowerCase();
     return _communities.where((community) {
-      final matchesFilter = switch (_communityFilter) {
-        CommunityListFilter.all => true,
-        CommunityListFilter.unread => community.hasUnread,
-        CommunityListFilter.announcements => community.hasFreshAnnouncement,
-      };
-      if (!matchesFilter) {
-        return false;
-      }
       if (normalizedQuery.isEmpty) {
         return true;
       }
@@ -207,15 +196,6 @@ class CommunitiesController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void selectCommunityFilter(CommunityListFilter filter) {
-    if (_communityFilter == filter) {
-      return;
-    }
-
-    _communityFilter = filter;
-    notifyListeners();
-  }
-
   void selectContactFilter(ContactListFilter filter) {
     if (_contactFilter == filter) {
       return;
@@ -285,6 +265,28 @@ class CommunitiesController extends ChangeNotifier {
     for (final community in _communities) {
       if (community.id == communityId) {
         return community;
+      }
+    }
+    return null;
+  }
+
+  /// Resolves the parent community when [threadId] backs a community
+  /// announcements channel or one of its groups.
+  CommunityThreadContext? communityContextForThread(String threadId) {
+    for (final community in _communities) {
+      if (community.announcementThreadId == threadId) {
+        return CommunityThreadContext(
+          community: community,
+          isAnnouncement: true,
+        );
+      }
+      for (final group in community.groups) {
+        if (group.threadId == threadId) {
+          return CommunityThreadContext(
+            community: community,
+            isAnnouncement: false,
+          );
+        }
       }
     }
     return null;
@@ -398,13 +400,54 @@ class CommunitiesController extends ChangeNotifier {
     }
 
     if (didSucceed) {
-      await _ensureGroupThreadIfPossible(communityId);
+      await _ensureCommunityThreads(communityId);
     }
 
     _busyCommunityIds.remove(communityId);
     _busyContactIds.remove(contactId);
     notifyListeners();
     return didSucceed;
+  }
+
+  Future<void> _ensureCommunityThreads(String communityId) async {
+    await _ensureAnnouncementThreadIfPossible(communityId);
+    await _ensureGroupThreadIfPossible(communityId);
+  }
+
+  Future<void> _ensureAnnouncementThreadIfPossible(String communityId) async {
+    final createThread = _createGroupThread;
+    if (createThread == null) {
+      return;
+    }
+
+    final community = communityById(communityId);
+    if (community == null || community.announcementThreadId != null) {
+      return;
+    }
+
+    final memberUids = _memberUidsForCommunity(communityId);
+    if (memberUids.isEmpty) {
+      return;
+    }
+
+    try {
+      final threadId = await createThread(
+        name: 'Announcements',
+        memberUids: memberUids,
+        isCommunityGroup: true,
+      );
+      if (threadId == null) {
+        return;
+      }
+      final overview = await _repository.attachAnnouncementThread(
+        communityId: communityId,
+        threadId: threadId,
+      );
+      _communities = overview.communities;
+      _contacts = overview.contacts;
+    } catch (_) {
+      // Best-effort -- the invite itself already succeeded.
+    }
   }
 
   /// Backs a community's first group with a real [ChatThread] as soon as it
@@ -429,13 +472,7 @@ class CommunitiesController extends ChangeNotifier {
       return;
     }
 
-    final memberUids = <String>[
-      for (final contact in _contacts)
-        if (contact.matchedUid != null &&
-            (contact.memberCommunityIds.contains(communityId) ||
-                contact.pendingCommunityInviteIds.contains(communityId)))
-          contact.matchedUid!,
-    ];
+    final memberUids = _memberUidsForCommunity(communityId);
     if (memberUids.isEmpty) {
       return;
     }
@@ -459,6 +496,16 @@ class CommunitiesController extends ChangeNotifier {
     } catch (_) {
       // Best-effort -- the invite itself already succeeded.
     }
+  }
+
+  List<String> _memberUidsForCommunity(String communityId) {
+    return <String>[
+      for (final contact in _contacts)
+        if (contact.matchedUid != null &&
+            (contact.memberCommunityIds.contains(communityId) ||
+                contact.pendingCommunityInviteIds.contains(communityId)))
+          contact.matchedUid!,
+    ];
   }
 
   Future<bool> shareAppInvite(String contactId) async {

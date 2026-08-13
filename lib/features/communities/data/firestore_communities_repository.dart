@@ -254,6 +254,24 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
   }
 
   @override
+  Future<CommunitiesOverview> attachAnnouncementThread({
+    required String communityId,
+    required String threadId,
+  }) async {
+    _requireCurrentUid;
+    try {
+      await _communitiesRef.doc(communityId).update({
+        'announcementThreadId': threadId,
+      });
+    } on FirebaseException catch (e) {
+      throw CommunitiesRepositoryException(
+        e.message ?? 'Could not update announcements.',
+      );
+    }
+    return fetchOverview();
+  }
+
+  @override
   Future<CommunitiesOverview> inviteContactToCommunity({
     required String communityId,
     required String contactId,
@@ -388,6 +406,7 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
         (data['invitedContactIds'] as List<dynamic>?)?.cast<String>() ??
             const <String>[],
       ),
+      announcementThreadId: data['announcementThreadId'] as String?,
     );
   }
 
@@ -414,6 +433,8 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
       'accentColorArgb': community.accentColor.toARGB32(),
       'memberCount': community.memberCount,
       'unreadCount': community.unreadCount,
+      if (community.announcementThreadId != null)
+        'announcementThreadId': community.announcementThreadId,
       'announcement': {
         'headline': community.announcement.headline,
         'body': community.announcement.body,

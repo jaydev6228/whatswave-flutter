@@ -15,6 +15,7 @@ class CommunityHub {
     required this.groups,
     this.unreadCount = 0,
     this.invitedContactIds = const <String>[],
+    this.announcementThreadId,
   });
 
   final String id;
@@ -28,6 +29,9 @@ class CommunityHub {
   final int unreadCount;
   final List<String> invitedContactIds;
 
+  /// Backing [ChatThread] for the read-only announcements channel.
+  final String? announcementThreadId;
+
   int get groupCount => groups.length;
 
   bool get hasUnread => unreadCount > 0;
@@ -35,6 +39,32 @@ class CommunityHub {
   bool get hasFreshAnnouncement =>
       DateTime.now().difference(announcement.publishedAt) <=
       const Duration(days: 1);
+
+  /// Latest activity preview for the communities list row.
+  String get listPreview {
+    CommunityGroupPreview? latestGroup;
+    for (final group in groups) {
+      if (latestGroup == null ||
+          group.lastActivityAt.isAfter(latestGroup.lastActivityAt)) {
+        latestGroup = group;
+      }
+    }
+    if (latestGroup != null &&
+        latestGroup.lastActivityAt.isAfter(announcement.publishedAt)) {
+      return latestGroup.summary;
+    }
+    return announcement.headline;
+  }
+
+  DateTime get lastActivityAt {
+    var latest = announcement.publishedAt;
+    for (final group in groups) {
+      if (group.lastActivityAt.isAfter(latest)) {
+        latest = group.lastActivityAt;
+      }
+    }
+    return latest;
+  }
 
   CommunityHub copyWith({
     String? id,
@@ -47,6 +77,7 @@ class CommunityHub {
     List<CommunityGroupPreview>? groups,
     int? unreadCount,
     List<String>? invitedContactIds,
+    String? announcementThreadId,
   }) {
     return CommunityHub(
       id: id ?? this.id,
@@ -59,6 +90,7 @@ class CommunityHub {
       groups: groups ?? this.groups,
       unreadCount: unreadCount ?? this.unreadCount,
       invitedContactIds: invitedContactIds ?? this.invitedContactIds,
+      announcementThreadId: announcementThreadId ?? this.announcementThreadId,
     );
   }
 }

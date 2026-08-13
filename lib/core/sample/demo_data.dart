@@ -1,3 +1,5 @@
+import 'package:flutter/material.dart';
+
 import '../../app/theme/app_palette.dart';
 import '../models/app_user.dart';
 import '../models/channel_preview.dart';
@@ -307,7 +309,135 @@ abstract final class DemoData {
           ),
         ]),
       ),
+      ...buildCommunityChatThreads(now),
     ]);
+  }
+
+  static List<ChatThread> buildCommunityChatThreads(DateTime now) {
+    const me = GroupParticipant(
+      uid: 'me',
+      name: 'You',
+      avatarLabel: 'ME',
+      accentColor: AppPalette.slate,
+      isAdmin: true,
+      isSelf: true,
+    );
+
+    ChatThread communityThread({
+      required String id,
+      required String name,
+      required String avatarLabel,
+      required Color accentColor,
+      required int unreadCount,
+      required String previewText,
+      required DateTime sentAt,
+      required String senderName,
+    }) {
+      return ChatThread(
+        id: id,
+        name: name,
+        avatarLabel: avatarLabel,
+        accentColor: accentColor,
+        isGroup: true,
+        isCommunityGroup: true,
+        unreadCount: unreadCount,
+        participants: const [me],
+        messages: List<ChatMessage>.unmodifiable([
+          ChatMessage(
+            id: '$id-preview',
+            senderName: senderName,
+            sentAt: sentAt,
+            isFromCurrentUser: false,
+            text: previewText,
+          ),
+        ]),
+      );
+    }
+
+    return <ChatThread>[
+      communityThread(
+        id: 'studio-community-announcements',
+        name: 'Announcements',
+        avatarLabel: 'AN',
+        accentColor: AppPalette.green,
+        unreadCount: 2,
+        previewText:
+            'QA closes at 6 PM, release notes at 7 PM, and the announcement thread opens right after sign-off.',
+        sentAt: now.subtract(const Duration(hours: 3, minutes: 15)),
+        senderName: 'Studio admin',
+      ),
+      communityThread(
+        id: 'studio-launch-room',
+        name: 'Launch room',
+        avatarLabel: 'LR',
+        accentColor: AppPalette.green,
+        unreadCount: 4,
+        previewText: 'Release blockers, builds, and on-call coordination.',
+        sentAt: now.subtract(const Duration(minutes: 48)),
+        senderName: 'Marco',
+      ),
+      communityThread(
+        id: 'studio-design-critique',
+        name: 'Design critique',
+        avatarLabel: 'DC',
+        accentColor: AppPalette.green,
+        unreadCount: 2,
+        previewText: 'Motion tweaks, QA notes, and onboarding polish.',
+        sentAt: now.subtract(const Duration(hours: 1, minutes: 20)),
+        senderName: 'Ava',
+      ),
+      communityThread(
+        id: 'studio-sprint-ops',
+        name: 'Sprint ops',
+        avatarLabel: 'SO',
+        accentColor: AppPalette.green,
+        unreadCount: 0,
+        previewText: 'Planning, handoffs, and dependency tracking.',
+        sentAt: now.subtract(const Duration(hours: 4)),
+        senderName: 'Rina',
+      ),
+      communityThread(
+        id: 'friends-trip-2026-announcements',
+        name: 'Announcements',
+        avatarLabel: 'AN',
+        accentColor: AppPalette.amber,
+        unreadCount: 1,
+        previewText:
+            'Terminal maps, baggage rules, and the airport meetup point are all in the announcement channel now.',
+        sentAt: now.subtract(const Duration(days: 1, hours: 5)),
+        senderName: 'Noah',
+      ),
+      communityThread(
+        id: 'trip-flights',
+        name: 'Flights',
+        avatarLabel: 'FL',
+        accentColor: AppPalette.amber,
+        unreadCount: 1,
+        previewText: 'Tickets, gate changes, and airport timing.',
+        sentAt: now.subtract(const Duration(hours: 2, minutes: 10)),
+        senderName: 'Noah',
+      ),
+      communityThread(
+        id: 'trip-stay',
+        name: 'Stay',
+        avatarLabel: 'ST',
+        accentColor: AppPalette.amber,
+        unreadCount: 0,
+        previewText: 'Check-in timing, room swaps, and local transport.',
+        sentAt: now.subtract(const Duration(hours: 9)),
+        senderName: 'Ken',
+      ),
+      communityThread(
+        id: 'trip-budget',
+        name: 'Budget',
+        avatarLabel: 'BG',
+        accentColor: AppPalette.amber,
+        unreadCount: 1,
+        previewText: 'Splitwise reminders and ticket reimbursement.',
+        sentAt: now.subtract(const Duration(hours: 14)),
+        senderName: 'Ava',
+      ),
+    ];
   }
 
   static const List<StatusStory> stories = [
@@ -594,6 +724,7 @@ abstract final class DemoData {
         accentColor: AppPalette.green,
         memberCount: 48,
         unreadCount: 9,
+        announcementThreadId: 'studio-community-announcements',
         announcement: CommunityAnnouncement(
           headline: 'Launch checklist locked for tonight',
           body:
@@ -608,6 +739,7 @@ abstract final class DemoData {
             memberCount: 18,
             unreadCount: 4,
             lastActivityAt: now.subtract(const Duration(minutes: 48)),
+            threadId: 'studio-launch-room',
           ),
           CommunityGroupPreview(
             id: 'studio-design-critique',
@@ -616,6 +748,7 @@ abstract final class DemoData {
             memberCount: 11,
             unreadCount: 2,
             lastActivityAt: now.subtract(const Duration(hours: 1, minutes: 20)),
+            threadId: 'studio-design-critique',
           ),
           CommunityGroupPreview(
             id: 'studio-sprint-ops',
@@ -624,6 +757,7 @@ abstract final class DemoData {
             memberCount: 24,
             unreadCount: 0,
             lastActivityAt: now.subtract(const Duration(hours: 4)),
+            threadId: 'studio-sprint-ops',
           ),
         ],
       ),
@@ -636,6 +770,7 @@ abstract final class DemoData {
         accentColor: AppPalette.amber,
         memberCount: 11,
         unreadCount: 2,
+        announcementThreadId: 'friends-trip-2026-announcements',
         announcement: CommunityAnnouncement(
           headline: 'Flight reminders are pinned',
           body:
@@ -650,6 +785,7 @@ abstract final class DemoData {
             memberCount: 11,
             unreadCount: 1,
             lastActivityAt: now.subtract(const Duration(hours: 2, minutes: 10)),
+            threadId: 'trip-flights',
           ),
           CommunityGroupPreview(
             id: 'trip-stay',
@@ -658,6 +794,7 @@ abstract final class DemoData {
             memberCount: 8,
             unreadCount: 0,
             lastActivityAt: now.subtract(const Duration(hours: 9)),
+            threadId: 'trip-stay',
           ),
           CommunityGroupPreview(
             id: 'trip-budget',
@@ -666,6 +803,7 @@ abstract final class DemoData {
             memberCount: 6,
             unreadCount: 1,
             lastActivityAt: now.subtract(const Duration(hours: 14)),
+            threadId: 'trip-budget',
           ),
         ],
       ),
@@ -691,11 +829,11 @@ abstract final class DemoData {
           .join(),
       accentColor: AppPalette.emerald,
       memberCount: 1,
-      unreadCount: 1,
+      unreadCount: 0,
       announcement: CommunityAnnouncement(
         headline: 'Welcome to $title',
         body:
-            'This community is ready for announcements, group previews, and invites.',
+            'Admins can post updates here. Members can read announcements but not reply.',
         publishedAt: now,
       ),
       groups: <CommunityGroupPreview>[
@@ -704,7 +842,7 @@ abstract final class DemoData {
           name: 'General',
           summary: 'Shared updates and the first coordination thread.',
           memberCount: 1,
-          unreadCount: 1,
+          unreadCount: 0,
           lastActivityAt: now,
         ),
       ],

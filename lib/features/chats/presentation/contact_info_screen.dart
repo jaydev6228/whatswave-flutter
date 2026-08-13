@@ -3,10 +3,14 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../../../core/media/avatar_photo_picker.dart';
+import '../../calls/application/calls_controller.dart';
 import '../../communities/application/communities_controller.dart';
+import '../../communities/domain/community_hub.dart';
+import '../../communities/presentation/community_detail_screen.dart';
 import '../../shared/widgets/avatar_badge.dart';
 import '../../shared/widgets/error_dialog.dart';
 import '../../shared/widgets/thread_avatar.dart';
+import '../../updates/application/updates_controller.dart';
 import '../application/chats_controller.dart';
 import '../domain/chat_attachment.dart';
 import '../domain/chat_thread.dart';
@@ -23,12 +27,16 @@ class ContactInfoScreen extends StatefulWidget {
   const ContactInfoScreen({
     required this.controller,
     required this.communitiesController,
+    required this.callsController,
+    required this.updatesController,
     required this.threadId,
     super.key,
   });
 
   final ChatsController controller;
   final CommunitiesController communitiesController;
+  final CallsController callsController;
+  final UpdatesController updatesController;
   final String threadId;
 
   @override
@@ -75,10 +83,21 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: widget.controller,
+      animation: Listenable.merge([
+        widget.controller,
+        widget.communitiesController,
+      ]),
       builder: (context, _) {
         final theme = Theme.of(context);
         final thread = widget.controller.threadById(widget.threadId);
+        final communityContext =
+            widget.communitiesController.communityContextForThread(
+          widget.threadId,
+        );
+        final isCommunityAnnouncement =
+            communityContext?.isAnnouncement ?? false;
+        final isCommunityGroup =
+            thread?.isCommunityGroup ?? communityContext != null;
 
         if (thread == null) {
           return Scaffold(
@@ -101,8 +120,9 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
             )
             .toList(growable: false);
 
-        final canEditGroup =
-            thread.isGroup && thread.currentUserIsGroupAdmin;
+        final canEditGroup = thread.isGroup &&
+            thread.currentUserIsGroupAdmin &&
+            !isCommunityAnnouncement;
         final isGroupIconBusy =
             widget.controller.isThreadBusy(thread.id);
 
@@ -195,9 +215,12 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                                 ),
                               const SizedBox(height: 4),
                               Text(
-                                thread.isGroup
-                                    ? 'Group · ${thread.messages.length} messages'
-                                    : 'Contact',
+                                _groupSubtitle(
+                                  thread: thread,
+                                  isCommunityGroup: isCommunityGroup,
+                                  isCommunityAnnouncement:
+                                      isCommunityAnnouncement,
+                                ),
                                 style: theme.textTheme.bodyMedium?.copyWith(
                                   color: theme.colorScheme.onSurface
                                       .withValues(alpha: 0.64),
@@ -229,6 +252,50 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                           ),
                         ),
                         const SizedBox(height: 28),
+                        if (communityContext != null) ...[
+                          Text(
+                            'Community',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          _FlatInfoPanel(
+                            padding: EdgeInsets.zero,
+                            child: _CommunityLinkRow(
+                              community: communityContext.community,
+                              onTap: () => _openCommunity(
+                                communityContext.community.id,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 28),
+                        ],
+                        if (isCommunityAnnouncement) ...[
+                          _FlatInfoPanel(
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Icon(
+                                  Icons.info_outline_rounded,
+                                  color: theme.colorScheme.primary,
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Text(
+                                    'Only community admins can send messages here. '
+                                    'Members can read announcements but not reply.',
+                                    style: theme.textTheme.bodyMedium?.copyWith(
+                                      color: theme.colorScheme.onSurface
+                                          .withValues(alpha: 0.76),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 28),
+                        ],
                         if (thread.isGroup) ...[
                           if (_isEditingGroup && canEditGroup)
                             TextField(
@@ -289,7 +356,8 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                             padding: EdgeInsets.zero,
                             child: Column(
                               children: [
-                                if (thread.currentUserIsGroupAdmin) ...[
+                                if (thread.currentUserIsGroupAdmin &&
+                                    !isCommunityAnnouncement) ...[
                                   _ActionRow(
                                     actionKey: const Key(
                                       'contact_info_add_participants_button',
@@ -383,7 +451,7 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                                 color: theme.colorScheme.outlineVariant
                                     .withValues(alpha: 0.24),
                               ),
-                              if (thread.isGroup)
+                              if (thread.isGroup && !isCommunityAnnouncement)
                                 _ActionRow(
                                   actionKey: const Key(
                                     'contact_info_exit_group_button',
@@ -392,7 +460,7 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                                   label: 'Exit group',
                                   onTap: () => _confirmLeaveGroup(thread),
                                 )
-                              else
+                              else if (!thread.isGroup)
                                 _ActionRow(
                                   actionKey:
                                       const Key('contact_info_block_button'),
@@ -416,6 +484,25 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
           ),
         );
       },
+    );
+  }
+
+  Future<void> _openCommunity(String communityId) async {
+    await widget.communitiesController.openCommunity(communityId);
+    if (!mounted) {
+      return;
+    }
+
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => CommunityDetailScreen(
+          controller: widget.communitiesController,
+          chatsController: widget.controller,
+          callsController: widget.callsController,
+          updatesController: widget.updatesController,
+          communityId: communityId,
+        ),
+      ),
     );
   }
 
@@ -804,6 +891,89 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
 }
 
 enum _ParticipantAction { toggleAdmin, remove }
+
+String _groupSubtitle({
+  required ChatThread thread,
+  required bool isCommunityGroup,
+  required bool isCommunityAnnouncement,
+}) {
+  final messageCount = '${thread.messages.length} messages';
+  if (isCommunityAnnouncement) {
+    return 'Announcements · $messageCount';
+  }
+  if (isCommunityGroup) {
+    return 'Community group · $messageCount';
+  }
+  if (thread.isGroup) {
+    return 'Group · $messageCount';
+  }
+  return 'Contact';
+}
+
+class _CommunityLinkRow extends StatelessWidget {
+  const _CommunityLinkRow({
+    required this.community,
+    required this.onTap,
+  });
+
+  final CommunityHub community;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        key: Key('contact_info_community_link_${community.id}'),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Row(
+            children: [
+              AvatarBadge(
+                label: community.avatarLabel,
+                color: community.accentColor,
+                size: 44,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      community.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${community.memberCount} members · ${community.groupCount} groups',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurface
+                            .withValues(alpha: 0.64),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class _FlatInfoPanel extends StatelessWidget {
   const _FlatInfoPanel({

@@ -14,9 +14,10 @@ import '../../updates/application/updates_controller.dart';
 import '../application/communities_controller.dart';
 import '../domain/app_invite_link.dart';
 import '../domain/community_contact.dart';
-import '../domain/community_group_preview.dart';
 import '../domain/community_hub.dart';
 import '../domain/contact_access_status.dart';
+import 'community_time_format.dart';
+import 'community_unread.dart';
 
 class CommunityDetailScreen extends StatelessWidget {
   const CommunityDetailScreen({
@@ -37,7 +38,10 @@ class CommunityDetailScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: controller,
+      animation: Listenable.merge([
+        controller,
+        chatsController,
+      ]),
       builder: (context, _) {
         final community = controller.communityById(communityId);
         if (community == null) {
@@ -60,6 +64,12 @@ class CommunityDetailScreen extends StatelessWidget {
           appBar: AppBar(
             title: Text(community.title),
             actions: [
+              IconButton(
+                key: const Key('community_detail_invite_button'),
+                tooltip: 'Invite members',
+                onPressed: () => _showInviteSheet(context, community),
+                icon: const Icon(Icons.person_add_outlined),
+              ),
               PopupMenuButton<_CommunityDetailMenuAction>(
                 key: const Key('community_detail_menu_button'),
                 onSelected: (action) async {
@@ -89,81 +99,55 @@ class CommunityDetailScreen extends StatelessWidget {
           ),
           body: SafeArea(
             bottom: false,
-            child: CustomScrollView(
-              slivers: [
-                SliverPadding(
-                  padding: EdgeInsets.fromLTRB(
-                    16,
-                    12,
-                    16,
-                    24 + MediaQuery.paddingOf(context).bottom,
+            child: ListView(
+              padding: EdgeInsets.only(
+                bottom: 24 + MediaQuery.paddingOf(context).bottom,
+              ),
+              children: [
+                const SizedBox(height: 8),
+                _CommunityHeader(community: community),
+                const SizedBox(height: 12),
+                _CommunityChatRow(
+                  key: const Key('community_detail_announcements_row'),
+                  leadingIcon: Icons.campaign_outlined,
+                  leadingBackground:
+                      Theme.of(context).colorScheme.primary.withValues(alpha: 0.14),
+                  leadingColor: Theme.of(context).colorScheme.primary,
+                  title: 'Announcements',
+                  subtitle: community.announcement.headline,
+                  timestamp: community.announcement.publishedAt,
+                  unreadCount: CommunityUnread.forAnnouncements(
+                    chatsController,
+                    community,
                   ),
-                  sliver: SliverToBoxAdapter(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _CommunityHeroCard(community: community),
-                        const SizedBox(height: 18),
-                        FilledButton.tonalIcon(
-                          key: const Key('community_detail_invite_button'),
-                          onPressed: () async {
-                            await showModalBottomSheet<void>(
-                              context: context,
-                              showDragHandle: true,
-                              isScrollControlled: true,
-                              builder: (_) {
-                                return FractionallySizedBox(
-                                  heightFactor: 0.82,
-                                  child: _CommunityDetailInviteSheet(
-                                    controller: controller,
-                                    community: community,
-                                  ),
-                                );
-                              },
-                            );
-                          },
-                          icon: const Icon(Icons.group_add_outlined),
-                          label: const Text('Invite people'),
-                          style: FilledButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 12,
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 24),
-                        Text(
-                          'Announcement channel',
-                          style:
-                              Theme.of(context).textTheme.titleMedium?.copyWith(
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                        ),
-                        const SizedBox(height: 12),
-                        _AnnouncementCard(community: community),
-                        const SizedBox(height: 24),
-                        Text(
-                          'Group previews',
-                          style:
-                              Theme.of(context).textTheme.titleMedium?.copyWith(
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                        ),
-                        const SizedBox(height: 12),
-                        _CommunityGroupPreviewPanel(
-                          groups: community.groups,
-                          onOpenGroup: (group) => _openGroupThread(
+                  onTap: community.announcementThreadId == null
+                      ? null
+                      : () => _openThread(
                             context,
-                            group: group,
+                            threadId: community.announcementThreadId!,
                           ),
-                        ),
-                      ],
-                    ),
-                  ),
                 ),
+                ...community.groups.map((group) {
+                  return _CommunityChatRow(
+                    key: Key('community_detail_group_${group.id}'),
+                    leadingIcon: Icons.groups_outlined,
+                    leadingBackground: community.accentColor
+                        .withValues(alpha: 0.14),
+                    leadingColor: community.accentColor,
+                    title: group.name,
+                    subtitle: group.threadId == null
+                        ? 'Invite members to start chatting'
+                        : group.summary,
+                    timestamp: group.lastActivityAt,
+                    unreadCount: CommunityUnread.forGroup(
+                      chatsController,
+                      group,
+                    ),
+                    onTap: group.threadId == null
+                        ? null
+                        : () => _openThread(context, threadId: group.threadId!),
+                  );
+                }),
               ],
             ),
           ),
@@ -172,14 +156,31 @@ class CommunityDetailScreen extends StatelessWidget {
     );
   }
 
-  Future<void> _openGroupThread(
+  Future<void> _showInviteSheet(
+    BuildContext context,
+    CommunityHub community,
+  ) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (_) {
+        return FractionallySizedBox(
+          heightFactor: 0.82,
+          child: _CommunityDetailInviteSheet(
+            controller: controller,
+            community: community,
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _openThread(
     BuildContext context, {
-    required CommunityGroupPreview group,
+    required String threadId,
   }) async {
-    final threadId = group.threadId;
-    if (threadId == null) {
-      return;
-    }
+    chatsController.openThread(threadId);
 
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
@@ -243,6 +244,186 @@ Future<void> _confirmAndDeleteCommunity(
   } else if (controller.errorMessage != null) {
     await showErrorDialog(context, controller.errorMessage!);
     controller.clearError();
+  }
+}
+
+class _CommunityHeader extends StatelessWidget {
+  const _CommunityHeader({required this.community});
+
+  final CommunityHub community;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Column(
+        children: [
+          AvatarBadge(
+            label: community.avatarLabel,
+            color: community.accentColor,
+            size: 88,
+          ),
+          const SizedBox(height: 14),
+          Text(
+            community.title,
+            textAlign: TextAlign.center,
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '${community.memberCount} members · ${community.groupCount} groups',
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.68),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          if (community.description.trim().isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Text(
+              community.description,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.72),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _CommunityChatRow extends StatelessWidget {
+  const _CommunityChatRow({
+    required this.leadingIcon,
+    required this.leadingBackground,
+    required this.leadingColor,
+    required this.title,
+    required this.subtitle,
+    required this.timestamp,
+    required this.unreadCount,
+    required this.onTap,
+    super.key,
+  });
+
+  final IconData leadingIcon;
+  final Color leadingBackground;
+  final Color leadingColor;
+  final String title;
+  final String subtitle;
+  final DateTime timestamp;
+  final int unreadCount;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final enabled = onTap != null;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              CircleAvatar(
+                radius: 24,
+                backgroundColor: leadingBackground,
+                child: Icon(
+                  leadingIcon,
+                  color: leadingColor,
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Opacity(
+                  opacity: enabled ? 1 : 0.72,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                          Text(
+                            formatCommunityTimestamp(timestamp),
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: theme.colorScheme.onSurface
+                                  .withValues(alpha: 0.56),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              subtitle,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: unreadCount > 0
+                                    ? theme.colorScheme.onSurface
+                                    : theme.colorScheme.onSurface
+                                        .withValues(alpha: 0.68),
+                                fontWeight: unreadCount > 0
+                                    ? FontWeight.w700
+                                    : FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                          if (unreadCount > 0) ...[
+                            const SizedBox(width: 8),
+                            CircleAvatar(
+                              radius: 10,
+                              backgroundColor: theme.colorScheme.primary,
+                              child: Text(
+                                unreadCount > 99 ? '99+' : '$unreadCount',
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  color: theme.colorScheme.onPrimary,
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 10,
+                                ),
+                              ),
+                            ),
+                          ] else if (enabled) ...[
+                            const SizedBox(width: 4),
+                            Icon(
+                              Icons.chevron_right_rounded,
+                              color: theme.colorScheme.onSurface
+                                  .withValues(alpha: 0.38),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -396,14 +577,14 @@ class _CommunityDetailInviteSheetState
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Invite people',
+                    'Add members',
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(
                           fontWeight: FontWeight.w900,
                         ),
                   ),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 8),
                   Text(
-                    'Search contacts and send a community invite or app link for ${community.title}.',
+                    'Search your contacts to add people to ${community.title}.',
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           color: Theme.of(context)
                               .colorScheme
@@ -416,7 +597,7 @@ class _CommunityDetailInviteSheetState
                     fieldKey:
                         const Key('community_detail_invite_search_field'),
                     controller: _searchController,
-                    hintText: 'Search contacts, numbers, or notes',
+                    hintText: 'Search name or number',
                     onTapOutside: (_) => FocusScope.of(context).unfocus(),
                   ),
                   const SizedBox(height: 16),
@@ -504,9 +685,9 @@ class _CommunityDetailInviteSheetState
                         else ...[
                           if (readyContacts.isNotEmpty)
                             _CommunityInviteSection(
-                              title: 'Ready to invite',
+                              title: 'Add to community',
                               subtitle:
-                                  'These contacts are already on WhatsWave and can join right away.',
+                                  'These contacts are on WhatsWave and can be added now.',
                               children: readyContacts
                                   .map(
                                     (contact) => _buildInviteListItem(
@@ -519,7 +700,7 @@ class _CommunityDetailInviteSheetState
                             ),
                           if (invitedContacts.isNotEmpty)
                             _CommunityInviteSection(
-                              title: 'Invite pending',
+                              title: 'Pending',
                               subtitle:
                                   'These people already have a community invite waiting.',
                               children: invitedContacts
@@ -534,7 +715,7 @@ class _CommunityDetailInviteSheetState
                             ),
                           if (memberContacts.isNotEmpty)
                             _CommunityInviteSection(
-                              title: 'Already in this community',
+                              title: 'Already added',
                               subtitle:
                                   'These contacts are already part of ${community.title}.',
                               children: memberContacts
@@ -549,7 +730,7 @@ class _CommunityDetailInviteSheetState
                             ),
                           if (needsAppInviteContacts.isNotEmpty)
                             _CommunityInviteSection(
-                              title: 'Needs app invite first',
+                              title: 'Invite to WhatsWave first',
                               subtitle:
                                   'Share the app with these contacts before adding them to this community.',
                               children: needsAppInviteContacts
@@ -599,13 +780,13 @@ class _CommunityDetailInviteSheetState
     } else {
       switch (membershipState) {
         case CommunityMembershipState.none:
-          label = isBusy ? 'Inviting...' : 'Invite';
+          label = isBusy ? 'Adding...' : 'Add';
           onPressed = isBusy ? null : () => _inviteContact(contact);
         case CommunityMembershipState.invited:
-          label = 'Invited';
+          label = 'Pending';
           onPressed = null;
         case CommunityMembershipState.member:
-          label = 'Member';
+          label = 'Added';
           onPressed = null;
       }
     }
@@ -725,16 +906,6 @@ class _CommunityInviteListItem extends StatelessWidget {
                               .withValues(alpha: 0.72),
                         ),
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        contact.about,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurface
-                              .withValues(alpha: 0.62),
-                        ),
-                      ),
                     ],
                   ),
                 ),
@@ -750,23 +921,11 @@ class _CommunityInviteListItem extends StatelessWidget {
                         borderRadius: BorderRadius.circular(14),
                       ),
                     ),
-                    child: AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 140),
-                      switchInCurve: Curves.easeOutCubic,
-                      switchOutCurve: Curves.easeInCubic,
-                      transitionBuilder: (child, animation) {
-                        return FadeTransition(
-                          opacity: animation,
-                          child: child,
-                        );
-                      },
-                      child: Text(
-                        label,
-                        key: ValueKey(label),
-                        maxLines: 1,
-                        overflow: TextOverflow.fade,
-                        softWrap: false,
-                      ),
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.fade,
+                      softWrap: false,
                     ),
                   ),
                 ),
@@ -777,248 +936,4 @@ class _CommunityInviteListItem extends StatelessWidget {
       ),
     );
   }
-}
-
-class _CommunityHeroCard extends StatelessWidget {
-  const _CommunityHeroCard({required this.community});
-
-  final CommunityHub community;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return _FlatCommunityPanel(
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          AvatarBadge(
-            label: community.avatarLabel,
-            color: community.accentColor,
-            size: 64,
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  community.title,
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(community.description),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    Chip(
-                      label: Text('${community.memberCount} members'),
-                    ),
-                    Chip(
-                      label: Text('${community.groupCount} groups'),
-                    ),
-                    if (community.invitedContactIds.isNotEmpty)
-                      Chip(
-                        label: Text(
-                          '${community.invitedContactIds.length} invited',
-                        ),
-                      ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _AnnouncementCard extends StatelessWidget {
-  const _AnnouncementCard({required this.community});
-
-  final CommunityHub community;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return _FlatCommunityPanel(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            community.announcement.headline,
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(community.announcement.body),
-          const SizedBox(height: 12),
-          Text(
-            _formatRelativeTime(community.announcement.publishedAt),
-            style: theme.textTheme.labelLarge?.copyWith(
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _CommunityGroupPreviewPanel extends StatelessWidget {
-  const _CommunityGroupPreviewPanel({
-    required this.groups,
-    required this.onOpenGroup,
-  });
-
-  final List<CommunityGroupPreview> groups;
-  final ValueChanged<CommunityGroupPreview> onOpenGroup;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return _FlatCommunityPanel(
-      padding: EdgeInsets.zero,
-      child: Column(
-        children: List<Widget>.generate(groups.length, (index) {
-          final group = groups[index];
-          final hasThread = group.threadId != null;
-          return Column(
-            children: [
-              Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  key: Key('community_detail_group_${group.id}'),
-                  onTap: hasThread ? () => onOpenGroup(group) : null,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 14,
-                    ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: Opacity(
-                            opacity: hasThread ? 1 : 0.6,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  group.name,
-                                  style:
-                                      theme.textTheme.titleSmall?.copyWith(
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                                const SizedBox(height: 6),
-                                Text(
-                                  hasThread
-                                      ? group.summary
-                                      : 'Setting up messaging…',
-                                  style: theme.textTheme.bodyMedium?.copyWith(
-                                    color: theme.colorScheme.onSurface
-                                        .withValues(alpha: 0.72),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                        if (group.unreadCount > 0) ...[
-                          const SizedBox(width: 12),
-                          CircleAvatar(
-                            radius: 12,
-                            backgroundColor: theme.colorScheme.primary,
-                            child: Text(
-                              '${group.unreadCount}',
-                              style: theme.textTheme.labelSmall?.copyWith(
-                                color: theme.colorScheme.onPrimary,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ),
-                        ] else if (hasThread) ...[
-                          const SizedBox(width: 8),
-                          Icon(
-                            Icons.chevron_right_rounded,
-                            color: theme.colorScheme.onSurface
-                                .withValues(alpha: 0.4),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              if (index != groups.length - 1)
-                Divider(
-                  height: 1,
-                  indent: 16,
-                  endIndent: 16,
-                  color:
-                      theme.colorScheme.outlineVariant.withValues(alpha: 0.22),
-                ),
-            ],
-          );
-        }),
-      ),
-    );
-  }
-}
-
-class _FlatCommunityPanel extends StatelessWidget {
-  const _FlatCommunityPanel({
-    required this.child,
-    this.padding = const EdgeInsets.all(16),
-  });
-
-  final Widget child;
-  final EdgeInsetsGeometry padding;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Container(
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.24),
-        ),
-      ),
-      child: Padding(
-        padding: padding,
-        child: child,
-      ),
-    );
-  }
-}
-
-String _formatRelativeTime(DateTime timestamp) {
-  final now = DateTime.now();
-  final startOfToday = DateTime(now.year, now.month, now.day);
-  final startOfTimestamp =
-      DateTime(timestamp.year, timestamp.month, timestamp.day);
-  final dayDifference = startOfToday.difference(startOfTimestamp).inDays;
-
-  final hour = timestamp.hour % 12 == 0 ? 12 : timestamp.hour % 12;
-  final meridiem = timestamp.hour >= 12 ? 'PM' : 'AM';
-  final timeLabel =
-      '$hour:${timestamp.minute.toString().padLeft(2, '0')} $meridiem';
-
-  if (dayDifference == 0) {
-    return 'Today, $timeLabel';
-  }
-  if (dayDifference == 1) {
-    return 'Yesterday, $timeLabel';
-  }
-  return '${timestamp.month}/${timestamp.day}, $timeLabel';
 }

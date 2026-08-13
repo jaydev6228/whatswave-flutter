@@ -68,16 +68,18 @@ class FakeCommunitiesRepository implements CommunitiesRepository {
 
     final normalizedTitle = title.trim();
     final normalizedDescription = description.trim();
-    if (normalizedTitle.isEmpty || normalizedDescription.isEmpty) {
+    if (normalizedTitle.isEmpty) {
       throw const CommunitiesRepositoryException(
-        'Add a name and a short description before creating a community.',
+        'Add a community name before creating it.',
       );
     }
 
     final newCommunity = DemoData.buildDraftCommunity(
       id: 'community-${_createdCommunitySequence++}',
       title: normalizedTitle,
-      description: normalizedDescription,
+      description: normalizedDescription.isEmpty
+          ? 'A community for $normalizedTitle'
+          : normalizedDescription,
     );
     _communities = List<CommunityHub>.unmodifiable([
       newCommunity,
@@ -129,6 +131,23 @@ class FakeCommunitiesRepository implements CommunitiesRepository {
             return group.copyWith(threadId: threadId);
           }).toList(growable: false),
         );
+      }),
+    );
+    return _buildOverview();
+  }
+
+  @override
+  Future<CommunitiesOverview> attachAnnouncementThread({
+    required String communityId,
+    required String threadId,
+  }) async {
+    await _wait();
+    _communities = List<CommunityHub>.unmodifiable(
+      _communities.map((community) {
+        if (community.id != communityId) {
+          return community;
+        }
+        return community.copyWith(announcementThreadId: threadId);
       }),
     );
     return _buildOverview();
