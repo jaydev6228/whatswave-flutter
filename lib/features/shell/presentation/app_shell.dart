@@ -16,6 +16,7 @@ import '../../communities/presentation/communities_screen.dart';
 import '../../settings/presentation/settings_screen.dart';
 import '../../updates/application/updates_controller.dart';
 import 'floating_tab_bar.dart';
+import 'tab_crossfade_stack.dart';
 
 enum AppTab { chats, communities, calls, settings }
 
@@ -101,7 +102,7 @@ class _AppShellState extends State<AppShell> {
     return Scaffold(
       body: Stack(
         children: [
-          IndexedStack(
+          TabCrossfadeStack(
             index: _currentTab.index,
             children: pages,
           ),
@@ -120,8 +121,9 @@ class _AppShellState extends State<AppShell> {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      if (showComposeFab)
-                        Padding(
+                      FloatingTabBarFabTransition(
+                        visible: showComposeFab,
+                        child: Padding(
                           padding: const EdgeInsets.only(right: 16, bottom: 14),
                           child: FloatingTabBarFab(
                             icon: Icons.add_comment_outlined,
@@ -129,6 +131,7 @@ class _AppShellState extends State<AppShell> {
                             onPressed: () => _openNewChat(context),
                           ),
                         ),
+                      ),
                       FloatingTabBar(
                         selectedIndex: _currentTab.index,
                         onDestinationSelected: (index) {
