@@ -15,6 +15,19 @@ import 'group_call_presence_bubbles.dart';
 
 const Alignment _audioFallbackStageAlignment = Alignment(0, -0.08);
 
+/// For a 2-participant group call, the counterpart to show full-screen --
+/// mirrors a regular 1:1 call rather than a cramped 2-tile grid.
+GroupCallParticipantView? _otherGroupParticipant(
+  List<GroupCallParticipantView> participants,
+) {
+  for (final participant in participants) {
+    if (!participant.isSelf) {
+      return participant;
+    }
+  }
+  return participants.isEmpty ? null : participants.first;
+}
+
 class CallExperienceScreen extends StatefulWidget {
   const CallExperienceScreen({
     required this.controller,
@@ -169,6 +182,17 @@ class _VideoCallLayout extends StatelessWidget {
         final textColor = scheme.primaryText;
         final isConnected = session.phase == CallSessionPhase.connected;
         final isGroupVideo = session.contact.isGroup;
+        final groupParticipants =
+            isGroupVideo ? controller.groupCallParticipants : const <GroupCallParticipantView>[];
+        // A 2-person group call gets the same full-screen-remote +
+        // PiP-local chrome as a real 1:1 call instead of a cramped 2-tile
+        // grid -- it *is* effectively a 1:1 call at that point.
+        final isTwoPersonGroupVideo = isGroupVideo && groupParticipants.length == 2;
+        final showOneOnOneChrome = !isGroupVideo || isTwoPersonGroupVideo;
+        final headerName = isTwoPersonGroupVideo
+            ? _otherGroupParticipant(groupParticipants)?.displayName ??
+                session.contact.name
+            : session.contact.name;
 
         // Chrome overlaid on top of the full-screen remote video behind
         // this (see _CallExperienceScreenState.build). No "Video call"
@@ -180,7 +204,7 @@ class _VideoCallLayout extends StatelessWidget {
         // call").
         return Stack(
           children: [
-            if (isConnected && !isGroupVideo)
+            if (isConnected && showOneOnOneChrome)
               Positioned(
                 top: 0,
                 left: 0,
@@ -189,7 +213,7 @@ class _VideoCallLayout extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      _displayCallName(session.contact.name),
+                      _displayCallName(headerName),
                       key: const Key('call_name_text'),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -211,7 +235,7 @@ class _VideoCallLayout extends StatelessWidget {
                   ],
                 ),
               ),
-            if (!isGroupVideo)
+            if (showOneOnOneChrome)
               Positioned(
                 top: previewMargin,
                 right: previewMargin,
@@ -395,12 +419,23 @@ class _VideoAmbientStage extends StatelessWidget {
   Widget build(BuildContext context) {
     final accentColor = session.contact.accentColor;
     final secondaryGlow = Color.lerp(AppPalette.sky, AppPalette.purple, 0.55)!;
-    final remoteTrack = session.isReal ? controller.remoteVideoTrack : null;
     final isGroupVideo = session.contact.isGroup;
-    final showGroupVideoGrid = isGroupVideo;
-    final showRemoteVideo = !showGroupVideoGrid &&
+    final groupParticipants =
+        isGroupVideo ? controller.groupCallParticipants : const <GroupCallParticipantView>[];
+    // A 2-person group call reads as a real 1:1 call: full-screen the
+    // other participant (with their own camera-off fallback) instead of
+    // splitting the screen into a cramped 2-tile grid.
+    final isTwoPersonGroupVideo = isGroupVideo && groupParticipants.length == 2;
+    final otherParticipant =
+        isTwoPersonGroupVideo ? _otherGroupParticipant(groupParticipants) : null;
+    final showGroupVideoGrid = isGroupVideo && !isTwoPersonGroupVideo;
+    final remoteTrack = session.isReal ? controller.remoteVideoTrack : null;
+    final showRemoteVideo = !isGroupVideo &&
         session.phase == CallSessionPhase.connected &&
         remoteTrack != null;
+    final showTwoPersonRemoteTile = isTwoPersonGroupVideo &&
+        session.phase == CallSessionPhase.connected &&
+        otherParticipant != null;
 
     return Stack(
       fit: StackFit.expand,
@@ -439,6 +474,16 @@ class _VideoAmbientStage extends StatelessWidget {
               controller: controller,
               session: session,
               scheme: scheme,
+            ),
+          )
+        else if (showTwoPersonRemoteTile)
+          Positioned.fill(
+            key: const Key('call_group_two_person_remote_tile'),
+            child: _GroupCallVideoTile(
+              participant: otherParticipant,
+              track: controller.remoteVideoTracksByUid[otherParticipant.uid],
+              scheme: scheme,
+              showBorder: false,
             ),
           )
         else if (showRemoteVideo)
@@ -1716,11 +1761,13 @@ class _GroupCallVideoTile extends StatelessWidget {
     required this.participant,
     required this.track,
     required this.scheme,
+    this.showBorder = true,
   });
 
   final GroupCallParticipantView participant;
   final lk.VideoTrack? track;
   final _CallVisualScheme scheme;
+  final bool showBorder;
 
   @override
   Widget build(BuildContext context) {
@@ -1732,10 +1779,12 @@ class _GroupCallVideoTile extends StatelessWidget {
 
     return DecoratedBox(
       decoration: BoxDecoration(
-        border: Border.all(
-          color: accent.withValues(alpha: 0.85),
-          width: borderWidth,
-        ),
+        border: showBorder
+            ? Border.all(
+                color: accent.withValues(alpha: 0.85),
+                width: borderWidth,
+              )
+            : null,
       ),
       child: Stack(
         fit: StackFit.expand,

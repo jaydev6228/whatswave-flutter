@@ -60,3 +60,8 @@ CLAUDE.md
 PROJECT_BRIEF_FOR_NEW_DEVELOPER.md
 TRANSFER_TO_NEW_PC.md
 docs/handoff/
+
+# Xcode's Swift Package Manager lockfile -- regenerated on every build as
+# upstream dependency patch versions shift, causing noise-only diffs with
+# no code change behind them (see gtm-session-fetcher 5.3.0 -> 5.3.1).
+ios/Runner.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
