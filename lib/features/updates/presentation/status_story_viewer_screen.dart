@@ -766,8 +766,7 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
       _hasHearted = nextLiked;
       _isTogglingHeart = true;
     });
-    final didSucceed =
-        await onSetStoryLiked(_story, segment.id, nextLiked);
+    final didSucceed = await onSetStoryLiked(_story, segment.id, nextLiked);
     if (!mounted) {
       return;
     }
@@ -1147,7 +1146,7 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
                                     : null,
                                 child: Text(
                                   story.isMine
-                                      ? '${_currentSegmentTimeLabel} • $_currentSegmentViewerCount '
+                                      ? '$_currentSegmentTimeLabel • $_currentSegmentViewerCount '
                                           '${_currentSegmentViewerCount == 1 ? 'view' : 'views'}'
                                       : _currentSegmentTimeLabel,
                                   key: story.isMine

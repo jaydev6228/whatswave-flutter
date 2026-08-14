@@ -28,7 +28,6 @@ import 'package:whatswave/features/chats/domain/story_reply_context.dart';
 import 'package:whatswave/core/media/avatar_photo_picker.dart';
 import 'package:whatswave/features/chats/presentation/chats_screen.dart';
 import 'package:whatswave/features/chats/presentation/widgets/lazy_heavy_attachment.dart';
-import 'package:whatswave/features/chats/presentation/widgets/location_map_preview.dart';
 import 'package:whatswave/features/updates/presentation/widgets/status_ring_avatar.dart';
 
 import '../../../support/device_matrix.dart';
@@ -238,15 +237,15 @@ void main() {
       matching: find.byWidgetPredicate(
         (widget) =>
             widget.key is ValueKey<String> &&
-            (widget.key! as ValueKey<String>).value
+            (widget.key! as ValueKey<String>)
+                .value
                 .startsWith('conversation_message_') &&
             (widget.key! as ValueKey<String>).value !=
                 'conversation_message_list',
       ),
     );
     expect(latestMessageBubble, findsOneWidget);
-    final latestMessageBottom =
-        tester.getBottomLeft(latestMessageBubble).dy;
+    final latestMessageBottom = tester.getBottomLeft(latestMessageBubble).dy;
     final messageListBottom =
         tester.getBottomLeft(find.byKey(messageListKey)).dy;
     expect(messageListBottom - latestMessageBottom, closeTo(24, 4));
@@ -330,7 +329,8 @@ void main() {
         draftText,
       );
 
-      await tester.tap(find.byKey(const Key('location_send_preview_close_button')));
+      await tester
+          .tap(find.byKey(const Key('location_send_preview_close_button')));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
 
@@ -364,7 +364,8 @@ void main() {
       await tester.tap(find.byKey(const Key('chat_tile_ava-patel')));
       await tester.pumpAndSettle();
 
-      expect(find.byKey(const Key('conversation_voice_button')), findsOneWidget);
+      expect(
+          find.byKey(const Key('conversation_voice_button')), findsOneWidget);
       expect(find.byKey(const Key('conversation_send_button')), findsNothing);
 
       await tester.enterText(find.byKey(composerFieldKey), 'hello');
@@ -380,13 +381,15 @@ void main() {
       );
 
       expect(find.byKey(const Key('conversation_send_button')), findsNothing);
-      expect(find.byKey(const Key('conversation_voice_button')), findsOneWidget);
+      expect(
+          find.byKey(const Key('conversation_voice_button')), findsOneWidget);
 
       await tester.tap(find.byKey(const Key('conversation_message_list')));
       await tester.pumpAndSettle();
 
       expect(find.byKey(const Key('conversation_send_button')), findsNothing);
-      expect(find.byKey(const Key('conversation_voice_button')), findsOneWidget);
+      expect(
+          find.byKey(const Key('conversation_voice_button')), findsOneWidget);
     },
   );
 

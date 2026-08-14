@@ -14,7 +14,6 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../../app/theme/app_palette.dart';
 import '../../../core/models/status_story.dart';
-import '../../../core/permissions/location_permission_dialog.dart';
 import '../../calls/application/calls_controller.dart';
 import '../../calls/domain/call_contact.dart';
 import '../../calls/domain/call_history_entry.dart';
@@ -238,8 +237,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
   void _extendOwnSendScrollSuppression() {
     _suppressAutoScrollForOwnSend = true;
-    _suppressBottomSnapUntil =
-        DateTime.now().add(_ownSendScrollSuppression);
+    _suppressBottomSnapUntil = DateTime.now().add(_ownSendScrollSuppression);
     _ownSendScrollSuppressionTimer?.cancel();
     _ownSendScrollSuppressionTimer = Timer(_ownSendScrollSuppression, () {
       if (!mounted) {
@@ -1734,9 +1732,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
       isGroup: thread.isGroup,
       uid: thread.participantUid,
       avatarUrl: thread.isGroup ? null : thread.avatarUrl,
-      memberUids: thread.isGroup
-          ? thread.otherMemberUids(currentUid)
-          : null,
+      memberUids: thread.isGroup ? thread.otherMemberUids(currentUid) : null,
       memberDisplayNames: thread.isGroup
           ? <String, String>{
               for (final participant in thread.participants ?? const [])
@@ -1927,7 +1923,8 @@ class _ReplyPreviewBar extends StatelessWidget {
 /// color and bottom-safe-area padding exactly (see the composer's own
 /// comment on why) so swapping between the two never shows a color seam
 /// under the home indicator.
-class _ConversationAppBarHost extends StatelessWidget implements PreferredSizeWidget {
+class _ConversationAppBarHost extends StatelessWidget
+    implements PreferredSizeWidget {
   const _ConversationAppBarHost({required this.state});
 
   final _ConversationScreenState state;
@@ -1943,7 +1940,8 @@ class _ConversationAppBarHost extends StatelessWidget implements PreferredSizeWi
         state.widget.updatesController,
       ]),
       builder: (context, _) {
-        final thread = state.widget.controller.threadById(state.widget.threadId);
+        final thread =
+            state.widget.controller.threadById(state.widget.threadId);
         return state._buildConversationAppBar(context, thread);
       },
     );

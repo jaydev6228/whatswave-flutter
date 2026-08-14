@@ -417,14 +417,16 @@ class _VideoAmbientStage extends StatelessWidget {
             alignment: const Alignment(0.96, 0.34),
             child: _AmbientGlow(
               size: compact ? 280 : 340,
-              color: secondaryGlow.withValues(alpha: scheme.isDark ? 0.18 : 0.1),
+              color:
+                  secondaryGlow.withValues(alpha: scheme.isDark ? 0.18 : 0.1),
             ),
           ),
           Align(
             alignment: const Alignment(0.04, 0.02),
             child: _AmbientGlow(
               size: compact ? 160 : 210,
-              color: (scheme.isDark ? Colors.white : AppPalette.cloud).withValues(
+              color:
+                  (scheme.isDark ? Colors.white : AppPalette.cloud).withValues(
                 alpha: scheme.isDark ? 0.06 : 0.52,
               ),
             ),
@@ -588,7 +590,8 @@ class _LocalVideoPreviewCard extends StatelessWidget {
                                 size: compact ? 46 : 50,
                               )
                             : Column(
-                                key: const Key('call_local_video_disabled_panel'),
+                                key: const Key(
+                                    'call_local_video_disabled_panel'),
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   Icon(
@@ -972,7 +975,8 @@ class _CallIdentityAvatar extends StatelessWidget {
           size: size,
           avatarUrl: contact.avatarUrl,
           photoAssetPath: contact.photoAssetPath,
-          backgroundColor: backgroundColor ?? contact.accentColor.withValues(alpha: 0.18),
+          backgroundColor:
+              backgroundColor ?? contact.accentColor.withValues(alpha: 0.18),
           foregroundColor: foregroundColor,
         ),
       ),
@@ -1296,8 +1300,7 @@ class _AudioCallActions extends StatelessWidget {
           children: [
             _CallActionButton(
               buttonKey: const Key('call_mute_button'),
-              icon:
-                  session.isMuted ? Icons.mic_off_rounded : Icons.mic_rounded,
+              icon: session.isMuted ? Icons.mic_off_rounded : Icons.mic_rounded,
               label: session.isMuted ? 'Muted' : 'Mute',
               isSelected: session.isMuted,
               size: controlSize,
@@ -1441,8 +1444,6 @@ class _CallActionButton extends StatelessWidget {
     this.shadowColor,
     this.isSelected = false,
     this.size = 68,
-    this.width,
-    this.labelFontSize = 15,
     this.showLabel = true,
   });
 
@@ -1457,8 +1458,6 @@ class _CallActionButton extends StatelessWidget {
   final Color? shadowColor;
   final bool isSelected;
   final double size;
-  final double? width;
-  final double labelFontSize;
   final bool showLabel;
 
   @override
@@ -1526,7 +1525,7 @@ class _CallActionButton extends StatelessWidget {
     }
 
     return SizedBox(
-      width: width ?? (size + 10),
+      width: size + 10,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -1540,68 +1539,10 @@ class _CallActionButton extends StatelessWidget {
             style: Theme.of(context).textTheme.titleSmall?.copyWith(
                   color: resolvedLabelColor,
                   fontWeight: FontWeight.w700,
-                  fontSize: labelFontSize,
+                  fontSize: 15,
                 ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _PreviewControlButton extends StatelessWidget {
-  const _PreviewControlButton({
-    required this.icon,
-    required this.size,
-    required this.backgroundColor,
-    required this.foregroundColor,
-    required this.borderColor,
-    required this.shadowColor,
-    required this.onPressed,
-    this.buttonKey,
-  });
-
-  final Key? buttonKey;
-  final IconData icon;
-  final double size;
-  final Color backgroundColor;
-  final Color foregroundColor;
-  final Color borderColor;
-  final Color shadowColor;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: backgroundColor,
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: borderColor),
-        boxShadow: [
-          BoxShadow(
-            color: shadowColor,
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        borderRadius: BorderRadius.circular(999),
-        child: InkWell(
-          key: buttonKey,
-          borderRadius: BorderRadius.circular(999),
-          onTap: onPressed,
-          child: SizedBox(
-            width: size,
-            height: size,
-            child: Icon(
-              icon,
-              color: foregroundColor,
-              size: size * 0.56,
-            ),
-          ),
-        ),
       ),
     );
   }
@@ -1697,9 +1638,8 @@ class _GroupCallVideoGrid extends StatelessWidget {
         .map(
           (participant) => _GroupCallVideoTile(
             participant: participant,
-            track: participant.isSelf
-                ? localTrack
-                : remoteTracks[participant.uid],
+            track:
+                participant.isSelf ? localTrack : remoteTracks[participant.uid],
             scheme: scheme,
           ),
         )
@@ -1785,12 +1725,10 @@ class _GroupCallVideoTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final accent = _groupVideoTileAccent(participant.state);
-    final borderWidth = participant.state == GroupCallParticipantState.connected
-        ? 2.4
-        : 1.2;
-    final identityLabel = participant.isSelf
-        ? 'You'
-        : _displayCallName(participant.displayName);
+    final borderWidth =
+        participant.state == GroupCallParticipantState.connected ? 2.4 : 1.2;
+    final identityLabel =
+        participant.isSelf ? 'You' : _displayCallName(participant.displayName);
 
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -1922,9 +1860,8 @@ String _displayCallName(String fullName) {
 
 String _videoStatusText(CallSession session) {
   return switch (session.phase) {
-    CallSessionPhase.incoming => session.contact.isGroup
-        ? 'Incoming group video call'
-        : 'Incoming call',
+    CallSessionPhase.incoming =>
+      session.contact.isGroup ? 'Incoming group video call' : 'Incoming call',
     CallSessionPhase.ringing =>
       session.isRemoteRinging ? 'Ringing...' : 'Calling...',
     CallSessionPhase.connecting => 'Connecting...',
@@ -1958,13 +1895,6 @@ String _remoteVideoStageLabel(CallSession session) {
     CallSessionPhase.connecting => 'Preparing video',
     CallSessionPhase.connected => '',
   };
-}
-
-String _displayAvatarLabel(String label) {
-  final normalized = label.trim().isEmpty ? '?' : label.trim();
-  return normalized.length <= 2
-      ? normalized.toUpperCase()
-      : normalized.substring(0, 2).toUpperCase();
 }
 
 _CallVisualScheme _callVisualScheme(

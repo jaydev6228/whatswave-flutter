@@ -109,7 +109,8 @@ class _GroupCallFloatingFieldState extends State<GroupCallFloatingField>
   void _syncSimulations() {
     final activeUids = <String>{};
     for (final participant in widget.participants) {
-      if (participant.isSelf || participant.uid == widget.centerParticipant.uid) {
+      if (participant.isSelf ||
+          participant.uid == widget.centerParticipant.uid) {
         continue;
       }
       activeUids.add(participant.uid);
@@ -337,7 +338,8 @@ class GroupCallFloatingFieldHost extends StatefulWidget {
       _GroupCallFloatingFieldHostState();
 }
 
-class _GroupCallFloatingFieldHostState extends State<GroupCallFloatingFieldHost> {
+class _GroupCallFloatingFieldHostState
+    extends State<GroupCallFloatingFieldHost> {
   late String _signature;
 
   @override
@@ -459,7 +461,8 @@ class _GroupCallCenterAnchorHostState extends State<GroupCallCenterAnchorHost> {
   }
 
   void _handleControllerChanged() {
-    final nextSignature = _selfSignature(widget.controller.groupCallParticipants);
+    final nextSignature =
+        _selfSignature(widget.controller.groupCallParticipants);
     if (nextSignature == _signature) {
       return;
     }
@@ -498,18 +501,6 @@ class _BubbleSim {
     required this.dockAngle,
   });
 
-  GroupCallParticipantView participant;
-  Offset position;
-  Offset velocity;
-  double dockAngle;
-  _BubbleMotionMode mode = _BubbleMotionMode.free;
-  double mergeProgress = 0;
-  double explodeProgress = 0;
-  bool _spawned = false;
-
-  bool get isExploding => mode == _BubbleMotionMode.exploding;
-  bool get isFinished => mode == _BubbleMotionMode.finished;
-
   factory _BubbleSim.spawn({
     required GroupCallParticipantView participant,
     required math.Random random,
@@ -523,6 +514,18 @@ class _BubbleSim {
       dockAngle: random.nextDouble() * math.pi * 2,
     );
   }
+
+  GroupCallParticipantView participant;
+  Offset position;
+  Offset velocity;
+  double dockAngle;
+  _BubbleMotionMode mode = _BubbleMotionMode.free;
+  double mergeProgress = 0;
+  double explodeProgress = 0;
+  bool _spawned = false;
+
+  bool get isExploding => mode == _BubbleMotionMode.exploding;
+  bool get isFinished => mode == _BubbleMotionMode.finished;
 
   void ensureSpawnedIn(
     Rect bounds,
@@ -828,7 +831,8 @@ class _PresenceBubbleFace extends StatelessWidget {
     final glowStrength = emphasize ? 0.34 : 0.22;
 
     return Semantics(
-      label: '${participant.displayName}, ${groupCallParticipantStateLabel(state)}',
+      label:
+          '${participant.displayName}, ${groupCallParticipantStateLabel(state)}',
       child: SizedBox(
         width: size,
         height: size,

@@ -44,14 +44,19 @@ class StarredMessagesScreen extends StatelessWidget {
           body: SafeArea(
             bottom: false,
             child: entries.isEmpty
-                ? const Padding(
-                    padding: EdgeInsets.all(24),
-                    child: EmptyStateCard(
-                      icon: Icons.star_border_rounded,
-                      title: 'No starred messages',
-                      message:
-                          'Tap and hold any message, then choose Star to '
-                          'find it here later.',
+                ? Align(
+                    alignment: Alignment.topCenter,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                      child: EmptyStateCard(
+                        dense: true,
+                        margin: EdgeInsets.zero,
+                        icon: Icons.star_border_rounded,
+                        title: 'No starred messages',
+                        message:
+                            'Tap and hold any message, then choose Star to '
+                            'find it here later.',
+                      ),
                     ),
                   )
                 : ListView.separated(

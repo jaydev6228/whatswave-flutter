@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../../chats/domain/group_participant.dart';
 import '../../calls/domain/call_history_entry.dart';
 import 'avatar_badge.dart';
 import 'composite_group_avatar.dart';

@@ -43,6 +43,7 @@ class EmptyStateCard extends StatelessWidget {
       child: Padding(
         padding: EdgeInsets.all(padding),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             CircleAvatar(
