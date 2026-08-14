@@ -34,7 +34,7 @@ serviceAccountKey*.json
 *-firebase-adminsdk-*.json
 *.credentials.json
 
-# Firebase (client config kept local-only for this public portfolio repo;
+# Firebase (client config kept local-only, since this repo is public;
 # regenerate with `flutterfire configure` per docs/handoff/03_firebase_dev_setup.md)
 android/app/google-services.json
 ios/Runner/GoogleService-Info.plist
@@ -52,3 +52,11 @@ server/livekit-token/.vercel/
 server/livekit-token/.env
 server/livekit-token/.env.*
 !server/livekit-token/.env.example
+
+# Internal project handoff/setup notes -- not meant for a public repo.
+# Kept locally, no longer tracked (see git rm --cached history for when
+# these stopped being committed).
+CLAUDE.md
+PROJECT_BRIEF_FOR_NEW_DEVELOPER.md
+TRANSFER_TO_NEW_PC.md
+docs/handoff/

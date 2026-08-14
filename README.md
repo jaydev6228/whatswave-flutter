@@ -73,7 +73,7 @@ Known, deliberate scope decisions (each documented in the relevant repository/se
 - Real calling has two known gaps, both documented inline in `CallsController`: an incoming call shows a placeholder caller name (`"Caller xxxx"`) since there's no contact-name resolution for an arbitrary caller uid yet, and a second simultaneous incoming call is silently ignored rather than queued or auto-declined.
 - Testing real calls on the iOS Simulator needs its **I/O -> Audio Input** menu (in the Simulator app itself, not Xcode) set to a real microphone, not None/Mute -- otherwise `setMicrophoneEnabled` reports success while silently capturing nothing. On at least one real Android device, LiveKit's audio routing also needed the speaker preference to be passed with `force: true` to reliably win over the earpiece.
 
-For the full setup story (Firebase console steps, `flutterfire configure`, local secrets), see `docs/handoff/03_firebase_dev_setup.md` and `config/README.md`.
+For the full setup story (Firebase console steps, `flutterfire configure`, local secrets), see `config/README.md`.
 
 ## Project structure
 
@@ -156,9 +156,8 @@ Instead of retyping `--dart-define` flags, copy `config/dev.json.example` to
 flutter run --dart-define-from-file=config/dev.json
 ```
 
-See `config/README.md` for the full key reference. You'll also need your own
-Firebase config for Firebase mode — see
-`docs/handoff/03_firebase_dev_setup.md`.
+See `config/README.md` for the full key reference, including how to set up
+your own Firebase config for Firebase mode.
 
 ### 4. Launch simulators and emulators
 
