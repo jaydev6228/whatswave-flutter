@@ -1,6 +1,6 @@
 # WhatsWave Flutter
 
-`WhatsWave Flutter` is a brand-new Flutter codebase for a WhatsApp-style messaging app. It is intentionally separate from the existing iOS Swift project and does not modify that app.
+`WhatsWave Flutter` is a brand-new Flutter codebase for a full-featured real-time messaging app -- chats and groups, status updates, communities, and voice/video calling. It is intentionally separate from the existing iOS Swift project and does not modify that app.
 
 ## Demo
 
@@ -36,19 +36,19 @@ This repository is being built in small, reviewable phases:
 This repo currently includes:
 
 - A full Flutter project scaffold with generated `android/` and `ios/` runners
-- Architecture and implementation planning docs
-- A themed app shell with light and dark mode support
+- A themed app shell with light and dark mode support, and soft liquid-glass-style tab bar and screen transitions
 - A splash/session gate with fake session restore
 - Phone entry, OTP verification, and profile bootstrap auth flow
-- A controller-driven chats slice with search, filters, archive, thread navigation, composer actions, and attachment previews
-- A controller-driven updates slice with story rings, viewer flow, status composition, and viewed/unviewed state
-- A controller-driven calls slice with favorites, history, seeded incoming/outgoing audio-video flows for UI development, permission prompts, and active call UI
-- A controller-driven communities and contacts slice with search, filters, permission gating, create-community flow, detail screens, and invite/share actions
+- A controller-driven chats slice: search, filters, archive, groups (roles, add/remove members, custom group icons), reply/forward/star/multi-select on messages, in-chat search, a pre-send media review screen (add a caption, rotate, freehand markup) before photos/videos go out, and hold-to-record voice notes with a waveform scrubber
+- A controller-driven updates slice: story rings, per-viewer list with like state, heart quick-reacts, status composition (text/photo/video), and viewed/unviewed state
+- A controller-driven calls slice: favorites, history, permission prompts, 1:1 audio/video calls, and **real multi-party group video calling** -- floating participant bubbles that merge and dock into place as people join, a live video grid once the call is connected, and unified host/participant controls
+- A controller-driven communities and contacts slice with search, filters, permission gating, create-community flow, detail screens with tappable announcements/group chats, and invite/share actions
 - A controller-driven settings slice with persisted preferences, profile editing, a privacy center, and a lifecycle-aware app lock overlay
 - A backend and sync center with vendor-neutral push registration, observed repository activity, a local media transfer pipeline, and injectable provider contracts that keep Firebase and AWS seams clean
 - Runtime-selected repository bundles so local seeded adapters remain stable while Firebase-first and AWS-ready repository boundaries are scaffolded
 - A shared observability seam that captures app, shell, and calling breadcrumbs locally and is ready to swap for a release telemetry provider
-- Unit and widget tests for the foundation, auth/session flow, chats, updates, calls, communities, settings, and security layers
+- An inbox disk cache and reversed message list for fast cold starts and smooth scroll performance
+- Unit and widget tests for the foundation, auth/session flow, chats, updates, calls (including group calling), communities, settings, and security layers
 
 ## Backend status
 
@@ -58,14 +58,13 @@ The app runs in two modes, switched at launch via `WW_BACKEND_TARGET` (see `conf
 |---|---|---|
 | Auth | Seeded fake phone/OTP flow | **Real Firebase Phone Auth** (SMS/reCAPTCHA verification, session persistence) |
 | Chats | Seeded fake threads | **Real Cloud Firestore** (per-thread participant security rules) |
-| Updates/Status | Seeded fake stories | **Real Cloud Firestore** for metadata; photo/video stay device-local (no Cloud Storage yet -- see below) |
+| Updates/Status | Seeded fake stories | **Real Cloud Firestore** for metadata; photo/video upload to **Firebase Storage**, with per-segment 24h expiry, view/like tracking, and a device-local fallback if the upload fails |
 | Communities | Seeded fake communities + contacts | **Real Cloud Firestore** for communities; **real device contacts** (`flutter_contacts`) matched against registered accounts via a `phoneDirectory` collection |
-| Calls | Simulated (Timers, no real transport) | **Real calling** for any contact with a known uid -- real Firestore signaling (ring/accept/decline/end) plus a real LiveKit room with live local/remote video **and audio**, reachable from Communities' Voice/Video call buttons on contacts confirmed "on WhatsWave". Verified end-to-end on a real two-device call (iOS Simulator + physical Android phone). Contacts without a matched uid (e.g. the Calls tab's demo favorites) still use the original simulated flow, unchanged |
+| Calls | Simulated (Timers, no real transport) | **Real 1:1 and group calling** for any contact/thread with known uids -- real Firestore signaling (ring/accept/decline/end, including group invites) plus a real LiveKit room with live local/remote video **and audio**, reachable from chat/Communities call buttons. Group calls animate participants in as floating bubbles before settling into a live video grid. Verified end-to-end on a real two-device call (iOS Simulator + physical Android phone). Contacts without a matched uid (e.g. the Calls tab's demo favorites) still use the original simulated flow, unchanged |
 | Crashlytics / Analytics | Local in-memory breadcrumbs only | **Real Crashlytics + Analytics** (crash capture/upload verified; stack-trace symbolication disabled, see below) |
 | Push (FCM/APNs) | Not implemented | **Real FCM token registration** (permission request, token fetch, written to `pushTokens/{uid}`) -- see below for a Simulator-specific limitation |
 
 Known, deliberate scope decisions (each documented in the relevant repository/service file):
-- Status media (photos/videos) stays on-device rather than uploading to Firebase Storage, to avoid requiring the pay-as-you-go Blaze billing plan for a portfolio project.
 - Cross-user visibility (seeing someone else's chat/story/community) only really applies once a second real account exists to test against -- the write-security rules are in place, but only exercised by a single test account so far.
 - Crashlytics crash reports upload successfully but aren't automatically symbolicated -- `flutterfire configure`'s generated Xcode build phase assumes a Swift Package Manager checkout layout that didn't match this machine's Xcode version and broke every build, so it was reverted. See `FirebaseAppTelemetry`'s doc comment for the full story and a manual fallback.
 - Device-contact phone matching is a best-effort trailing-digits comparison, not real E.164 parsing -- see `core/utils/phone_number_matching.dart`.
@@ -100,7 +99,7 @@ features/
     data/
 ```
 
-The phase-1 code keeps runtime dependencies minimal and uses seeded local data so we can harden architecture and UI before wiring Firebase or AWS.
+Every feature keeps this same shape regardless of backend: local seeded data and real Firebase adapters implement the same repository interface, so a screen never knows or cares which one it's talking to (see [Backend status](#backend-status)).
 
 ## Local setup
 
@@ -229,27 +228,9 @@ flutter doctor -v
 
 Release hardening guidance now lives in `docs/release_readiness.md`, and the automated quality gate lives in `.github/workflows/flutter_ci.yml`.
 
-## Handoff bundle
-
-For moving this project to another machine, another developer, or another AI tool, start with:
-
-- `PROJECT_BRIEF_FOR_NEW_DEVELOPER.md`
-- `TRANSFER_TO_NEW_PC.md`
-- `docs/handoff/README.md`
-
-That bundle includes:
-
-- current project state
-- machine bootstrap steps
-- Firebase dev setup guidance
-- AWS path guidance
-- development guardrails
-- testing and QA handoff
-- an AI resume brief
-
 ## Backend runtime flags
 
-The app now exposes a runtime backend configuration layer so Phase 8 work can move forward before live provider credentials are added.
+The app exposes a runtime backend configuration layer, so it runs fully on seeded local data even before live provider credentials are added.
 
 - `WW_BACKEND_TARGET=local|firebase|aws`
 - `WW_APP_ENV=local|development|staging|production`
@@ -275,52 +256,27 @@ These flags feed the in-app `Settings > Backend and sync` screen so we can see w
 - `WW_ENABLE_DEMO_SURFACES` and `WW_DEMO_RESTORE_SESSION` are ignored automatically when the app is compiled in release mode.
 - Any future testing shortcut should be added behind the same non-release-only runtime flag pattern.
 
-### iOS simulator launch shows a Flutter SDK file permission error
-
-If Flutter reports it cannot read `bin/internal/material_fonts.version`, the problem is usually the local Flutter SDK cache state rather than the app code.
-
-Try these steps from this project folder:
-
-```bash
-flutter doctor -v
-flutter run -d "iPhone 17 Pro"
-```
-
-If the error appears right after another Flutter command was interrupted, make sure no other Flutter process is running and then clear the stale SDK lock:
-
-```bash
-rm -f /Users/ts-jaydevra.baloliya/Documents/Codex/2026-06-01/files-mentioned-by-the-user-pasted/work/tooling/flutter/bin/cache/lockfile
-```
-
-If the Flutter SDK was previously used with `sudo`, repair ownership and retry:
-
-```bash
-sudo chown -R "$(whoami)":staff /Users/ts-jaydevra.baloliya/Documents/Codex/2026-06-01/files-mentioned-by-the-user-pasted/work/tooling/flutter
-flutter doctor -v
-```
-
 ## Design direction
 
 The app shell follows common social and messaging app patterns:
 
 - Story-style update rings and recent updates surfaces
-- WhatsApp-like settings/profile layout
+- A clean, organized settings/profile layout
 - Dense but readable chat list cards
 - Call history and favorites with quick actions
 - Light and dark themes tuned for messaging use
 
 ## What comes next
 
-The next implementation slices should be:
+Auth, chats, updates/status, communities, and calling (including group calling) are all wired to real Firebase/LiveKit backends today (see [Backend status](#backend-status)). What's left:
 
-1. Backend-facing repository adapter alignment
-2. Bind real FlutterFire adapters to the repository, push, and media contracts
-3. Push, sync, media upload, and offline resilience
-4. Real provider-backed calling integration
-5. Expanded release hardening and CI quality gates
+1. AWS-path repository adapters (currently scaffolded behind the same interfaces, not yet implemented)
+2. Sending pushes end-to-end (registration works; the sender side needs a Cloud Function on the Blaze plan)
+3. Cross-user visibility testing with a second real account, beyond the security rules already in place
+4. Expanded release hardening and CI quality gates
 
 ## Notes
 
-- The current UI still runs safely against seeded local data until live repositories are connected.
-- Firebase and AWS setup guidance now lives in the backend and sync center, and repository selection now follows the runtime backend mode without leaking provider SDK assumptions into feature UI.
+- The app still runs fully on seeded local data with `WW_BACKEND_TARGET=local` (the default) -- no live credentials required to explore the UI.
+- Firebase and AWS setup guidance lives in the in-app backend and sync center, and repository selection follows the runtime backend mode without leaking provider SDK assumptions into feature UI.
 - The Swift iOS project remains unchanged.
