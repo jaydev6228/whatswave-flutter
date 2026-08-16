@@ -248,7 +248,11 @@ void main() {
     final latestMessageBottom = tester.getBottomLeft(latestMessageBubble).dy;
     final messageListBottom =
         tester.getBottomLeft(find.byKey(messageListKey)).dy;
-    expect(messageListBottom - latestMessageBottom, closeTo(24, 4));
+    // 12 = the message list's own bottom padding. The newest message
+    // (index 0 in the reverse:true list) intentionally has no trailing
+    // spacer -- see the `index != 0` note in conversation_screen.dart --
+    // so the composer-side gap is just that padding.
+    expect(messageListBottom - latestMessageBottom, closeTo(12, 4));
 
     await tester.tap(
       find.byKey(const Key('conversation_attachment_menu_button')),
@@ -1614,7 +1618,10 @@ void main() {
     final lastMessageBottom = tester.getBottomLeft(lastMessageFinder).dy;
 
     expect(messageListController.position.maxScrollExtent, 0);
-    expect(messageListBottom - lastMessageBottom, closeTo(24, 4));
+    // 12 = list bottom padding only (newest message has no trailing
+    // spacer) -- see the matching note in the earlier "opens a
+    // conversation, previews media, and sends new content" test.
+    expect(messageListBottom - lastMessageBottom, closeTo(12, 4));
     expect(firstMessageTop - messageListTop, greaterThan(80));
   });
 

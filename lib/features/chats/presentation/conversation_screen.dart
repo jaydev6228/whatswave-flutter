@@ -569,8 +569,19 @@ class _ConversationScreenState extends State<ConversationScreen> {
                               ),
                             ),
                           messageBody,
-                          if (index != displayMessages.length - 1)
-                            SizedBox(height: message.hasReactions ? 30 : 12),
+                          // Trailing gap below each bubble. This list is
+                          // reverse:true, so index 0 is the NEWEST message
+                          // (screen bottom, next to the composer) and the
+                          // trailing SizedBox sits between a bubble and the
+                          // one visually below it. We skip it only for index
+                          // 0 (the list's own bottom padding handles the
+                          // composer gap) -- every other message, including
+                          // the oldest at the very top, keeps its gap. The
+                          // previous `index != length-1` skipped the OLDEST
+                          // instead, which is why the top two messages had
+                          // zero space between them.
+                          if (index != 0)
+                            SizedBox(height: message.hasReactions ? 30 : 10),
                         ],
                       ),
                     ),
@@ -2553,6 +2564,11 @@ class _MessageBubble extends StatelessWidget {
     this.onToggleSelection,
   });
 
+  /// The bubble is capped at 320 wide (see the ConstrainedBox in build) and
+  /// carries 10px of horizontal padding on each side, so its text has 300px
+  /// to lay out in -- the width handed to the inline-meta Text so it wraps.
+  static const double _bubbleTextMaxWidth = 300;
+
   final ChatThread thread;
   final ChatMessage message;
 
@@ -2654,48 +2670,56 @@ class _MessageBubble extends StatelessWidget {
                               bubbleColor,
                             )
                           : bubbleColor,
-                      border: Border.all(
-                        width: isHighlighted ? 2 : 1,
-                        color: isHighlighted
-                            ? theme.colorScheme.primary
-                            : isFailed
-                                ? theme.colorScheme.error
-                                    .withValues(alpha: 0.22)
-                                : isMine
-                                    ? theme.colorScheme.primary
-                                        .withValues(alpha: 0.14)
-                                    : theme.colorScheme.outlineVariant
-                                        .withValues(alpha: 0.18),
-                      ),
+                      // No border in the resting state -- WhatsApp's own
+                      // bubbles are flat fills with no outline; a border on
+                      // every bubble was what made each message read as its
+                      // own separate "framed" card instead of a normal chat
+                      // bubble. Kept only for states that need to visually
+                      // stand out (a failed send, a search-jump highlight).
+                      border: isHighlighted
+                          ? Border.all(
+                              width: 2,
+                              color: theme.colorScheme.primary,
+                            )
+                          : isFailed
+                              ? Border.all(
+                                  width: 1,
+                                  color: theme.colorScheme.error
+                                      .withValues(alpha: 0.22),
+                                )
+                              : null,
                       borderRadius: BorderRadius.only(
-                        topLeft: const Radius.circular(20),
-                        topRight: const Radius.circular(20),
-                        bottomLeft: Radius.circular(isMine ? 20 : 6),
-                        bottomRight: Radius.circular(isMine ? 6 : 20),
+                        topLeft: const Radius.circular(18),
+                        topRight: const Radius.circular(18),
+                        bottomLeft: Radius.circular(isMine ? 18 : 5),
+                        bottomRight: Radius.circular(isMine ? 5 : 18),
                       ),
                     ),
-                    padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+                    padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         if (thread.isGroup && !isMine)
                           Padding(
-                            padding: const EdgeInsets.only(bottom: 8),
+                            padding: const EdgeInsets.only(bottom: 2),
                             child: Text(
                               message.senderName,
-                              style: theme.textTheme.labelLarge?.copyWith(
+                              style: theme.textTheme.labelMedium?.copyWith(
                                 color: thread.accentColor,
-                                fontWeight: FontWeight.w800,
+                                fontWeight: FontWeight.w700,
                               ),
                             ),
                           ),
                         if (message.isDeleted)
-                          Text(
-                            'This message was deleted',
-                            style: theme.textTheme.bodyLarge?.copyWith(
+                          _textWithInlineMeta(
+                            context,
+                            text: 'This message was deleted',
+                            contentColor: contentColor,
+                            maxTextWidth: _bubbleTextMaxWidth,
+                            textStyle: theme.textTheme.bodyMedium?.copyWith(
                               color: contentColor.withValues(alpha: 0.6),
                               fontStyle: FontStyle.italic,
-                              height: 1.36,
+                              height: 1.28,
                             ),
                           )
                         else ...[
@@ -2709,7 +2733,7 @@ class _MessageBubble extends StatelessWidget {
                                         message.replyPreview!.messageId,
                                       ),
                             ),
-                            const SizedBox(height: 8),
+                            const SizedBox(height: 4),
                           ],
                           if (message.hasStoryReplyContext) ...[
                             _StoryReplyCard(
@@ -2717,67 +2741,64 @@ class _MessageBubble extends StatelessWidget {
                               isAvailable: isStoryReplyAvailable,
                               onTap: onStoryReplyCardTap,
                             ),
-                            const SizedBox(height: 8),
+                            const SizedBox(height: 4),
                           ],
+                          // Timestamp placement, one consistent rule:
+                          //  * a plain text message hugs its text, so tucking
+                          //    the time inline right after it already lands it
+                          //    at the bubble's right edge (see
+                          //    _textWithInlineMeta);
+                          //  * every wider bubble -- any attachment (with or
+                          //    without a caption) and card-only bubbles -- puts
+                          //    the time on its own line, right-aligned. No
+                          //    baseline-matching a short caption against the
+                          //    time on a shared row (which read as uneven
+                          //    padding); the caption simply sits above.
                           if (message.hasAttachments) ...[
                             _buildAttachmentsContent(context),
-                            const SizedBox(height: 10),
-                          ],
-                          if (message.hasText)
-                            Text(
-                              message.text,
-                              style: theme.textTheme.bodyLarge?.copyWith(
-                                color: contentColor,
-                                height: 1.36,
+                            const SizedBox(height: 4),
+                            if (message.hasText)
+                              // Caption with the time tucked inline bottom-
+                              // right -- same line when it fits, end of the
+                              // last line when it wraps.
+                              _captionWithInlineMeta(
+                                context,
+                                caption: message.text,
+                                contentColor: contentColor,
+                                captionStyle:
+                                    theme.textTheme.bodyMedium?.copyWith(
+                                  color: contentColor,
+                                  height: 1.28,
+                                ),
+                              )
+                            else
+                              // Attachment with no caption: time on its own
+                              // right-aligned line.
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: _metaRow(context, contentColor),
                               ),
+                          ] else if (message.hasText)
+                            _textWithInlineMeta(
+                              context,
+                              text: message.text,
+                              contentColor: contentColor,
+                              maxTextWidth: _bubbleTextMaxWidth,
+                              textStyle: theme.textTheme.bodyMedium?.copyWith(
+                                color: contentColor,
+                                height: 1.28,
+                              ),
+                            )
+                          else
+                            // Card-only bubble (reply/story quote, no text or
+                            // media): time on its own right-aligned line.
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: _metaRow(context, contentColor),
                             ),
                         ],
-                        const SizedBox(height: 8),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (message.isEdited && !message.isDeleted) ...[
-                              Text(
-                                'Edited',
-                                style: theme.textTheme.labelSmall?.copyWith(
-                                  color: contentColor.withValues(alpha: 0.6),
-                                  fontStyle: FontStyle.italic,
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                            ],
-                            if (message.isStarred && !message.isDeleted) ...[
-                              Icon(
-                                Icons.star_rounded,
-                                size: 13,
-                                color: contentColor.withValues(alpha: 0.75),
-                              ),
-                              const SizedBox(width: 4),
-                            ],
-                            Text(
-                              _timeLabelFor(message.sentAt),
-                              style: theme.textTheme.labelSmall?.copyWith(
-                                color: contentColor.withValues(alpha: 0.75),
-                              ),
-                            ),
-                            if (isMine) ...[
-                              const SizedBox(width: 6),
-                              Icon(
-                                _deliveryIcon(message.deliveryState),
-                                size: 16,
-                                color: switch (message.deliveryState) {
-                                  MessageDeliveryState.read => AppPalette.green,
-                                  MessageDeliveryState.failed =>
-                                    theme.colorScheme.error,
-                                  _ => contentColor.withValues(alpha: 0.78),
-                                },
-                              ),
-                            ],
-                          ],
-                        ),
                         if (isMine && isFailed) ...[
-                          const SizedBox(height: 8),
+                          const SizedBox(height: 6),
                           Row(
                             mainAxisSize: MainAxisSize.min,
                             mainAxisAlignment: MainAxisAlignment.end,
@@ -2821,24 +2842,18 @@ class _MessageBubble extends StatelessWidget {
                 ),
                 if (message.hasReactions)
                   Positioned(
-                    // -20 rather than -12 -- most of the badge now hangs in
-                    // the gutter below the bubble instead of overlapping its
-                    // bottom-most content row, so a short/narrow bubble
-                    // (where the right-aligned timestamp ends up close to
-                    // the bubble's own left edge too) doesn't get its
-                    // timestamp text partly covered by the badge above it.
-                    bottom: -20,
-                    // Always the bubble's own left corner, regardless of
-                    // isMine -- the timestamp/ticks row above always sits at
-                    // the bubble's right edge (Row's mainAxisAlignment.end
-                    // is a fixed LTR "end", not sender-relative), so the
-                    // left corner is the one side that never overlaps it.
-                    // For isMine (right-aligned) bubbles this also hangs the
-                    // badge toward screen center rather than out past the
-                    // bubble into the narrow gutter by the screen edge,
-                    // which is what made it look like it spilled out of the
-                    // message frame entirely.
-                    left: -6,
+                    // The badge (~26px tall with the 20px glyph) hangs in the
+                    // gutter below the bubble -- its top lands ~2px below the
+                    // last text line, so it never covers the message. -22 with
+                    // a 30px reserved gap below (see the message list's
+                    // SizedBox) keeps it clear of both this bubble's last line
+                    // and the next message.
+                    bottom: -22,
+                    // Inset a touch from the bubble's left corner (not past
+                    // it) so it reads as attached to the bubble; the trailer
+                    // row above always right-aligns, so the left side never
+                    // collides with the timestamp.
+                    left: 6,
                     child: _ReactionBadge(reactions: message.reactions),
                   ),
               ],
@@ -3011,6 +3026,159 @@ class _MessageBubble extends StatelessWidget {
     return EmojiReactionPickerSheet.show(context);
   }
 
+  /// The compact time + delivery-state trailer that WhatsApp tucks into the
+  /// bottom-right of a bubble. Kept small and low-contrast so it reads as
+  /// metadata, not content.
+  Widget _metaRow(BuildContext context, Color contentColor) {
+    final theme = Theme.of(context);
+    final isMine = message.isFromCurrentUser;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (message.isEdited && !message.isDeleted) ...[
+          Text(
+            'Edited',
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: contentColor.withValues(alpha: 0.55),
+              fontStyle: FontStyle.italic,
+              fontSize: 11,
+            ),
+          ),
+          const SizedBox(width: 5),
+        ],
+        if (message.isStarred && !message.isDeleted) ...[
+          Icon(
+            Icons.star_rounded,
+            size: 12,
+            color: contentColor.withValues(alpha: 0.7),
+          ),
+          const SizedBox(width: 3),
+        ],
+        Text(
+          _timeLabelFor(message.sentAt),
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: contentColor.withValues(alpha: 0.7),
+            fontSize: 11,
+          ),
+        ),
+        if (isMine) ...[
+          const SizedBox(width: 4),
+          Icon(
+            _deliveryIcon(message.deliveryState),
+            size: 14,
+            color: switch (message.deliveryState) {
+              MessageDeliveryState.read => AppPalette.green,
+              MessageDeliveryState.failed => theme.colorScheme.error,
+              _ => contentColor.withValues(alpha: 0.72),
+            },
+          ),
+        ],
+      ],
+    );
+  }
+
+  /// Message text with the time/ticks tucked inline at the end, WhatsApp
+  /// style. A [Wrap] keeps the trailer on the same line as short messages
+  /// (the common case) so the bubble is two lines tall instead of three;
+  /// the [ConstrainedBox] gives the [Text] the bubble's own max content
+  /// width so long messages still wrap (a bare Text inside a Wrap would be
+  /// handed unbounded width and refuse to wrap), and the trailer drops to a
+  /// tight line of its own only when the text actually fills the width.
+  Widget _textWithInlineMeta(
+    BuildContext context, {
+    required String text,
+    required TextStyle? textStyle,
+    required Color contentColor,
+    required double maxTextWidth,
+  }) {
+    return Wrap(
+      crossAxisAlignment: WrapCrossAlignment.end,
+      spacing: 8,
+      runSpacing: 2,
+      children: [
+        ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: maxTextWidth),
+          child: Text(text, style: textStyle),
+        ),
+        _metaRow(context, contentColor),
+      ],
+    );
+  }
+
+  /// Roughly how wide [_metaRow] renders, so a caption can reserve room for
+  /// it on its last line. Measured (not guessed) for the time text, plus the
+  /// fixed widths/gaps of the optional edited label, star, and delivery tick
+  /// exactly as [_metaRow] lays them out. Over-reserving slightly is fine
+  /// (a hair of extra gap); under-reserving would let text slide under the
+  /// timestamp, so a small safety margin is added.
+  double _metaRowWidth(BuildContext context) {
+    final theme = Theme.of(context);
+    final scaler = MediaQuery.textScalerOf(context);
+    double measure(String value, TextStyle? style) {
+      final painter = TextPainter(
+        text: TextSpan(text: value, style: style),
+        textDirection: TextDirection.ltr,
+        textScaler: scaler,
+      )..layout();
+      return painter.width;
+    }
+
+    var width = measure(
+      _timeLabelFor(message.sentAt),
+      theme.textTheme.labelSmall?.copyWith(fontSize: 11),
+    );
+    if (message.isEdited && !message.isDeleted) {
+      width += measure(
+            'Edited',
+            theme.textTheme.labelSmall
+                ?.copyWith(fontSize: 11, fontStyle: FontStyle.italic),
+          ) +
+          5;
+    }
+    if (message.isStarred && !message.isDeleted) {
+      width += 12 + 3;
+    }
+    if (message.isFromCurrentUser) {
+      width += 4 + 14;
+    }
+    return width + 8;
+  }
+
+  /// An attachment caption with the timestamp tucked inline at the bottom-
+  /// right, WhatsApp style: on the same line as a short caption, or at the
+  /// end of the last line when the caption wraps. The caption fills the media
+  /// width (minus a reserved strip on the right) so the overlaid [_metaRow]
+  /// lands at the bubble's right edge and wrapped text never slides under it.
+  /// Kept as a plain [Text] (not [Text.rich]) so `find.text` still locates
+  /// captioned-attachment messages in widget tests.
+  Widget _captionWithInlineMeta(
+    BuildContext context, {
+    required String caption,
+    required TextStyle? captionStyle,
+    required Color contentColor,
+  }) {
+    final reservedWidth = _metaRowWidth(context);
+    return SizedBox(
+      width: double.infinity,
+      child: Stack(
+        children: [
+          Padding(
+            padding: EdgeInsets.only(right: reservedWidth),
+            child: SizedBox(
+              width: double.infinity,
+              child: Text(caption, style: captionStyle),
+            ),
+          ),
+          Positioned(
+            right: 0,
+            bottom: 0,
+            child: _metaRow(context, contentColor),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// Photo/video attachments render full-bleed (a grid when more than one
   /// photo was sent together); a single location attachment with a real fix
   /// renders a real map snippet with a pin; file/voice-note attachments (and
@@ -3048,8 +3216,14 @@ class _MessageBubble extends StatelessWidget {
         attachments.single.type == ChatAttachmentType.location &&
         attachments.single.hasCoordinates) {
       final attachment = attachments.single;
+      // The map has a fixed 1.45 aspect ratio, so at the bubble's ~300px
+      // content width its natural height is ~207. The height cap has to sit
+      // above that (240) or it clamps the height first and the map ends up
+      // narrower than the bubble -- which left a gap on its right once the
+      // timestamp row stretched the bubble to full width. With the cap
+      // above the natural height, width binds and the map fills the bubble.
       return ConstrainedBox(
-        constraints: const BoxConstraints(maxHeight: 200),
+        constraints: const BoxConstraints(maxHeight: 240),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(14),
           child: Material(
@@ -3203,7 +3377,7 @@ class _StoryReplyCard extends StatelessWidget {
           onTap: isAvailable ? onTap : null,
           borderRadius: BorderRadius.circular(12),
           child: Container(
-            padding: const EdgeInsets.all(6),
+            padding: const EdgeInsets.all(5),
             decoration: BoxDecoration(
               color: theme.colorScheme.surface.withValues(alpha: 0.5),
               borderRadius: BorderRadius.circular(12),
@@ -3216,14 +3390,14 @@ class _StoryReplyCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(7),
                   child: SizedBox(
-                    width: 36,
-                    height: 48,
+                    width: 30,
+                    height: 38,
                     child: _buildThumbnail(theme),
                   ),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 8),
                 Flexible(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -3515,22 +3689,29 @@ class _ReactionBadge extends StatelessWidget {
         ],
       ),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
         child: Row(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             for (final emoji in distinctEmojis)
-              // Sized to match the emoji picker sheet's own grid glyphs
-              // (EmojiViewConfig.emojiSizeMax: 30 in
-              // emoji_reaction_picker_screen.dart) so a reaction looks the
-              // same size here as it did when picked.
-              Text(emoji, style: const TextStyle(fontSize: 20)),
+              // A comfortably-sized glyph with a tight line box (height: 1)
+              // so it sits centred in the pill rather than riding high with
+              // the default line spacing above/below it. The Positioned offset
+              // where this badge is placed is tuned to this size so the taller
+              // pill still clears the message text.
+              Text(
+                emoji,
+                style: const TextStyle(fontSize: 20, height: 1),
+              ),
             if (reactions.length > 1) ...[
-              const SizedBox(width: 4),
+              const SizedBox(width: 3),
               Text(
                 '${reactions.length}',
                 style: theme.textTheme.labelSmall?.copyWith(
                   fontWeight: FontWeight.w700,
+                  fontSize: 11,
+                  height: 1,
                   color: theme.colorScheme.onSurface.withValues(alpha: 0.72),
                 ),
               ),
@@ -3758,19 +3939,19 @@ class _AttachmentPreviewCard extends StatelessWidget {
         onTap: onTap,
         borderRadius: borderRadius,
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
+          padding: const EdgeInsets.symmetric(vertical: 2),
           child: Row(
             children: [
               CircleAvatar(
-                radius: 20,
+                radius: 18,
                 backgroundColor: iconColor.withValues(alpha: 0.16),
                 child: Icon(
                   icon,
                   color: iconColor,
-                  size: 20,
+                  size: 18,
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -3779,11 +3960,11 @@ class _AttachmentPreviewCard extends StatelessWidget {
                       attachment.title,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.titleSmall?.copyWith(
+                      style: theme.textTheme.labelLarge?.copyWith(
                         fontWeight: FontWeight.w800,
                       ),
                     ),
-                    const SizedBox(height: 2),
+                    const SizedBox(height: 1),
                     Text(
                       attachment.details,
                       maxLines: 1,

@@ -138,97 +138,103 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
         ? '1x'
         : '${_speedOptions[_speedIndex].toStringAsFixed(1).replaceAll('.0', '')}x';
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          IconButton.filled(
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        // Compact circular play/pause, WhatsApp sized (~38 rather than the
+        // 48 IconButton.filled defaults to) so the bubble stays short.
+        Material(
+          color: _hasError
+              ? widget.accentColor.withValues(alpha: 0.5)
+              : widget.accentColor,
+          shape: const CircleBorder(),
+          child: InkWell(
             key: const Key('voice_note_play_pause_button'),
-            onPressed: _hasError
+            customBorder: const CircleBorder(),
+            onTap: _hasError
                 ? null
                 : () {
                     unawaited(_togglePlayback());
                   },
-            icon: Icon(
-              _hasError
-                  ? Icons.error_outline_rounded
-                  : isPlaying
-                      ? Icons.pause_rounded
-                      : Icons.play_arrow_rounded,
-            ),
-            iconSize: 20,
-            style: IconButton.styleFrom(
-              backgroundColor: widget.accentColor,
-              foregroundColor: Colors.white,
-              disabledBackgroundColor: widget.accentColor.withValues(alpha: 0.5),
-              disabledForegroundColor: Colors.white70,
+            child: SizedBox(
+              width: 38,
+              height: 38,
+              child: Icon(
+                _hasError
+                    ? Icons.error_outline_rounded
+                    : isPlaying
+                        ? Icons.pause_rounded
+                        : Icons.play_arrow_rounded,
+                size: 20,
+                color: Colors.white,
+              ),
             ),
           ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SizedBox(
-                  height: 28,
-                  child: _PlaybackWaveform(
-                    samples: _waveform,
-                    progress: progress,
-                    accentColor: widget.accentColor,
-                    mutedColor: widget.accentColor.withValues(alpha: 0.28),
-                  ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                height: 22,
+                child: _PlaybackWaveform(
+                  samples: _waveform,
+                  progress: progress,
+                  accentColor: widget.accentColor,
+                  mutedColor: widget.accentColor.withValues(alpha: 0.28),
                 ),
-                const SizedBox(height: 4),
-                Row(
-                  children: [
+              ),
+              const SizedBox(height: 3),
+              Row(
+                children: [
+                  Text(
+                    _hasError ? 'Voice note unavailable' : elapsedLabel,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.72),
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                  if (totalLabel != null) ...[
                     Text(
-                      _hasError ? 'Voice note unavailable' : elapsedLabel,
+                      ' · $totalLabel',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall?.copyWith(
+                      style: theme.textTheme.labelSmall?.copyWith(
                         color:
-                            theme.colorScheme.onSurface.withValues(alpha: 0.72),
+                            theme.colorScheme.onSurface.withValues(alpha: 0.52),
                         fontFeatures: const [FontFeature.tabularFigures()],
                       ),
                     ),
-                    if (totalLabel != null) ...[
-                      Text(
-                        ' · $totalLabel',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurface
-                              .withValues(alpha: 0.52),
-                          fontFeatures: const [FontFeature.tabularFigures()],
-                        ),
-                      ),
-                    ],
                   ],
-                ),
-              ],
-            ),
+                ],
+              ),
+            ],
           ),
-          const SizedBox(width: 8),
-          TextButton(
-            key: const Key('voice_note_speed_button'),
-            onPressed: _hasError
-                ? null
-                : () {
-                    unawaited(_cycleSpeed());
-                  },
-            style: TextButton.styleFrom(
-              minimumSize: const Size(36, 32),
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              foregroundColor: theme.colorScheme.onSurface.withValues(alpha: 0.72),
-              backgroundColor:
-                  theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
-            ),
-            child: Text(speedLabel),
+        ),
+        const SizedBox(width: 6),
+        TextButton(
+          key: const Key('voice_note_speed_button'),
+          onPressed: _hasError
+              ? null
+              : () {
+                  unawaited(_cycleSpeed());
+                },
+          style: TextButton.styleFrom(
+            minimumSize: const Size(30, 26),
+            padding: const EdgeInsets.symmetric(horizontal: 7),
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+            foregroundColor: theme.colorScheme.onSurface.withValues(alpha: 0.72),
+            backgroundColor: theme.colorScheme.surfaceContainerHighest
+                .withValues(alpha: 0.55),
           ),
-        ],
-      ),
+          child: Text(speedLabel),
+        ),
+      ],
     );
   }
 }
