@@ -68,6 +68,15 @@ class ConversationScreen extends StatefulWidget {
 
 class _ConversationScreenState extends State<ConversationScreen> {
   static const double _messageListBottomPadding = 12;
+
+  /// Above this loaded-message count, the short-thread top-align path below
+  /// is skipped -- shrinkWrap needs to lay out every child up front, which
+  /// is cheap for a handful of messages but not something to do on every
+  /// rebuild of a long, heavily-paginated thread. 40 comfortably covers any
+  /// thread that could plausibly fit on a phone screen without scrolling;
+  /// anything past it already needs to scroll, so it gets the normal
+  /// (unchanged, already-flicker-free) bottom-anchored treatment.
+  static const int _kShortThreadMessageThreshold = 40;
   static const Duration _sentMessageEntryDuration = Duration(milliseconds: 220);
   static const Duration _ownSendScrollSuppression = Duration(milliseconds: 700);
   static const Duration _outboundEchoMatchWindow = Duration(minutes: 2);
@@ -460,30 +469,47 @@ class _ConversationScreenState extends State<ConversationScreen> {
     final showOlderLoader =
         widget.controller.isLoadingOlderMessages(thread.id);
 
-    return SafeArea(
-      bottom: false,
-      child: GestureDetector(
-        behavior: HitTestBehavior.translucent,
-        onTap: () => FocusScope.of(context).unfocus(),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surface.withValues(
-              alpha: theme.brightness == Brightness.dark ? 0.94 : 0.98,
-            ),
-          ),
-          child: NotificationListener<Notification>(
-            onNotification: _handleMessageListNotification,
-            child: ListView.builder(
-              key: const Key('conversation_message_list'),
-              controller: _messageListController,
-              // Bottom-anchored (WhatsApp-style): newest-first content with
-              // reverse:true, so scroll offset 0 is the newest message at the
-              // bottom. Opening lands there with no jump (no flicker), and
-              // older pages prepend without moving the view -- see
-              // _displayMessagesForList and the scroll helpers, all keyed off
-              // offset 0 being the latest.
-              reverse: true,
-              addRepaintBoundaries: true,
+    // A thread short enough to fit on screen without scrolling should sit at
+    // the TOP of the pane (WhatsApp's own behavior), not reverse:true's
+    // normal fill-from-the-bottom -- which leaves the slack space above the
+    // messages instead of below them, right against the composer. Confirmed
+    // via _kShortThreadMessageThreshold's own doc comment: gated on a small,
+    // *confidently complete* window (no more older history left to page in)
+    // so this never touches a long, heavily-paginated thread, where the
+    // existing bottom-anchored rendering below is completely unchanged.
+    //
+    // hasFullyLoadedMessages matters just as much as the count: before that
+    // first page finishes loading, displayMessages may only hold whatever
+    // lightweight summary the inbox list already had cached (often just the
+    // latest message) -- reading that as "short" would top-align a thread
+    // that's actually long, then flip to bottom-anchored the instant the
+    // real page arrives. That flip is exactly the kind of jump this whole
+    // feature exists to avoid, so until loading is confirmed complete this
+    // falls back to the normal (unchanged, already-flicker-free) path.
+    final isShortThread = widget.controller.hasFullyLoadedMessages(
+          thread.id,
+        ) &&
+        !showOlderLoader &&
+        !widget.controller.hasMoreOlderMessages(thread.id) &&
+        displayMessages.length <= _kShortThreadMessageThreshold;
+
+    final messageList = ListView.builder(
+      key: const Key('conversation_message_list'),
+      controller: _messageListController,
+      // Bottom-anchored (WhatsApp-style): newest-first content with
+      // reverse:true, so scroll offset 0 is the newest message at the
+      // bottom. Opening lands there with no jump (no flicker), and
+      // older pages prepend without moving the view -- see
+      // _displayMessagesForList and the scroll helpers, all keyed off
+      // offset 0 being the latest. shrinkWrap only turns on for a short,
+      // fully-loaded thread (see isShortThread above) -- Align below then
+      // pins that shrink-wrapped box to the top of the available space,
+      // with reverse:true still governing the actual message order inside
+      // it. For an overflowing thread this list fills the full Expanded
+      // height exactly as it always has.
+      reverse: true,
+      shrinkWrap: isShortThread,
+      addRepaintBoundaries: true,
               findChildIndexCallback: (Key key) {
                 if (key is! ValueKey<String>) {
                   return null;
@@ -617,7 +643,31 @@ class _ConversationScreenState extends State<ConversationScreen> {
                   ),
                 );
               },
+            );
+
+    return SafeArea(
+      bottom: false,
+      child: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onTap: () => FocusScope.of(context).unfocus(),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: theme.colorScheme.surface.withValues(
+              alpha: theme.brightness == Brightness.dark ? 0.94 : 0.98,
             ),
+          ),
+          child: NotificationListener<Notification>(
+            onNotification: _handleMessageListNotification,
+            // Align only matters (and only applies) for the shrink-wrapped
+            // short-thread case -- it caps the list to the available height
+            // via the loose constraint it hands its child, then pins the
+            // resulting (smaller-than-available) box to the top. For the
+            // normal case the list already fills the full height on its
+            // own, so wrapping it here would be a no-op; skipping the wrap
+            // entirely keeps that path identical to before this change.
+            child: isShortThread
+                ? Align(alignment: Alignment.topCenter, child: messageList)
+                : messageList,
           ),
         ),
       ),

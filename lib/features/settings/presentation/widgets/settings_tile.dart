@@ -1,8 +1,27 @@
 import 'package:flutter/material.dart';
 
 const double _kSettingsTileHorizontalPadding = 18;
-const double _kSettingsTileVerticalPadding = 13;
+const double _kSettingsTileVerticalPadding = 10;
 const double _kSettingsTileLeadingWidth = 34;
+
+/// The divider between two [SettingsTile]s in the same group -- matches the
+/// chat list's own row divider exactly (low-opacity outlineVariant, indented
+/// past the leading icon) rather than the theme's default [Divider] color,
+/// which read as noticeably heavier/more opaque by comparison.
+class SettingsRowDivider extends StatelessWidget {
+  const SettingsRowDivider({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Divider(
+      height: 1,
+      indent: _kSettingsTileHorizontalPadding + _kSettingsTileLeadingWidth + 12,
+      color: Theme.of(context).colorScheme.outlineVariant.withValues(
+            alpha: 0.22,
+          ),
+    );
+  }
+}
 
 class SettingsTile extends StatelessWidget {
   const SettingsTile({

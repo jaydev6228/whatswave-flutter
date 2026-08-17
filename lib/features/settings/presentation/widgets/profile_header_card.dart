@@ -24,9 +24,9 @@ class ProfileHeaderCard extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.fromLTRB(
             _kSettingsRowHorizontalPadding,
-            10,
+            8,
             _kSettingsRowHorizontalPadding,
-            10,
+            8,
           ),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -60,7 +60,7 @@ class ProfileHeaderCard extends StatelessWidget {
                             theme.colorScheme.onSurface.withValues(alpha: 0.65),
                       ),
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 5),
                     Text(
                       user.about,
                       maxLines: 2,

@@ -19,7 +19,8 @@ import 'storage_data_screen.dart';
 import 'widgets/profile_header_card.dart';
 import 'widgets/settings_tile.dart';
 
-const double _kSettingsScreenHorizontalPadding = 16;
+// Matches PrivacySettingsScreen's own SliverPadding horizontal inset exactly.
+const double _kSettingsScreenHorizontalPadding = 20;
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({
@@ -63,18 +64,18 @@ class SettingsScreen extends StatelessWidget {
             key: const Key('settings_screen'),
             slivers: [
               SliverPadding(
-                padding: EdgeInsets.only(bottom: 100 + bottomSafeInset),
+                padding: EdgeInsets.fromLTRB(
+                  _kSettingsScreenHorizontalPadding,
+                  0,
+                  _kSettingsScreenHorizontalPadding,
+                  100 + bottomSafeInset,
+                ),
                 sliver: SliverToBoxAdapter(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Padding(
-                        padding: const EdgeInsets.fromLTRB(
-                          _kSettingsScreenHorizontalPadding,
-                          8,
-                          _kSettingsScreenHorizontalPadding,
-                          0,
-                        ),
+                        padding: const EdgeInsets.only(top: 8),
                         child: Text(
                           'Settings',
                           maxLines: 1,
@@ -94,171 +95,144 @@ class SettingsScreen extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(height: 12),
-                      _SettingsGroup(
-                        child: Column(
-                          children: [
-                            SettingsTile(
-                              key: const Key('settings_account_phone_tile'),
-                              icon: Icons.badge_outlined,
-                              title: 'Phone and identity',
-                              subtitle:
-                                  'Your current number is ${activeUser.phoneNumber}.',
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 18),
-                      const Padding(
-                        padding: EdgeInsets.symmetric(
-                          horizontal: _kSettingsScreenHorizontalPadding,
-                        ),
-                        child: _SettingsSectionLabel(title: 'Chats'),
-                      ),
-                      const SizedBox(height: 8),
-                      _SettingsGroup(
-                        child: SettingsTile(
-                          key: const Key('settings_starred_messages_tile'),
-                          icon: Icons.star_border_rounded,
-                          title: 'Starred messages',
-                          subtitle: chatsController.starredMessages.isEmpty
-                              ? 'Tap and hold any message to star it.'
-                              : '${chatsController.starredMessages.length} starred.',
-                          onTap: () => _openStarredMessages(context),
-                        ),
-                      ),
-                      const SizedBox(height: 18),
-                      const Padding(
-                        padding: EdgeInsets.symmetric(
-                          horizontal: _kSettingsScreenHorizontalPadding,
-                        ),
-                        child: _SettingsSectionLabel(title: 'Appearance'),
-                      ),
-                      const SizedBox(height: 8),
-                      _SettingsGroup(
-                        child: SettingsTile(
-                          key: const Key('settings_theme_mode_tile'),
-                          icon: Icons.palette_outlined,
-                          title: 'Theme mode',
-                          subtitle: _themeModeLabel(
-                            preferencesController.themeMode,
+                      // Grouped into rounded Cards -- the exact treatment
+                      // PrivacySettingsScreen already uses (Card + a
+                      // fromLTRB(16,8,16,8) pad + Divider(height:1) between
+                      // rows in the same card) -- rather than either one
+                      // undifferentiated list or separate text-labeled
+                      // sections.
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                          child: SettingsTile(
+                            key: const Key('settings_starred_messages_tile'),
+                            icon: Icons.star_border_rounded,
+                            title: 'Starred messages',
+                            subtitle: chatsController.starredMessages.isEmpty
+                                ? 'Tap and hold any message to star it.'
+                                : '${chatsController.starredMessages.length} starred.',
+                            onTap: () => _openStarredMessages(context),
                           ),
-                          onTap: () => _openThemeModePicker(context),
                         ),
                       ),
-                      const SizedBox(height: 18),
-                      const Padding(
-                        padding: EdgeInsets.symmetric(
-                          horizontal: _kSettingsScreenHorizontalPadding,
-                        ),
-                        child: _SettingsSectionLabel(
-                          title: 'Privacy and security',
+                      const SizedBox(height: 20),
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                          child: SettingsTile(
+                            key: const Key('settings_theme_mode_tile'),
+                            icon: Icons.palette_outlined,
+                            title: 'Theme mode',
+                            subtitle: _themeModeLabel(
+                              preferencesController.themeMode,
+                            ),
+                            onTap: () => _openThemeModePicker(context),
+                          ),
                         ),
                       ),
-                      const SizedBox(height: 8),
-                      _SettingsGroup(
-                        child: Column(
-                          children: [
-                            SettingsTile(
-                              key: const Key('settings_privacy_center_tile'),
-                              icon: Icons.shield_outlined,
-                              title: 'Privacy center',
-                              subtitle:
-                                  'Last seen: ${preferencesController.lastSeenAudience.label}. Status: ${preferencesController.statusAudience.label}.',
-                              onTap: () => _openPrivacySettings(context),
-                            ),
-                            const Divider(height: 1),
-                            SettingsTile(
-                              key: const Key('settings_blocked_contacts_tile'),
-                              icon: Icons.block_outlined,
-                              title: 'Blocked contacts',
-                              subtitle: _blockedContactsCount() == 0
-                                  ? 'No blocked contacts.'
-                                  : '${_blockedContactsCount()} blocked.',
-                              onTap: () => _openBlockedContacts(context),
-                            ),
-                            const Divider(height: 1),
-                            SettingsTile(
-                              key: const Key('settings_notifications_tile'),
-                              icon: Icons.notifications_none_rounded,
-                              title: 'Notifications',
-                              subtitle: preferencesController
-                                      .notificationsEnabled
-                                  ? 'Message alerts and previews are enabled.'
-                                  : 'Notifications are muted on this device.',
-                              trailing: Switch.adaptive(
-                                key: const Key(
-                                  'settings_notifications_switch',
-                                ),
-                                value:
-                                    preferencesController.notificationsEnabled,
-                                onChanged: preferencesController
-                                    .setNotificationsEnabled,
+                      const SizedBox(height: 20),
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                          child: Column(
+                            children: [
+                              SettingsTile(
+                                key: const Key('settings_privacy_center_tile'),
+                                icon: Icons.shield_outlined,
+                                title: 'Privacy center',
+                                subtitle:
+                                    'Last seen: ${preferencesController.lastSeenAudience.label}. Status: ${preferencesController.statusAudience.label}.',
+                                onTap: () => _openPrivacySettings(context),
                               ),
-                            ),
-                          ],
+                              const SettingsRowDivider(),
+                              SettingsTile(
+                                key: const Key(
+                                  'settings_blocked_contacts_tile',
+                                ),
+                                icon: Icons.block_outlined,
+                                title: 'Blocked contacts',
+                                subtitle: _blockedContactsCount() == 0
+                                    ? 'No blocked contacts.'
+                                    : '${_blockedContactsCount()} blocked.',
+                                onTap: () => _openBlockedContacts(context),
+                              ),
+                              const SettingsRowDivider(),
+                              SettingsTile(
+                                key: const Key('settings_notifications_tile'),
+                                icon: Icons.notifications_none_rounded,
+                                title: 'Notifications',
+                                subtitle: preferencesController
+                                        .notificationsEnabled
+                                    ? 'Message alerts and previews are enabled.'
+                                    : 'Notifications are muted on this device.',
+                                trailing: Switch.adaptive(
+                                  key: const Key(
+                                    'settings_notifications_switch',
+                                  ),
+                                  value: preferencesController
+                                      .notificationsEnabled,
+                                  onChanged: preferencesController
+                                      .setNotificationsEnabled,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
-                      const SizedBox(height: 18),
-                      const Padding(
-                        padding: EdgeInsets.symmetric(
-                          horizontal: _kSettingsScreenHorizontalPadding,
-                        ),
-                        child:
-                            _SettingsSectionLabel(title: 'Production and data'),
-                      ),
-                      const SizedBox(height: 8),
-                      _SettingsGroup(
-                        child: Column(
-                          children: [
-                            SettingsTile(
-                              key: const Key('settings_backend_sync_tile'),
-                              icon: Icons.cloud_sync_outlined,
-                              title: 'Backend and sync',
-                              subtitle: _backendSyncSubtitle(),
-                              onTap: () => _openBackendSync(context),
-                            ),
-                            const Divider(height: 1),
-                            SettingsTile(
-                              key: const Key('settings_storage_data_tile'),
-                              icon: Icons.folder_outlined,
-                              title: 'Storage and data',
-                              subtitle: chatsController.threads.isEmpty
-                                  ? 'Media usage and auto-download settings.'
-                                  : '${_mediaItemCount()} media items across your chats.',
-                              onTap: () => _openStorageData(context),
-                            ),
-                          ],
+                      const SizedBox(height: 20),
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                          child: Column(
+                            children: [
+                              SettingsTile(
+                                key: const Key('settings_backend_sync_tile'),
+                                icon: Icons.cloud_sync_outlined,
+                                title: 'Backend and sync',
+                                subtitle: _backendSyncSubtitle(),
+                                onTap: () => _openBackendSync(context),
+                              ),
+                              const SettingsRowDivider(),
+                              SettingsTile(
+                                key: const Key('settings_storage_data_tile'),
+                                icon: Icons.folder_outlined,
+                                title: 'Storage and data',
+                                subtitle: chatsController.threads.isEmpty
+                                    ? 'Media usage and auto-download settings.'
+                                    : '${_mediaItemCount()} media items across your chats.',
+                                onTap: () => _openStorageData(context),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
-                      const SizedBox(height: 18),
-                      const Padding(
-                        padding: EdgeInsets.symmetric(
-                          horizontal: _kSettingsScreenHorizontalPadding,
-                        ),
-                        child: _SettingsSectionLabel(title: 'More'),
-                      ),
-                      const SizedBox(height: 8),
-                      _SettingsGroup(
-                        child: SettingsTile(
-                          key: const Key('settings_help_tile'),
-                          icon: Icons.help_outline_rounded,
-                          title: 'Help',
-                          subtitle: 'FAQ and contact support.',
-                          onTap: () => _openHelp(context),
+                      const SizedBox(height: 20),
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                          child: SettingsTile(
+                            key: const Key('settings_help_tile'),
+                            icon: Icons.help_outline_rounded,
+                            title: 'Help',
+                            subtitle: 'FAQ and contact support.',
+                            onTap: () => _openHelp(context),
+                          ),
                         ),
                       ),
-                      const SizedBox(height: 18),
-                      _SettingsGroup(
-                        child: SettingsTile(
-                          key: const Key('settings_sign_out_tile'),
-                          icon: Icons.logout_rounded,
-                          title: 'Sign out',
-                          subtitle:
-                              'Sign out of WhatsWave on this device.',
-                          destructive: true,
-                          onTap: authController.isBusy
-                              ? null
-                              : () => _confirmSignOut(context),
+                      const SizedBox(height: 20),
+                      Card(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                          child: SettingsTile(
+                            key: const Key('settings_sign_out_tile'),
+                            icon: Icons.logout_rounded,
+                            title: 'Sign out',
+                            subtitle: 'Sign out of WhatsWave on this device.',
+                            destructive: true,
+                            onTap: authController.isBusy
+                                ? null
+                                : () => _confirmSignOut(context),
+                          ),
                         ),
                       ),
                     ],
@@ -453,31 +427,4 @@ String _themeModeLabel(ThemeMode themeMode) {
     ThemeMode.light => 'Light',
     ThemeMode.dark => 'Dark',
   };
-}
-
-class _SettingsSectionLabel extends StatelessWidget {
-  const _SettingsSectionLabel({required this.title});
-
-  final String title;
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      title,
-      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-            fontWeight: FontWeight.w800,
-          ),
-    );
-  }
-}
-
-class _SettingsGroup extends StatelessWidget {
-  const _SettingsGroup({required this.child});
-
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(color: Colors.transparent, child: child);
-  }
 }

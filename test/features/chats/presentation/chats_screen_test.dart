@@ -1643,7 +1643,7 @@ void main() {
     expect(previewTop - titleBottom, lessThan(8));
   });
 
-  testWidgets('keeps short conversations anchored near the composer',
+  testWidgets('keeps short conversations anchored near the top',
       (tester) async {
     final topAlignedThread = ChatThread(
       id: 'top-thread',
@@ -1692,17 +1692,28 @@ void main() {
     final lastMessageFinder = find.byKey(
       const ValueKey<String>('conversation_message_top-thread-message-2'),
     );
+    final composerTop =
+        tester.getTopLeft(find.byKey(const Key('conversation_composer_field')))
+            .dy;
     final messageListTop = tester.getTopLeft(messageListFinder).dy;
     final firstMessageTop = tester.getTopLeft(firstMessageFinder).dy;
-    final messageListBottom = tester.getBottomLeft(messageListFinder).dy;
     final lastMessageBottom = tester.getBottomLeft(lastMessageFinder).dy;
 
+    // Top-aligned, WhatsApp-style: a thread short enough to fit on screen
+    // shrink-wraps to the top of the pane instead of reverse:true's normal
+    // fill-from-the-bottom -- nothing to scroll (maxScrollExtent stays 0,
+    // same as the old bottom-anchored behavior), but the slack space now
+    // falls below the last message, near the composer, rather than above
+    // the first one. The top gap isn't asserted as an exact pixel value --
+    // it includes the "Today" day divider's own height above the oldest
+    // message, not just the list's content padding -- so the meaningful
+    // check is the *contrast*: a small, list-chrome-only gap at the top
+    // versus a clearly larger, genuinely-empty gap at the bottom.
+    final topGap = firstMessageTop - messageListTop;
+    final bottomGap = composerTop - lastMessageBottom;
     expect(messageListController.position.maxScrollExtent, 0);
-    // Bottom-anchored (reverse:true): a short thread clusters near the
-    // composer -- the last message sits just above it (list bottom padding,
-    // ~12) -- while the empty room is all at the top.
-    expect(messageListBottom - lastMessageBottom, closeTo(12, 4));
-    expect(firstMessageTop - messageListTop, greaterThan(80));
+    expect(topGap, lessThan(80));
+    expect(bottomGap, greaterThan(topGap + 100));
   });
 
   testWidgets(

@@ -68,7 +68,7 @@ class PrivacySettingsScreen extends StatelessWidget {
                                     onChanged: controller.setLastSeenAudience,
                                   ),
                                 ),
-                                const Divider(height: 1),
+                                const SettingsRowDivider(),
                                 SettingsTile(
                                   key: const Key('privacy_profile_photo_tile'),
                                   icon: Icons.account_circle_outlined,
@@ -83,7 +83,7 @@ class PrivacySettingsScreen extends StatelessWidget {
                                         controller.setProfilePhotoAudience,
                                   ),
                                 ),
-                                const Divider(height: 1),
+                                const SettingsRowDivider(),
                                 SettingsTile(
                                   key: const Key('privacy_status_tile'),
                                   icon: Icons.auto_awesome_motion_outlined,
@@ -97,7 +97,7 @@ class PrivacySettingsScreen extends StatelessWidget {
                                     onChanged: controller.setStatusAudience,
                                   ),
                                 ),
-                                const Divider(height: 1),
+                                const SettingsRowDivider(),
                                 SettingsTile(
                                   key: const Key('privacy_groups_tile'),
                                   icon: Icons.groups_outlined,
@@ -137,7 +137,7 @@ class PrivacySettingsScreen extends StatelessWidget {
                                         controller.setReadReceiptsEnabled,
                                   ),
                                 ),
-                                const Divider(height: 1),
+                                const SettingsRowDivider(),
                                 SettingsTile(
                                   key: const Key(
                                     'privacy_security_notifications_tile',
