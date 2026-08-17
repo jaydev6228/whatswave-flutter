@@ -151,7 +151,7 @@ class HelpScreen extends StatelessWidget {
                 ),
               ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 12),
             Text(
               'Still need help?',
               style: theme.textTheme.titleMedium

@@ -49,7 +49,7 @@ class PrivacySettingsScreen extends StatelessWidget {
                                         .withValues(alpha: 0.72),
                                   ),
                         ),
-                        const SizedBox(height: 20),
+                        const SizedBox(height: 12),
                         Card(
                           child: Padding(
                             padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
@@ -115,7 +115,7 @@ class PrivacySettingsScreen extends StatelessWidget {
                             ),
                           ),
                         ),
-                        const SizedBox(height: 20),
+                        const SizedBox(height: 12),
                         Card(
                           child: Padding(
                             padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
@@ -162,7 +162,7 @@ class PrivacySettingsScreen extends StatelessWidget {
                             ),
                           ),
                         ),
-                        const SizedBox(height: 20),
+                        const SizedBox(height: 12),
                         Card(
                           child: Padding(
                             padding: const EdgeInsets.all(16),

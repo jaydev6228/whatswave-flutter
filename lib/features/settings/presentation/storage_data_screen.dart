@@ -77,7 +77,7 @@ class StorageDataScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 12),
                 _MediaUsageCard(counts: counts),
-                const SizedBox(height: 20),
+                const SizedBox(height: 12),
                 Text(
                   'Network usage',
                   style: theme.textTheme.titleMedium
