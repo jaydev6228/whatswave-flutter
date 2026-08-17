@@ -604,9 +604,13 @@ class _ConversationScreenState extends State<ConversationScreen> {
                           // Trailing gap below each bubble. reverse:true means
                           // index 0 is the newest (screen bottom); skip its
                           // trailing spacer since the list's own bottom padding
-                          // handles the gap above the composer.
+                          // handles the gap above the composer. The reaction
+                          // case stays taller -- the reaction badge overlays
+                          // below the bubble (Positioned bottom: -22) and
+                          // needs that clearance to avoid clipping into the
+                          // next message.
                           if (index != 0)
-                            SizedBox(height: message.hasReactions ? 30 : 10),
+                            SizedBox(height: message.hasReactions ? 30 : 6),
                         ],
                       ),
                     ),
