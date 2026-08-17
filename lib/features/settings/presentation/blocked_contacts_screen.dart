@@ -56,7 +56,14 @@ class BlockedContactsScreen extends StatelessWidget {
                       24 + MediaQuery.paddingOf(context).bottom,
                     ),
                     itemCount: blocked.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    separatorBuilder: (_, __) => Divider(
+                      height: 1,
+                      indent: 44 + 12,
+                      color: Theme.of(context)
+                          .colorScheme
+                          .outlineVariant
+                          .withValues(alpha: 0.22),
+                    ),
                     itemBuilder: (context, index) {
                       final thread = blocked[index];
                       return _BlockedContactRow(
