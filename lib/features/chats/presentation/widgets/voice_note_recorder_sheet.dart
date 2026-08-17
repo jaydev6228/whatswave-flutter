@@ -117,7 +117,7 @@ class _VoiceNoteRecorderSheetState extends State<_VoiceNoteRecorderSheet> {
 
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 20),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -171,10 +171,10 @@ class _VoiceNoteRecorderSheetState extends State<_VoiceNoteRecorderSheet> {
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         SizedBox(
-                          height: 32,
+                          height: 28,
                           child: _RecordingWaveform(samples: _session.samples),
                         ),
-                        const SizedBox(height: 6),
+                        const SizedBox(height: 4),
                         Text(
                           formatVoiceNoteDuration(_session.elapsed),
                           key: const Key('voice_recorder_timer'),
@@ -193,10 +193,22 @@ class _VoiceNoteRecorderSheetState extends State<_VoiceNoteRecorderSheet> {
                     IconButton.filledTonal(
                       key: const Key('voice_recorder_pause_button'),
                       onPressed: _togglePause,
-                      icon: Icon(
-                        _stage == _RecorderStage.paused
-                            ? Icons.play_arrow_rounded
-                            : Icons.pause_rounded,
+                      icon: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 180),
+                        transitionBuilder: (child, animation) =>
+                            ScaleTransition(
+                          scale: animation,
+                          child: FadeTransition(
+                            opacity: animation,
+                            child: child,
+                          ),
+                        ),
+                        child: Icon(
+                          _stage == _RecorderStage.paused
+                              ? Icons.play_arrow_rounded
+                              : Icons.pause_rounded,
+                          key: ValueKey<_RecorderStage>(_stage),
+                        ),
                       ),
                       iconSize: 20,
                       constraints:
@@ -216,18 +228,6 @@ class _VoiceNoteRecorderSheetState extends State<_VoiceNoteRecorderSheet> {
                     tooltip: 'Send',
                   ),
                 ],
-              ),
-              const SizedBox(height: 6),
-              Text(
-                _stage == _RecorderStage.paused
-                    ? 'Paused'
-                    : _stage == _RecorderStage.recording
-                        ? 'Recording…'
-                        : 'Starting…',
-                textAlign: TextAlign.center,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.64),
-                ),
               ),
             ],
           ],
