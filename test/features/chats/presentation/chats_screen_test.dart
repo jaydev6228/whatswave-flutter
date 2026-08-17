@@ -1062,6 +1062,112 @@ void main() {
   });
 
   testWidgets(
+      'contact info: starring a message shows a scoped "Starred messages" '
+      'row, and tapping the starred entry jumps to and reveals the message '
+      'even when it is outside the initially-loaded window', (tester) async {
+    const messageCount = 90;
+    const targetText = 'This is the very first message in a long thread.';
+    final farThread = ChatThread(
+      id: 'starred-far-thread',
+      name: 'Far Thread',
+      avatarLabel: 'FT',
+      accentColor: Colors.deepPurple,
+      messages: List<ChatMessage>.generate(messageCount, (i) {
+        final isFirst = i == 0;
+        return ChatMessage(
+          id: 'starred-far-thread-message-$i',
+          senderName: isFirst ? 'Historical Sender' : 'You',
+          sentAt: DateTime(2026, 1, 1, 8).add(Duration(minutes: i)),
+          isFromCurrentUser: !isFirst,
+          text: isFirst ? targetText : 'Filler message number $i.',
+          isStarred: isFirst,
+        );
+      }),
+    );
+
+    await _pumpChatsScreen(
+      tester,
+      device: iphoneProProfile,
+      controller: ChatsController(
+        repository: FakeChatRepository(
+          initialThreads: [farThread],
+          latency: Duration.zero,
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('chat_tile_starred-far-thread')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Far Thread'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Contact info'), findsOneWidget);
+    final starredRowFinder =
+        find.byKey(const Key('contact_info_starred_messages_row'));
+    expect(starredRowFinder, findsOneWidget);
+    expect(find.text('1 starred message'), findsOneWidget);
+
+    await tester.tap(starredRowFinder);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Starred messages'), findsOneWidget);
+    final starredEntryFinder = find.byKey(
+      const Key('starred_message_starred-far-thread-message-0'),
+    );
+    expect(starredEntryFinder, findsOneWidget);
+
+    final targetBubbleFinder = find.byKey(
+      const ValueKey<String>(
+        'conversation_message_starred-far-thread-message-0',
+      ),
+    );
+    // Not opened yet, and outside the initially-loaded latest-50 window.
+    expect(targetBubbleFinder, findsNothing);
+
+    await tester.tap(starredEntryFinder);
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    // The jump must page the older data in AND force the list to actually
+    // lay out that far-away bubble, the same mechanism reply-quote-tap
+    // already relies on (see ConversationScreen._jumpToMessage).
+    expect(targetBubbleFinder, findsOneWidget);
+
+    // Regression: Contact info -> Starred messages -> tapping an entry used
+    // to PUSH a second ConversationScreen on top instead of returning to
+    // the one already open, so repeating this loop stacked three fresh
+    // routes (Contact info, Starred messages, Conversation) every time,
+    // and getting back to the chat list needed a "back" tap per loop. Both
+    // intermediate screens must have popped back out to this same
+    // conversation instance, not merely be hidden behind new ones.
+    expect(find.text('Contact info'), findsNothing);
+    expect(find.text('Starred messages'), findsNothing);
+
+    // Do the exact same loop again -- if it were still pushing fresh
+    // screens, the stack would now be three routes deeper than after the
+    // first pass.
+    await tester.tap(find.text('Far Thread'));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const Key('contact_info_starred_messages_row')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(starredEntryFinder);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Contact info'), findsNothing);
+    expect(find.text('Starred messages'), findsNothing);
+
+    // A single back-press must return all the way to the chat list --
+    // proving the stack depth stayed constant across both loops instead of
+    // growing by three routes each time.
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('chat_tile_starred-far-thread')), findsOneWidget);
+  });
+
+  testWidgets(
       'group info: shows participants with admin badges and lets an admin '
       'rename the group, promote a member, and remove a member',
       (tester) async {
@@ -2135,6 +2241,11 @@ class _FailingChatRepository implements ChatRepository {
   }) {
     throw UnimplementedError();
   }
+
+  @override
+  Future<List<StarredMessageEntry>> fetchStarredMessages() {
+    throw const ChatRepositoryException('Repository offline');
+  }
 }
 
 class _FlakySendChatRepository implements ChatRepository {
@@ -2251,6 +2362,10 @@ class _FlakySendChatRepository implements ChatRepository {
     required String messageId,
   }) =>
       _delegate.toggleMessageStar(threadId: threadId, messageId: messageId);
+
+  @override
+  Future<List<StarredMessageEntry>> fetchStarredMessages() =>
+      _delegate.fetchStarredMessages();
 
   @override
   Future<List<ChatThread>> sendTextMessage({

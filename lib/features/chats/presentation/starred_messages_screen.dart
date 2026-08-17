@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../calls/application/calls_controller.dart';
@@ -10,14 +12,18 @@ import '../domain/chat_message.dart';
 import '../domain/chat_thread.dart';
 import 'conversation_screen.dart';
 
-/// Every message the user has starred, across all chats -- WhatsApp's
-/// "Starred messages" screen, reached from Settings > Chats.
-class StarredMessagesScreen extends StatelessWidget {
+/// Every message the user has starred -- WhatsApp's "Starred messages"
+/// screen, reached from Settings > Chats. When [threadId] is set, scopes
+/// the list to just that thread's starred messages instead -- used by
+/// ContactInfoScreen's own "Starred messages" row, so starring something is
+/// findable both globally and from directly inside the chat it lives in.
+class StarredMessagesScreen extends StatefulWidget {
   const StarredMessagesScreen({
     required this.chatsController,
     required this.callsController,
     required this.updatesController,
     required this.communitiesController,
+    this.threadId,
     super.key,
   });
 
@@ -25,13 +31,36 @@ class StarredMessagesScreen extends StatelessWidget {
   final CallsController callsController;
   final UpdatesController updatesController;
   final CommunitiesController communitiesController;
+  final String? threadId;
+
+  @override
+  State<StarredMessagesScreen> createState() => _StarredMessagesScreenState();
+}
+
+class _StarredMessagesScreenState extends State<StarredMessagesScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Refetches from the repository directly rather than relying on
+    // whatever's already cached -- a starred message in a thread this
+    // session hasn't opened wouldn't otherwise be known locally yet (see
+    // ChatsController.refreshStarredMessages doc comment).
+    unawaited(widget.chatsController.refreshStarredMessages());
+  }
 
   @override
   Widget build(BuildContext context) {
+    final chatsController = widget.chatsController;
+    final scopeThreadId = widget.threadId;
     return AnimatedBuilder(
       animation: chatsController,
       builder: (context, _) {
-        final entries = chatsController.starredMessages;
+        final allEntries = chatsController.starredMessages;
+        final entries = scopeThreadId == null
+            ? allEntries
+            : allEntries
+                .where((entry) => entry.thread.id == scopeThreadId)
+                .toList(growable: false);
         return Scaffold(
           key: const Key('starred_messages_screen'),
           appBar: AppBar(
@@ -53,9 +82,11 @@ class StarredMessagesScreen extends StatelessWidget {
                         margin: EdgeInsets.zero,
                         icon: Icons.star_border_rounded,
                         title: 'No starred messages',
-                        message:
-                            'Tap and hold any message, then choose Star to '
-                            'find it here later.',
+                        message: scopeThreadId == null
+                            ? 'Tap and hold any message, then choose Star to '
+                                'find it here later.'
+                            : 'Tap and hold a message in this chat, then '
+                                'choose Star to find it here later.',
                       ),
                     ),
                   )
@@ -77,7 +108,22 @@ class StarredMessagesScreen extends StatelessWidget {
                       return _StarredMessageRow(
                         thread: entry.thread,
                         message: entry.message,
-                        onTap: () => _openThread(context, entry.thread.id),
+                        onTap: () {
+                          if (scopeThreadId != null) {
+                            // Reached from ContactInfoScreen off of THIS
+                            // very conversation -- pop the whole chain back
+                            // to it with the target id instead of pushing a
+                            // second instance (see
+                            // ConversationScreen._openContactInfo).
+                            Navigator.of(context).pop(entry.message.id);
+                          } else {
+                            _openThread(
+                              context,
+                              entry.thread.id,
+                              entry.message.id,
+                            );
+                          }
+                        },
                       );
                     },
                   ),
@@ -87,15 +133,20 @@ class StarredMessagesScreen extends StatelessWidget {
     );
   }
 
-  Future<void> _openThread(BuildContext context, String threadId) {
+  Future<void> _openThread(
+    BuildContext context,
+    String threadId,
+    String messageId,
+  ) {
     return Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
         builder: (_) => ConversationScreen(
-          callsController: callsController,
-          controller: chatsController,
-          updatesController: updatesController,
-          communitiesController: communitiesController,
+          callsController: widget.callsController,
+          controller: widget.chatsController,
+          updatesController: widget.updatesController,
+          communitiesController: widget.communitiesController,
           threadId: threadId,
+          jumpToMessageId: messageId,
         ),
       ),
     );

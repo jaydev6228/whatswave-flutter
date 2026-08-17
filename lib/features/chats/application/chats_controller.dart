@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../../core/models/status_story.dart';
@@ -286,6 +287,7 @@ class ChatsController extends ChangeNotifier {
       _hasLoaded = true;
       _listenForLiveThreads();
       unawaited(_persistInboxCache());
+      unawaited(refreshStarredMessages());
     } on ChatRepositoryException catch (error) {
       _errorMessage = error.message;
     } catch (_) {
@@ -1040,22 +1042,86 @@ class ChatsController extends ChangeNotifier {
       ),
       fallbackError: 'We could not update that message right now.',
       clearSearch: false,
+      afterSuccess: () => _syncStarredEntry(
+        threadId: threadId,
+        messageId: messageId,
+      ),
     );
   }
 
+  List<StarredMessageEntry> _starredEntries = const <StarredMessageEntry>[];
+  bool _isLoadingStarredMessages = false;
+
   /// Every starred message across every thread (most recent first), paired
   /// with the thread it lives in -- backs the "Starred messages" screen.
+  ///
+  /// Sourced from [refreshStarredMessages]/[ChatRepository.fetchStarredMessages]
+  /// rather than scanning [_threads], since a thread's [ChatThread.messages]
+  /// only ever holds whichever window it currently has loaded (see
+  /// windowed pagination in [ensureThreadMessagesLoaded]) -- deriving this
+  /// list from that window would silently miss a starred message in any
+  /// thread the caller hasn't opened this session.
   List<({ChatThread thread, ChatMessage message})> get starredMessages {
     final entries = <({ChatThread thread, ChatMessage message})>[];
-    for (final thread in _threads) {
-      for (final message in thread.messages) {
-        if (message.isStarred) {
-          entries.add((thread: thread, message: message));
-        }
+    for (final entry in _starredEntries) {
+      final thread = threadById(entry.threadId);
+      if (thread != null) {
+        entries.add((thread: thread, message: entry.message));
       }
     }
-    entries.sort((a, b) => b.message.sentAt.compareTo(a.message.sentAt));
     return entries;
+  }
+
+  /// Re-fetches [_starredEntries] from the repository -- called once in the
+  /// background after the initial thread list loads, and again whenever the
+  /// Starred messages screen is opened, so it never depends on which
+  /// threads happen to already have a loaded message window.
+  Future<void> refreshStarredMessages() async {
+    if (_isLoadingStarredMessages) {
+      return;
+    }
+    _isLoadingStarredMessages = true;
+    try {
+      final entries = await _repository.fetchStarredMessages();
+      entries.sort(
+        (a, b) => b.message.sentAt.compareTo(a.message.sentAt),
+      );
+      _starredEntries = entries;
+      notifyListeners();
+    } catch (_) {
+      // Best-effort -- the screen simply keeps showing whatever it already
+      // had (possibly empty) rather than surfacing a separate error banner.
+    } finally {
+      _isLoadingStarredMessages = false;
+    }
+  }
+
+  /// Optimistically keeps [_starredEntries] in sync right after a star
+  /// toggle succeeds, using the just-mutated message already merged into
+  /// [_threads] -- avoids waiting on a full [refreshStarredMessages] round
+  /// trip for the thread the caller is actively looking at.
+  void _syncStarredEntry({
+    required String threadId,
+    required String messageId,
+  }) {
+    final message = threadById(threadId)
+        ?.messages
+        .where((candidate) => candidate.id == messageId)
+        .firstOrNull;
+    if (message == null) {
+      return;
+    }
+    final withoutMessage = _starredEntries
+        .where((entry) => entry.message.id != messageId)
+        .toList(growable: false);
+    if (!message.isStarred) {
+      _starredEntries = withoutMessage;
+      return;
+    }
+    _starredEntries = [
+      ...withoutMessage,
+      StarredMessageEntry(threadId: threadId, message: message),
+    ]..sort((a, b) => b.message.sentAt.compareTo(a.message.sentAt));
   }
 
   String? _locationFailureMessage;
@@ -1210,6 +1276,16 @@ class ChatsController extends ChangeNotifier {
     return List<ChatMessage>.unmodifiable(<ChatMessage>[...older, ...page]);
   }
 
+  /// Content equality, not just id/order -- this backs the background
+  /// sync's "did anything actually change" check after a mutation like star/
+  /// react/edit/delete. Comparing ids alone missed the very mutation this
+  /// sync exists to reconcile: starring a message that isn't the thread's
+  /// latest never appears in [toggleMessageStar]'s summary-only response
+  /// (see [_reconcileMutatedThread]/[_isSummaryMessageSnapshot]), so the
+  /// authoritative refetch here is the only place the toggled state lands
+  /// locally -- an id-only check saw the same ids in the same order and
+  /// bailed out before applying it, leaving the message looking un-starred
+  /// until something else happened to refresh the thread.
   bool _messageListsEquivalent(
     List<ChatMessage> left,
     List<ChatMessage> right,
@@ -1218,11 +1294,22 @@ class ChatsController extends ChangeNotifier {
       return false;
     }
     for (var index = 0; index < left.length; index++) {
-      if (left[index].id != right[index].id) {
+      if (!_messagesContentEqual(left[index], right[index])) {
         return false;
       }
     }
     return true;
+  }
+
+  bool _messagesContentEqual(ChatMessage a, ChatMessage b) {
+    return a.id == b.id &&
+        a.text == b.text &&
+        a.deliveryState == b.deliveryState &&
+        a.isDeleted == b.isDeleted &&
+        a.isEdited == b.isEdited &&
+        a.isStarred == b.isStarred &&
+        a.attachments.length == b.attachments.length &&
+        mapEquals(a.reactions, b.reactions);
   }
 
   List<ChatThread> _reconcileMutatedThread({

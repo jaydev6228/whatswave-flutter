@@ -492,6 +492,11 @@ class TrackedChatRepository implements ChatRepository {
   }
 
   @override
+  Future<List<StarredMessageEntry>> fetchStarredMessages() {
+    return _delegate.fetchStarredMessages();
+  }
+
+  @override
   Future<List<ChatThread>> editMessage({
     required String threadId,
     required String messageId,

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -17,6 +18,7 @@ import '../domain/chat_thread.dart';
 import '../domain/group_participant.dart';
 import 'add_group_members_screen.dart';
 import 'shared_media_screen.dart';
+import 'starred_messages_screen.dart';
 
 /// WhatsApp-style contact info: shared media, common groups, and
 /// destructive actions (clear chat, block), reached by tapping the
@@ -63,6 +65,12 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
   void initState() {
     super.initState();
     _loadCommonGroups();
+    // Refetches from the repository directly rather than relying on
+    // whatever's already cached -- see ChatsController.refreshStarredMessages
+    // doc comment. Without this, opening Contact/Group info before ever
+    // opening Settings > Starred messages this session would show a stale
+    // (possibly empty) starred count.
+    unawaited(widget.controller.refreshStarredMessages());
   }
 
   Future<void> _loadCommonGroups() async {
@@ -119,6 +127,15 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                   attachment.type == ChatAttachmentType.video,
             )
             .toList(growable: false);
+
+        // Sourced from the controller's own starred cache, not
+        // thread.messages -- that's only ever the currently-loaded window
+        // (see ChatsController.starredMessages doc comment), so it would
+        // undercount (or show zero for) a starred message this session
+        // hasn't paged in yet.
+        final threadStarredCount = widget.controller.starredMessages
+            .where((entry) => entry.thread.id == thread.id)
+            .length;
 
         final canEditGroup = thread.isGroup &&
             thread.currentUserIsGroupAdmin &&
@@ -343,6 +360,26 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                           ),
                           const SizedBox(height: 28),
                         ],
+                        if (threadStarredCount > 0) ...[
+                          Text(
+                            'Starred messages',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          _FlatInfoPanel(
+                            padding: EdgeInsets.zero,
+                            child: _StarredMessagesDisclosureRow(
+                              count: threadStarredCount,
+                              onTap: () => _openStarredMessages(
+                                context,
+                                thread.id,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 28),
+                        ],
                         if (thread.isGroup &&
                             (thread.participants?.isNotEmpty ?? false)) ...[
                           Text(
@@ -504,6 +541,32 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _openStarredMessages(
+    BuildContext context,
+    String threadId,
+  ) async {
+    // Scoped to this thread, StarredMessagesScreen pops itself with the
+    // tapped message's id instead of pushing its own ConversationScreen
+    // (see its onTap) -- propagate that straight back through to whoever
+    // opened this Contact info screen, so the whole chain unwinds to a
+    // single jump on the original conversation rather than stacking a
+    // fresh screen at every level.
+    final jumpTargetMessageId = await Navigator.of(context).push<String>(
+      MaterialPageRoute<String>(
+        builder: (_) => StarredMessagesScreen(
+          chatsController: widget.controller,
+          callsController: widget.callsController,
+          updatesController: widget.updatesController,
+          communitiesController: widget.communitiesController,
+          threadId: threadId,
+        ),
+      ),
+    );
+    if (jumpTargetMessageId != null && context.mounted) {
+      Navigator.of(context).pop(jumpTargetMessageId);
+    }
   }
 
   Future<void> _confirmClearChat(ChatThread thread) async {
@@ -1050,6 +1113,64 @@ class _SharedMediaDisclosureRow extends StatelessWidget {
                   attachments.length == 1
                       ? '1 item'
                       : '${attachments.length} items',
+                  style: theme.textTheme.titleSmall
+                      ?.copyWith(fontWeight: FontWeight.w700),
+                ),
+              ),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A single-row summary of how many messages are starred in this one
+/// thread, tapping through to [StarredMessagesScreen] scoped to it -- the
+/// per-chat counterpart to the global Settings > Chats > Starred messages
+/// list, for finding a starred message without leaving the conversation
+/// it's in.
+class _StarredMessagesDisclosureRow extends StatelessWidget {
+  const _StarredMessagesDisclosureRow({
+    required this.count,
+    required this.onTap,
+  });
+
+  final int count;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        key: const Key('contact_info_starred_messages_row'),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: Row(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: theme.colorScheme.primary.withValues(alpha: 0.12),
+                ),
+                child: Icon(
+                  Icons.star_rounded,
+                  color: theme.colorScheme.primary,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Text(
+                  count == 1 ? '1 starred message' : '$count starred messages',
                   style: theme.textTheme.titleSmall
                       ?.copyWith(fontWeight: FontWeight.w700),
                 ),

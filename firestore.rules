@@ -150,6 +150,24 @@ service cloud.firestore {
       }
     }
 
+    // Collection-group read for the "Starred messages" screen's
+    // collectionGroup('messages') query (see
+    // FirestoreChatRepository.fetchStarredMessages), which spans every
+    // thread's messages subcollection at once. Firestore's own docs call
+    // for a top-level {path=**} wildcard match to scope rules specifically
+    // to a collection-group query -- the nested `match /messages` rule
+    // above only ever applies to a query scoped to one already-known
+    // thread path, not one spanning all of them. Only checks the
+    // document's own starredBy field (no get() on the parent thread,
+    // which collection-group list rule evaluation can't resolve): starring
+    // a message can only ever happen after already having participant read
+    // access to it (see the nested "Star/unstar" rule above), so this
+    // exposes nothing a participant didn't already have.
+    match /{path=**}/messages/{messageId} {
+      allow read: if request.auth != null
+                   && request.auth.uid in resource.data.get('starredBy', []);
+    }
+
     match /statusStories/{ownerUid} {
       // A story is only visible to its owner or someone who has chatted
       // with them at least once -- checked via exists() against the same

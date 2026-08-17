@@ -712,6 +712,34 @@ class FirestoreChatRepository implements ChatRepository {
     return fetchThreads();
   }
 
+  @override
+  Future<List<StarredMessageEntry>> fetchStarredMessages() async {
+    final uid = _requireCurrentUid;
+    try {
+      // A collectionGroup query, not per-thread fetches -- so this finds a
+      // starred message regardless of whether its thread's message window
+      // is currently loaded locally. Requires a COLLECTION_GROUP index on
+      // messages.starredBy (see firestore.indexes.json's fieldOverrides).
+      final snapshot = await _firestore
+          .collectionGroup('messages')
+          .where('starredBy', arrayContains: uid)
+          .get();
+      return snapshot.docs
+          .where((doc) => !_isHiddenForCurrentUser(doc, uid))
+          .map(
+            (doc) => StarredMessageEntry(
+              threadId: doc.reference.parent.parent!.id,
+              message: _messageFromDoc(doc, currentUid: uid),
+            ),
+          )
+          .toList(growable: false);
+    } on FirebaseException catch (e) {
+      throw ChatRepositoryException(
+        e.message ?? 'We could not load your starred messages right now.',
+      );
+    }
+  }
+
   Future<void> _sendMessage({
     required String threadId,
     required String text,

@@ -53,6 +53,7 @@ class ConversationScreen extends StatefulWidget {
     required this.updatesController,
     required this.communitiesController,
     required this.threadId,
+    this.jumpToMessageId,
     super.key,
   });
 
@@ -61,6 +62,13 @@ class ConversationScreen extends StatefulWidget {
   final UpdatesController updatesController;
   final CommunitiesController communitiesController;
   final String threadId;
+
+  /// When set, the conversation opens already scrolled to this message with
+  /// the same brief highlight a reply quote's tap-to-jump uses (see
+  /// [_ConversationScreenState._jumpToMessage]) -- used by
+  /// StarredMessagesScreen so tapping a starred entry lands the reader
+  /// directly on it instead of just opening the thread at the bottom.
+  final String? jumpToMessageId;
 
   @override
   State<ConversationScreen> createState() => _ConversationScreenState();
@@ -156,7 +164,19 @@ class _ConversationScreenState extends State<ConversationScreen> {
     _composerFocusNode = FocusNode();
     widget.controller.addListener(_reconcileOutboundSendWithController);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
+      if (!mounted) {
+        return;
+      }
+      final jumpTarget = widget.jumpToMessageId;
+      if (jumpTarget != null) {
+        // _jumpToMessage's own ensureMessageLoaded already awaits the
+        // thread's initial load before paging back to find the target --
+        // calling ensureThreadMessagesLoaded here too would race it (the
+        // second call sees the load already "in flight" and returns
+        // immediately, so the page-back loop below would start before any
+        // messages actually exist to search through).
+        unawaited(_jumpToMessage(jumpTarget));
+      } else {
         widget.controller.ensureThreadMessagesLoaded(widget.threadId);
       }
     });
@@ -914,9 +934,15 @@ class _ConversationScreenState extends State<ConversationScreen> {
     }
   }
 
-  Future<void> _openContactInfo(String threadId) {
-    return Navigator.of(context).push(
-      MaterialPageRoute<void>(
+  Future<void> _openContactInfo(String threadId) async {
+    // Contact info's own "Starred messages" row leads (through it) back to
+    // a message in THIS conversation -- rather than push a second
+    // ConversationScreen on top (which would stack a fresh instance every
+    // time someone bounces Conversation -> Contact info -> Starred ->
+    // Conversation), that whole chain pops back out to here carrying the
+    // target message id, and this screen jumps to it itself.
+    final jumpTargetMessageId = await Navigator.of(context).push<String>(
+      MaterialPageRoute<String>(
         builder: (_) => ContactInfoScreen(
           controller: widget.controller,
           communitiesController: widget.communitiesController,
@@ -926,6 +952,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
         ),
       ),
     );
+    if (jumpTargetMessageId != null && mounted) {
+      await _jumpToMessage(jumpTargetMessageId);
+    }
   }
 
   Future<void> _handleAttachmentTap(

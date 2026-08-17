@@ -214,6 +214,24 @@ abstract class ChatRepository {
     required String threadId,
     required String messageId,
   });
+
+  /// Every message the caller has starred, across every thread -- queried
+  /// directly rather than derived from [ChatThread.messages], since that
+  /// list only ever holds whichever window a thread happens to have loaded
+  /// (see [fetchThreadMessagesPage]/windowed pagination). Deriving from the
+  /// loaded window would silently drop a starred message from any thread
+  /// the caller hasn't opened (or has since scrolled away from) in the
+  /// current session. Backs the "Starred messages" screen.
+  Future<List<StarredMessageEntry>> fetchStarredMessages();
+}
+
+/// One starred message paired with the id of the thread it lives in -- see
+/// [ChatRepository.fetchStarredMessages].
+class StarredMessageEntry {
+  const StarredMessageEntry({required this.threadId, required this.message});
+
+  final String threadId;
+  final ChatMessage message;
 }
 
 class ChatRepositoryException implements Exception {

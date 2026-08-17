@@ -609,6 +609,22 @@ class FakeChatRepository implements ChatRepository {
     return _deepCopyThreads(_threads);
   }
 
+  @override
+  Future<List<StarredMessageEntry>> fetchStarredMessages() async {
+    await _wait();
+    final entries = <StarredMessageEntry>[];
+    for (final thread in _threads) {
+      for (final message in thread.messages) {
+        if (message.isStarred) {
+          entries.add(
+            StarredMessageEntry(threadId: thread.id, message: message),
+          );
+        }
+      }
+    }
+    return entries;
+  }
+
   Map<String, String> _toggledReactions(
     Map<String, String> current,
     String emoji,

@@ -731,6 +731,112 @@ void main() {
       await pagedController.loadOlderMessages('paged');
       expect(pagedController.threadById('paged')!.messages.length, 120);
     });
+
+    test(
+        'starredMessages includes a starred message from a thread whose '
+        'loaded window does not carry it -- regression: it used to be '
+        'derived from thread.messages, so a starred message outside the '
+        'currently-loaded window (e.g. any thread the caller has not '
+        'opened this session, as fetchThreads only returns a summary '
+        'preview) silently never appeared', () async {
+      final base = DateTime(2026, 1, 1, 8);
+      final threadA = ChatThread(
+        id: 'thread-a',
+        name: 'Alice',
+        avatarLabel: 'AL',
+        accentColor: const Color(0xFF00A884),
+        messages: [
+          ChatMessage(
+            id: 'a-old',
+            senderName: 'Alice',
+            sentAt: base,
+            isFromCurrentUser: false,
+            text: 'Older starred message',
+            isStarred: true,
+          ),
+          ChatMessage(
+            id: 'a-new',
+            senderName: 'You',
+            sentAt: base.add(const Duration(minutes: 5)),
+            isFromCurrentUser: true,
+            text: 'Latest message',
+          ),
+        ],
+      );
+      final threadB = ChatThread(
+        id: 'thread-b',
+        name: 'Bob',
+        avatarLabel: 'BO',
+        accentColor: const Color(0xFF00A884),
+        messages: [
+          ChatMessage(
+            id: 'b-latest',
+            senderName: 'Bob',
+            sentAt: base.add(const Duration(minutes: 10)),
+            isFromCurrentUser: false,
+            text: 'Latest message, also starred',
+            isStarred: true,
+          ),
+        ],
+      );
+
+      final summaryController = ChatsController(
+        repository: _SummaryInboxRepository([threadA, threadB]),
+      );
+      addTearDown(summaryController.dispose);
+
+      await summaryController.loadThreads();
+      // refreshStarredMessages runs fire-and-forget right after the thread
+      // list loads -- flush pending microtasks so it lands before asserting.
+      await Future<void>.delayed(Duration.zero);
+
+      // Confirms this test actually exercises the summary-window scenario:
+      // thread-a's loaded window holds only its latest message, not the
+      // starred one.
+      final loadedThreadA = summaryController.threadById('thread-a')!;
+      expect(loadedThreadA.messages, hasLength(1));
+      expect(loadedThreadA.messages.single.id, 'a-new');
+
+      final starredIds = summaryController.starredMessages
+          .map((entry) => entry.message.id)
+          .toSet();
+      expect(starredIds, {'a-old', 'b-latest'});
+    });
+
+    test(
+        'starring a message that is not the thread\'s latest still shows up '
+        'on the message itself once the background sync lands -- '
+        'regression: the sync\'s "did anything change" check compared only '
+        'message ids/order, so it wrongly concluded nothing changed and '
+        'skipped applying the freshly-fetched isStarred flag', () async {
+      final openThread = _threadWithMessages('open-thread', 3);
+      final starController = ChatsController(
+        repository: _SummaryStarRepository([openThread]),
+      );
+      addTearDown(starController.dispose);
+
+      await starController.loadThreads();
+      await starController.ensureThreadMessagesLoaded('open-thread');
+
+      // m1 is the middle message -- not the thread's latest (m2), so
+      // toggleMessageStar's summary-only response never carries it.
+      final didStar = await starController.toggleMessageStar(
+        threadId: 'open-thread',
+        messageId: 'm1',
+      );
+      expect(didStar, isTrue);
+
+      // The authoritative background resync that reconciles the real
+      // isStarred state is fire-and-forget -- flush pending microtasks so
+      // it lands before asserting.
+      await Future<void>.delayed(Duration.zero);
+
+      final message = starController
+          .threadById('open-thread')!
+          .messages
+          .firstWhere((candidate) => candidate.id == 'm1');
+      expect(message.isStarred, isTrue);
+    });
   });
 }
 
@@ -774,6 +880,34 @@ class _SummaryInboxRepository extends FakeChatRepository {
               : thread.copyWith(messages: [thread.messages.last]),
         )
         .toList(growable: false);
+  }
+}
+
+/// Mimics FirestoreChatRepository.toggleMessageStar, which (like every other
+/// mutation there) returns `fetchThreads()` -- a summary-only snapshot
+/// carrying just each thread's latest message, not the message that was
+/// actually toggled unless it happens to be the latest one.
+class _SummaryStarRepository extends FakeChatRepository {
+  _SummaryStarRepository(List<ChatThread> threads)
+      : super(initialThreads: threads, latency: Duration.zero);
+
+  List<ChatThread> _summaryOnly(List<ChatThread> threads) {
+    return threads
+        .map(
+          (thread) => thread.messages.isEmpty
+              ? thread
+              : thread.copyWith(messages: [thread.messages.last]),
+        )
+        .toList(growable: false);
+  }
+
+  @override
+  Future<List<ChatThread>> toggleMessageStar({
+    required String threadId,
+    required String messageId,
+  }) async {
+    await super.toggleMessageStar(threadId: threadId, messageId: messageId);
+    return _summaryOnly(await super.fetchThreads());
   }
 }
 
@@ -1188,6 +1322,11 @@ class _FailingChatRepository implements ChatRepository {
   }) {
     throw UnimplementedError();
   }
+
+  @override
+  Future<List<StarredMessageEntry>> fetchStarredMessages() {
+    throw const ChatRepositoryException('Network went away');
+  }
 }
 
 class _SendFailingChatRepository implements ChatRepository {
@@ -1302,6 +1441,10 @@ class _SendFailingChatRepository implements ChatRepository {
     required String messageId,
   }) =>
       _delegate.toggleMessageStar(threadId: threadId, messageId: messageId);
+
+  @override
+  Future<List<StarredMessageEntry>> fetchStarredMessages() =>
+      _delegate.fetchStarredMessages();
 
   @override
   Future<List<ChatThread>> sendTextMessage({
