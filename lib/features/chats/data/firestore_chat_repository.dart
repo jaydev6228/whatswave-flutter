@@ -68,6 +68,9 @@ class FirestoreChatRepository implements ChatRepository {
   }
 
   @override
+  String get currentUserReactionKey => _firebaseAuth.currentUser?.uid ?? '';
+
+  @override
   Future<List<ChatThread>> fetchThreads() async {
     final uid = _requireCurrentUid;
     try {
@@ -116,6 +119,51 @@ class FirestoreChatRepository implements ChatRepository {
     } on FirebaseException catch (e) {
       throw ChatRepositoryException(e.message ?? 'Could not load that chat.');
     }
+  }
+
+  @override
+  Future<ChatMessagePage> fetchThreadMessagesPage({
+    required String threadId,
+    int limit = 50,
+    ChatMessage? before,
+  }) async {
+    final uid = _requireCurrentUid;
+    try {
+      final messagesRef =
+          _threadsRef.doc(threadId).collection('messages');
+      Query<Map<String, dynamic>> query =
+          messagesRef.orderBy('sentAt', descending: true);
+      if (before != null) {
+        final beforeDoc = await messagesRef.doc(before.id).get();
+        if (beforeDoc.exists) {
+          query = query.startAfterDocument(beforeDoc);
+        }
+      }
+      // Fetch one extra to tell whether older messages remain.
+      final snapshot = await query.limit(limit + 1).get();
+      final docs = snapshot.docs;
+      final hasMoreOlder = docs.length > limit;
+      final pageDocs = hasMoreOlder ? docs.take(limit).toList() : docs;
+      // docs come newest-first; drop hidden-for-me, then reverse to
+      // chronological (oldest first) to match how the list expects them.
+      final messages = pageDocs
+          .where((doc) => !_isHiddenForCurrentUser(doc, uid))
+          .map((doc) => _messageFromDoc(doc, currentUid: uid))
+          .toList()
+          .reversed
+          .toList(growable: false);
+      return ChatMessagePage(messages: messages, hasMoreOlder: hasMoreOlder);
+    } on FirebaseException catch (e) {
+      throw ChatRepositoryException(e.message ?? 'Could not load messages.');
+    }
+  }
+
+  bool _isHiddenForCurrentUser(
+    DocumentSnapshot<Map<String, dynamic>> doc,
+    String uid,
+  ) {
+    final hiddenFor = (doc.data()?['hiddenFor'] as List<dynamic>?) ?? const [];
+    return hiddenFor.contains(uid);
   }
 
   /// Excludes threads the caller deleted from their own list (see

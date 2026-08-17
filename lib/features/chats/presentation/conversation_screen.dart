@@ -124,6 +124,12 @@ class _ConversationScreenState extends State<ConversationScreen> {
   /// replied to, shown as a dismissible bar above the composer while it's
   /// set, and attached to the next message sent.
   MessageReplyPreview? _pendingReply;
+
+  /// Set by [MessageAction.edit] -- the message currently being edited. While
+  /// non-null the composer is prefilled with its text, an "Editing message"
+  /// bar sits above the composer, and the send button saves the edit instead
+  /// of posting a new message (WhatsApp-style inline edit).
+  ChatMessage? _editingMessage;
   late final FocusNode _composerFocusNode;
 
   /// Non-empty while in multi-select mode (entered via [MessageAction.select]
@@ -248,8 +254,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
     });
   }
 
-  /// Pins the reader to the bottom without forcing a scroll jump -- use when
-  /// the list is already sitting on the latest messages (offset ~0).
+  /// Pins the reader to the bottom without forcing a scroll jump when they're
+  /// already sitting on the latest message (offset ~0 in the reverse:true
+  /// list) -- e.g. an own send lands at offset 0 anyway, so no jump is needed.
   void _scrollToLatestIfNeeded({required bool wasNearLatest}) {
     _stickToBottom = true;
     if (!wasNearLatest) {
@@ -450,6 +457,8 @@ class _ConversationScreenState extends State<ConversationScreen> {
     final theme = Theme.of(context);
     final visibleMessages = _visibleMessagesForThread(thread);
     final displayMessages = _displayMessagesForList(visibleMessages);
+    final showOlderLoader =
+        widget.controller.isLoadingOlderMessages(thread.id);
 
     return SafeArea(
       bottom: false,
@@ -467,6 +476,12 @@ class _ConversationScreenState extends State<ConversationScreen> {
             child: ListView.builder(
               key: const Key('conversation_message_list'),
               controller: _messageListController,
+              // Bottom-anchored (WhatsApp-style): newest-first content with
+              // reverse:true, so scroll offset 0 is the newest message at the
+              // bottom. Opening lands there with no jump (no flicker), and
+              // older pages prepend without moving the view -- see
+              // _displayMessagesForList and the scroll helpers, all keyed off
+              // offset 0 being the latest.
               reverse: true,
               addRepaintBoundaries: true,
               findChildIndexCallback: (Key key) {
@@ -490,9 +505,16 @@ class _ConversationScreenState extends State<ConversationScreen> {
                 16,
                 _messageListBottomPadding,
               ),
-              itemCount: displayMessages.length,
+              itemCount: displayMessages.length + (showOlderLoader ? 1 : 0),
               itemBuilder: (context, index) {
+                // reverse:true -> the extra trailing index is the visual top,
+                // where older history is being paged in.
+                if (index == displayMessages.length) {
+                  return const _OlderMessagesLoader();
+                }
                 final message = displayMessages[index];
+                // reverse:true / newest-first: the older neighbour is the next
+                // index. Show a day chip above the first message of each day.
                 final olderMessage = index + 1 < displayMessages.length
                     ? displayMessages[index + 1]
                     : null;
@@ -552,6 +574,16 @@ class _ConversationScreenState extends State<ConversationScreen> {
                         child: bubble,
                       );
 
+                // WhatsApp-style swipe-right-to-reply, disabled while
+                // selecting or on a tombstoned message.
+                final swipeableBody = message.isDeleted || _isSelecting
+                    ? messageBody
+                    : _SwipeToReply(
+                        key: ValueKey('swipe_reply_$listKey'),
+                        onReply: () => _startReplyingTo(message),
+                        child: messageBody,
+                      );
+
                 return RepaintBoundary(
                   child: _KeepAliveMessageItem(
                     child: KeyedSubtree(
@@ -568,18 +600,11 @@ class _ConversationScreenState extends State<ConversationScreen> {
                                 label: _dayLabelFor(message.sentAt),
                               ),
                             ),
-                          messageBody,
-                          // Trailing gap below each bubble. This list is
-                          // reverse:true, so index 0 is the NEWEST message
-                          // (screen bottom, next to the composer) and the
-                          // trailing SizedBox sits between a bubble and the
-                          // one visually below it. We skip it only for index
-                          // 0 (the list's own bottom padding handles the
-                          // composer gap) -- every other message, including
-                          // the oldest at the very top, keeps its gap. The
-                          // previous `index != length-1` skipped the OLDEST
-                          // instead, which is why the top two messages had
-                          // zero space between them.
+                          swipeableBody,
+                          // Trailing gap below each bubble. reverse:true means
+                          // index 0 is the newest (screen bottom); skip its
+                          // trailing spacer since the list's own bottom padding
+                          // handles the gap above the composer.
                           if (index != 0)
                             SizedBox(height: message.hasReactions ? 30 : 10),
                         ],
@@ -599,7 +624,12 @@ class _ConversationScreenState extends State<ConversationScreen> {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (_pendingReply != null)
+        if (_editingMessage != null)
+          _EditingBar(
+            message: _editingMessage!,
+            onCancel: _cancelEditing,
+          )
+        else if (_pendingReply != null)
           _ReplyPreviewBar(
             replyPreview: _pendingReply!,
             onCancel: _cancelReply,
@@ -632,6 +662,8 @@ class _ConversationScreenState extends State<ConversationScreen> {
     if (_lastRenderedThreadId != thread.id) {
       _lastRenderedThreadId = thread.id;
       _lastKnownLatestMessageId = thread.latestMessage?.id;
+      // reverse:true opens at offset 0 (the newest message) with no jump, so
+      // no explicit scroll is needed here.
       _stickToBottom = true;
     } else {
       final latestMessageId = thread.latestMessage?.id;
@@ -697,10 +729,35 @@ class _ConversationScreenState extends State<ConversationScreen> {
     );
   }
 
-  void _jumpToMessage(String messageId) {
-    final key = _messageKeys[messageId];
-    final targetContext = key?.currentContext;
-    if (targetContext == null) {
+  Future<void> _jumpToMessage(String messageId) async {
+    // The quoted target may have scrolled out of the currently-loaded window
+    // (no data for it yet) or simply be far enough away that ListView.builder
+    // hasn't laid it out (data present, but no render object/context yet --
+    // reverse:true lazily builds only near the current scroll position plus a
+    // small cache extent). Page data in first, then walk the scroll position
+    // toward the target so its widget actually builds, before scrolling to it.
+    final threadId = _lastRenderedThreadId;
+    if (_messageKeys[messageId]?.currentContext == null && threadId != null) {
+      // No-ops quickly if the message is already in the loaded window.
+      final loaded =
+          await widget.controller.ensureMessageLoaded(threadId, messageId);
+      if (!mounted || !loaded) {
+        return;
+      }
+      // Let the paged-in data actually rebuild the list before we try to
+      // locate/scroll to it.
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) {
+        return;
+      }
+      await _scrollUntilMessageBuilt(threadId, messageId);
+      if (!mounted) {
+        return;
+      }
+    }
+
+    final targetContext = _messageKeys[messageId]?.currentContext;
+    if (targetContext == null || !targetContext.mounted) {
       return;
     }
     Scrollable.ensureVisible(
@@ -717,6 +774,90 @@ class _ConversationScreenState extends State<ConversationScreen> {
         _highlightedMessageIdNotifier.value = null;
       }
     });
+  }
+
+  /// The same newest-first ordering the list itself renders, computed fresh
+  /// from the controller's current thread state -- used to locate a jump
+  /// target's index without waiting for a full widget rebuild cycle.
+  List<ChatMessage>? _currentDisplayMessages(String threadId) {
+    final thread = widget.controller.threadById(threadId);
+    if (thread == null) {
+      return null;
+    }
+    return _displayMessagesForList(_visibleMessagesForThread(thread));
+  }
+
+  /// Jumps the scroll position toward [messageId] so ListView.builder lays
+  /// out its widget (and [_messageKeys] gets a real context), even though the
+  /// message is already loaded into the thread's data. Estimates an offset
+  /// from the target's proportional index against the list's (extrapolated)
+  /// total scroll extent, then widens outward in both directions in case the
+  /// estimate is off -- item heights vary (text vs. voice notes vs. images),
+  /// so the estimate is approximate, not exact.
+  Future<void> _scrollUntilMessageBuilt(
+    String threadId,
+    String messageId,
+  ) async {
+    const maxRounds = 3;
+    for (var round = 0; round < maxRounds; round++) {
+      if (_messageKeys[messageId]?.currentContext != null) {
+        return;
+      }
+      if (!_messageListController.hasClients) {
+        return;
+      }
+
+      final displayMessages = _currentDisplayMessages(threadId);
+      if (displayMessages == null) {
+        return;
+      }
+      final targetIndex =
+          displayMessages.indexWhere((message) => message.id == messageId);
+      if (targetIndex < 0) {
+        // Not in the loaded window after all (shouldn't happen -- the caller
+        // already confirmed it's loaded -- but bail out rather than looping).
+        return;
+      }
+
+      final metrics = _messageListController.position;
+      final maxExtent = metrics.maxScrollExtent;
+      if (maxExtent <= 0 || displayMessages.length <= 1) {
+        return;
+      }
+
+      final estimatedOffset =
+          (targetIndex / (displayMessages.length - 1)) * maxExtent;
+      final viewportExtent = metrics.viewportDimension > 0
+          ? metrics.viewportDimension
+          : 700.0;
+
+      // Try the estimate, then widen outward (further/nearer in the list) in
+      // case item-height variance threw the estimate off.
+      final candidateOffsets = <double>[
+        estimatedOffset,
+        estimatedOffset + viewportExtent,
+        estimatedOffset - viewportExtent,
+        estimatedOffset + viewportExtent * 2,
+        estimatedOffset - viewportExtent * 2,
+      ];
+
+      for (final candidate in candidateOffsets) {
+        if (_messageKeys[messageId]?.currentContext != null) {
+          return;
+        }
+        if (!_messageListController.hasClients) {
+          return;
+        }
+        _messageListController.jumpTo(candidate.clamp(0.0, maxExtent));
+        // Two frames: one for the jump's layout pass, one for any follow-up
+        // relayout it triggers (e.g. newly-built children reporting size).
+        await WidgetsBinding.instance.endOfFrame;
+        await WidgetsBinding.instance.endOfFrame;
+        if (!mounted) {
+          return;
+        }
+      }
+    }
   }
 
   Future<void> _openContactInfo(String threadId) {
@@ -889,6 +1030,13 @@ class _ConversationScreenState extends State<ConversationScreen> {
   }
 
   Future<void> _handleSendTap(String threadId) async {
+    // While editing, the composer's send/save button commits the edit rather
+    // than posting a new message.
+    if (_editingMessage != null) {
+      await _saveEdit(threadId);
+      return;
+    }
+
     final draft = _composerController.text;
     final trimmedDraft = draft.trim();
     final wasNearLatest = _isNearLatestMessage();
@@ -1042,6 +1190,13 @@ class _ConversationScreenState extends State<ConversationScreen> {
   ///   delay/tolerance, which is exactly what made the previous
   ///   timer-based catch-up undershoot on threads like that.
   bool _handleMessageListNotification(Notification notification) {
+    // Page older history in as the reader approaches the top of the loaded
+    // window. reverse:true means the oldest message sits near maxScrollExtent,
+    // so "near the top" is a small remaining distance to that extent. Prepended
+    // pages land at the far (top) end and don't shift the current view.
+    if (notification is ScrollNotification) {
+      _maybeLoadOlderMessages(notification.metrics);
+    }
     if (notification is UserScrollNotification) {
       if (notification.direction != ScrollDirection.idle) {
         _stickToBottom = _isNearLatestMessage(tolerance: 40);
@@ -1059,9 +1214,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
       // Only re-snap when content actually grew (an async image/map/etc.
       // finished laying out) while the reader was sitting right at the
-      // previous bottom -- never just because pixels doesn't currently
-      // equal the max, which is the normal state for a deliberate
-      // scroll-up and must never be fought.
+      // previous bottom -- never just because pixels doesn't currently equal
+      // the max, which is the normal state for a deliberate scroll-up and must
+      // never be fought. reverse:true: "at the bottom" means pixels near 0.
       final contentGrew =
           previousMax != null && metrics.maxScrollExtent > previousMax + 0.5;
       final wasAtPreviousBottom = metrics.pixels.abs() <= 40;
@@ -1070,6 +1225,25 @@ class _ConversationScreenState extends State<ConversationScreen> {
       }
     }
     return false;
+  }
+
+  /// Distance (px) from the top (oldest) edge at which to start paging older
+  /// messages, so the next window is usually ready before the reader reaches
+  /// it. reverse:true: the top edge is [ScrollMetrics.maxScrollExtent].
+  static const double _loadOlderTriggerExtent = 400;
+
+  void _maybeLoadOlderMessages(ScrollMetrics metrics) {
+    final threadId = _lastRenderedThreadId;
+    if (threadId == null ||
+        !widget.controller.hasMoreOlderMessages(threadId) ||
+        widget.controller.isLoadingOlderMessages(threadId)) {
+      return;
+    }
+    if (metrics.maxScrollExtent - metrics.pixels <= _loadOlderTriggerExtent) {
+      // Fire-and-forget; the controller no-ops re-entrant calls and notifies
+      // when the prepended page lands.
+      widget.controller.loadOlderMessages(threadId);
+    }
   }
 
   void _scheduleBottomSnap() {
@@ -1146,11 +1320,13 @@ class _ConversationScreenState extends State<ConversationScreen> {
     if (!_messageListController.hasClients) {
       return true;
     }
+    // reverse:true: the newest message is at offset 0, so "near the latest"
+    // means near offset 0.
     return _messageListController.offset.abs() <= tolerance;
   }
 
-  /// Newest-first order for [ListView.builder] with [reverse: true] so scroll
-  /// offset 0 sits on the latest messages without a jump on open.
+  /// Newest-first order for the reverse:true [ListView.builder] so scroll
+  /// offset 0 sits on the latest message at the bottom without a jump on open.
   List<ChatMessage> _displayMessagesForList(List<ChatMessage> messages) {
     if (messages.length <= 1) {
       return messages;
@@ -1286,7 +1462,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
           messageId: message.id,
         );
       case MessageAction.edit:
-        await _editMessage(thread, message);
+        _startEditingMessage(message);
       case MessageAction.select:
         _startSelecting(message.id);
       case MessageAction.deleteForMe:
@@ -1300,6 +1476,12 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
   void _startReplyingTo(ChatMessage message) {
     setState(() {
+      // Reply and edit are mutually exclusive; starting a reply drops any
+      // in-progress edit and its prefilled draft.
+      if (_editingMessage != null) {
+        _editingMessage = null;
+        _composerController.clear();
+      }
       _pendingReply = MessageReplyPreview(
         messageId: message.id,
         senderName: message.senderName,
@@ -1540,58 +1722,56 @@ class _ConversationScreenState extends State<ConversationScreen> {
     );
   }
 
-  Future<void> _editMessage(ChatThread thread, ChatMessage message) async {
-    // A TextEditingController created here and disposed the moment
-    // showDialog's Future resolves races the dialog's own closing
-    // animation -- the Future completes as soon as Navigator.pop() is
-    // called, not once the TextField has actually unmounted, and disposing
-    // out from under a still-mounted, still-focused field corrupts focus
-    // state badly enough to break later widget builds (see the identical
-    // fix for the custom-emoji sheet elsewhere in this file). TextFormField
-    // sidesteps this entirely -- initialValue seeds it without a caller-
-    // owned controller, and onChanged reads the value into a local instead.
-    var currentText = message.text;
-    final newText = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Edit message'),
-          content: TextFormField(
-            key: const Key('edit_message_field'),
-            initialValue: message.text,
-            autofocus: true,
-            minLines: 1,
-            maxLines: 5,
-            textCapitalization: TextCapitalization.sentences,
-            onChanged: (value) => currentText = value,
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              key: const Key('confirm_edit_message_button'),
-              onPressed: () => Navigator.of(dialogContext).pop(currentText),
-              child: const Text('Save'),
-            ),
-          ],
-        );
-      },
-    );
+  /// Enters WhatsApp-style inline edit: prefill the composer with the
+  /// message text, focus it, and show the "Editing message" bar. The actual
+  /// save runs through [_saveEdit] when the send/save button is tapped.
+  void _startEditingMessage(ChatMessage message) {
+    setState(() {
+      _pendingReply = null;
+      _editingMessage = message;
+      _composerController.text = message.text;
+      _composerController.selection = TextSelection.collapsed(
+        offset: _composerController.text.length,
+      );
+    });
+    _composerFocusNode.requestFocus();
+  }
 
-    final trimmed = newText?.trim();
-    if (trimmed == null || trimmed.isEmpty || trimmed == message.text.trim()) {
+  void _cancelEditing() {
+    setState(() {
+      _editingMessage = null;
+      _composerController.clear();
+    });
+  }
+
+  /// Commits the in-progress inline edit (called from [_handleSendTap] when
+  /// [_editingMessage] is set). Clears the editing state, then persists via
+  /// the controller; a no-op edit (unchanged/empty text) just closes.
+  Future<void> _saveEdit(String threadId) async {
+    final message = _editingMessage;
+    if (message == null) {
       return;
     }
-    if (!mounted) {
+    final trimmed = _composerController.text.trim();
+    _cancelEditing();
+    if (trimmed.isEmpty || trimmed == message.text.trim()) {
       return;
     }
-    await widget.controller.editMessage(
-      threadId: thread.id,
+    final didEdit = await widget.controller.editMessage(
+      threadId: threadId,
       messageId: message.id,
       text: trimmed,
     );
+    if (!didEdit && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            widget.controller.errorMessage ??
+                'We could not edit that message right now.',
+          ),
+        ),
+      );
+    }
   }
 
   Future<void> _confirmDeleteMessage(
@@ -1715,6 +1895,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
       return;
     }
 
+    // reverse:true: the newest message sits at scroll offset 0.
     const targetOffset = 0.0;
     final distance = _messageListController.offset.abs();
     final shouldAnimate = animated &&
@@ -1921,6 +2102,71 @@ class _ReplyPreviewBar extends StatelessWidget {
           ),
           IconButton(
             key: const Key('conversation_cancel_reply_button'),
+            icon: const Icon(Icons.close_rounded, size: 18),
+            onPressed: onCancel,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The "Editing message" bar shown above the composer while an inline edit is
+/// in progress (see [_startEditingMessage]) -- mirrors [_ReplyPreviewBar] but
+/// with a pencil affordance and the original text as the preview.
+class _EditingBar extends StatelessWidget {
+  const _EditingBar({
+    required this.message,
+    required this.onCancel,
+  });
+
+  final ChatMessage message;
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      key: const Key('conversation_editing_bar'),
+      padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
+      color: theme.colorScheme.surfaceContainerHighest.withValues(
+        alpha: theme.brightness == Brightness.dark ? 0.3 : 0.5,
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.edit_rounded,
+            size: 18,
+            color: theme.colorScheme.primary,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Editing message',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: theme.colorScheme.primary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                Text(
+                  message.text,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            key: const Key('conversation_cancel_edit_button'),
             icon: const Icon(Icons.close_rounded, size: 18),
             onPressed: onCancel,
           ),
@@ -2443,6 +2689,109 @@ class _KeepAliveMessageItemState extends State<_KeepAliveMessageItem>
   Widget build(BuildContext context) {
     super.build(context);
     return widget.child;
+  }
+}
+
+/// WhatsApp-style swipe-right-to-reply. A horizontal drag translates the
+/// message and reveals a reply glyph; releasing past the threshold fires
+/// [onReply], then the bubble springs back. A custom translation (rather than
+/// Dismissible) is used so the reaction badge that overflows below the bubble
+/// is never clipped.
+class _SwipeToReply extends StatefulWidget {
+  const _SwipeToReply({
+    required this.onReply,
+    required this.child,
+    super.key,
+  });
+
+  final VoidCallback onReply;
+  final Widget child;
+
+  @override
+  State<_SwipeToReply> createState() => _SwipeToReplyState();
+}
+
+class _SwipeToReplyState extends State<_SwipeToReply>
+    with SingleTickerProviderStateMixin {
+  static const double _maxDrag = 80;
+  static const double _triggerAt = 52;
+
+  late final AnimationController _spring;
+  double _dragX = 0;
+  double _springFrom = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _spring = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 180),
+    )..addListener(() {
+        setState(() {
+          _dragX = _springFrom * (1 - Curves.easeOut.transform(_spring.value));
+        });
+      });
+  }
+
+  @override
+  void dispose() {
+    _spring.dispose();
+    super.dispose();
+  }
+
+  void _onUpdate(DragUpdateDetails details) {
+    if (_spring.isAnimating) {
+      _spring.stop();
+    }
+    setState(() {
+      _dragX = (_dragX + details.delta.dx).clamp(0.0, _maxDrag);
+    });
+  }
+
+  void _onEnd(DragEndDetails details) {
+    final shouldReply = _dragX >= _triggerAt;
+    _springFrom = _dragX;
+    _spring.forward(from: 0);
+    if (shouldReply) {
+      widget.onReply();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final progress = (_dragX / _triggerAt).clamp(0.0, 1.0);
+    return GestureDetector(
+      onHorizontalDragUpdate: _onUpdate,
+      onHorizontalDragEnd: _onEnd,
+      child: Stack(
+        children: [
+          if (_dragX > 2)
+            Positioned(
+              left: 16,
+              top: 0,
+              bottom: 0,
+              child: Center(
+                child: Opacity(
+                  opacity: progress,
+                  child: Transform.scale(
+                    scale: 0.6 + 0.4 * progress,
+                    child: Icon(
+                      Icons.reply_rounded,
+                      size: 22,
+                      color: theme.colorScheme.primary,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          Transform.translate(
+            offset: Offset(_dragX, 0),
+            child: widget.child,
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -4004,6 +4353,26 @@ class _AttachmentPreviewCard extends StatelessWidget {
       ChatAttachmentType.file => Icons.insert_drive_file_outlined,
     };
     return (icon, attachment.tintColor);
+  }
+}
+
+/// Small spinner shown at the top of the message list while an older page is
+/// being fetched (see windowed pagination in ChatsController).
+class _OlderMessagesLoader extends StatelessWidget {
+  const _OlderMessagesLoader();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Padding(
+      padding: EdgeInsets.symmetric(vertical: 12),
+      child: Center(
+        child: SizedBox(
+          width: 22,
+          height: 22,
+          child: CircularProgressIndicator(strokeWidth: 2.2),
+        ),
+      ),
+    );
   }
 }
 

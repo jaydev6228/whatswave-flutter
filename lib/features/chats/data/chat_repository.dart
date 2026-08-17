@@ -3,16 +3,45 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../domain/chat_attachment.dart';
+import '../domain/chat_message.dart';
 import '../domain/chat_thread.dart';
 import '../domain/message_reply_preview.dart';
 import '../domain/story_reply_context.dart';
 
+/// One page of a thread's messages plus whether older messages remain to be
+/// paged in. Messages are chronological (oldest first) within the page.
+class ChatMessagePage {
+  const ChatMessagePage({
+    required this.messages,
+    required this.hasMoreOlder,
+  });
+
+  final List<ChatMessage> messages;
+  final bool hasMoreOlder;
+}
+
 abstract class ChatRepository {
+  /// The key this backend stores the current user's reaction under in a
+  /// message's `reactions` map -- the Firebase uid for the live backend, a
+  /// fixed device key for the local one. Lets the controller apply an
+  /// optimistic reaction toggle before the round-trip.
+  String get currentUserReactionKey;
+
   Future<List<ChatThread>> fetchThreads();
 
   /// Full message history for one thread -- used when opening a conversation
   /// after [fetchThreads] returned lightweight summary rows.
   Future<ChatThread> fetchThreadWithMessages(String threadId);
+
+  /// One page of a thread's messages, newest-window first: with [before] null
+  /// it returns the most recent [limit] messages; with [before] set it returns
+  /// the [limit] messages immediately older than that message. Backs windowed
+  /// pagination (load latest 50 on open, page older on scroll-up).
+  Future<ChatMessagePage> fetchThreadMessagesPage({
+    required String threadId,
+    int limit = 50,
+    ChatMessage? before,
+  });
 
   /// Live thread updates, so a message someone else sends shows up (new
   /// preview, unread count, list position) without needing to relaunch or

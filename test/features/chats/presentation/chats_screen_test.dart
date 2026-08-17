@@ -196,6 +196,8 @@ void main() {
         .widget<ListView>(find.byKey(messageListKey))
         .padding! as EdgeInsets;
     expect(messageListPadding.bottom, 12);
+    // reverse:true: the newest message is at offset 0, so scrolling up ~140px
+    // from the latest is offset 140.
     messageListController.jumpTo(140);
     await tester.pumpAndSettle();
 
@@ -230,6 +232,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text(longMessage), findsOneWidget);
+    // Sending snaps back to the latest, which in the reverse:true list is
+    // offset 0 -- i.e. above where we'd scrolled up to.
     expect(messageListController.offset, closeTo(0, 0.1));
     expect(messageListController.offset, lessThan(offsetBeforeFinalSend));
     final latestMessageBubble = find.ancestor(
@@ -248,10 +252,10 @@ void main() {
     final latestMessageBottom = tester.getBottomLeft(latestMessageBubble).dy;
     final messageListBottom =
         tester.getBottomLeft(find.byKey(messageListKey)).dy;
-    // 12 = the message list's own bottom padding. The newest message
-    // (index 0 in the reverse:true list) intentionally has no trailing
-    // spacer -- see the `index != 0` note in conversation_screen.dart --
-    // so the composer-side gap is just that padding.
+    // 12 = the message list's own bottom padding. The newest message (index 0
+    // in the reverse:true list, which has no trailing spacer -- see the
+    // `index != 0` note in conversation_screen.dart) sits just that padding
+    // above the composer.
     expect(messageListBottom - latestMessageBottom, closeTo(12, 4));
 
     await tester.tap(
@@ -569,6 +573,69 @@ void main() {
   });
 
   testWidgets(
+      'tapping a reply quote card jumps to a target far outside the '
+      'initially-loaded message window', (tester) async {
+    const messageCount = 90;
+    const targetText = 'This is the very first message in a long thread.';
+    final farThread = ChatThread(
+      id: 'far-thread',
+      name: 'Far Thread',
+      avatarLabel: 'FT',
+      accentColor: Colors.deepPurple,
+      messages: List<ChatMessage>.generate(messageCount, (i) {
+        final isFirst = i == 0;
+        final isLast = i == messageCount - 1;
+        return ChatMessage(
+          id: 'far-thread-message-$i',
+          senderName: isFirst ? 'Historical Sender' : 'You',
+          sentAt: DateTime(2026, 1, 1, 8).add(Duration(minutes: i)),
+          isFromCurrentUser: !isFirst,
+          text: isFirst ? targetText : 'Filler message number $i.',
+          replyPreview: isLast
+              ? const MessageReplyPreview(
+                  messageId: 'far-thread-message-0',
+                  senderName: 'Historical Sender',
+                  previewText: targetText,
+                )
+              : null,
+        );
+      }),
+    );
+
+    await _pumpChatsScreen(
+      tester,
+      device: iphoneProProfile,
+      controller: ChatsController(
+        repository: FakeChatRepository(
+          initialThreads: [farThread],
+          latency: Duration.zero,
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('chat_tile_far-thread')));
+    await tester.pumpAndSettle();
+
+    final targetBubbleFinder = find.byKey(
+      const ValueKey<String>('conversation_message_far-thread-message-0'),
+    );
+    // The target (the thread's very first message) is well outside the
+    // initially-loaded latest-50 window, and hasn't been built by
+    // ListView.builder yet -- neither its data nor its widget exist here.
+    expect(targetBubbleFinder, findsNothing);
+
+    expect(find.byKey(const Key('reply_preview_quote_card')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('reply_preview_quote_card')));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    // The jump must page the older data in AND force the list to actually
+    // lay out that far-away bubble (not just have the data loaded) --
+    // regressed to a no-op scroll when only the data half was fixed.
+    expect(targetBubbleFinder, findsOneWidget);
+  });
+
+  testWidgets(
       'message long-press menu: multi-select bulk-stars then bulk-deletes '
       'messages', (tester) async {
     await _pumpChatsScreen(
@@ -719,13 +786,26 @@ void main() {
     await tester.tap(find.byKey(const Key('message_action_edit')));
     await tester.pumpAndSettle();
 
+    // WhatsApp-style inline edit: the composer shows an "Editing message" bar
+    // and is prefilled with the original text; the send button saves.
+    expect(find.byKey(const Key('conversation_editing_bar')), findsOneWidget);
+    expect(
+      tester
+          .widget<TextField>(
+              find.byKey(const Key('conversation_composer_field')))
+          .controller!
+          .text,
+      originalText,
+    );
+
     await tester.enterText(
-      find.byKey(const Key('edit_message_field')),
+      find.byKey(const Key('conversation_composer_field')),
       'Sending the final export now.',
     );
-    await tester.tap(find.byKey(const Key('confirm_edit_message_button')));
+    await tester.tap(find.byKey(const Key('conversation_send_button')));
     await tester.pumpAndSettle();
 
+    expect(find.byKey(const Key('conversation_editing_bar')), findsNothing);
     expect(find.text('Sending the final export now.'), findsOneWidget);
     expect(find.text('Edited'), findsOneWidget);
   });
@@ -1618,9 +1698,9 @@ void main() {
     final lastMessageBottom = tester.getBottomLeft(lastMessageFinder).dy;
 
     expect(messageListController.position.maxScrollExtent, 0);
-    // 12 = list bottom padding only (newest message has no trailing
-    // spacer) -- see the matching note in the earlier "opens a
-    // conversation, previews media, and sends new content" test.
+    // Bottom-anchored (reverse:true): a short thread clusters near the
+    // composer -- the last message sits just above it (list bottom padding,
+    // ~12) -- while the empty room is all at the top.
     expect(messageListBottom - lastMessageBottom, closeTo(12, 4));
     expect(firstMessageTop - messageListTop, greaterThan(80));
   });
@@ -1852,6 +1932,9 @@ Future<void> _pumpChatsScreen(
 
 class _FailingChatRepository implements ChatRepository {
   @override
+  String get currentUserReactionKey => 'me';
+
+  @override
   Future<List<Never>> fetchThreads() {
     throw const ChatRepositoryException('Repository offline');
   }
@@ -1882,6 +1965,15 @@ class _FailingChatRepository implements ChatRepository {
   @override
   Future<ChatThread> fetchThreadWithMessages(String threadId) {
     throw UnimplementedError();
+  }
+
+  @override
+  Future<ChatMessagePage> fetchThreadMessagesPage({
+    required String threadId,
+    int limit = 50,
+    ChatMessage? before,
+  }) {
+    throw const ChatRepositoryException('Repository offline');
   }
 
   @override
@@ -2042,6 +2134,9 @@ class _FlakySendChatRepository implements ChatRepository {
   bool _shouldFailNextTextSend = true;
 
   @override
+  String get currentUserReactionKey => 'me';
+
+  @override
   Future<List<ChatThread>> fetchThreads() => _delegate.fetchThreads();
 
   @override
@@ -2069,6 +2164,18 @@ class _FlakySendChatRepository implements ChatRepository {
   @override
   Future<ChatThread> fetchThreadWithMessages(String threadId) =>
       _delegate.fetchThreadWithMessages(threadId);
+
+  @override
+  Future<ChatMessagePage> fetchThreadMessagesPage({
+    required String threadId,
+    int limit = 50,
+    ChatMessage? before,
+  }) =>
+      _delegate.fetchThreadMessagesPage(
+        threadId: threadId,
+        limit: limit,
+        before: before,
+      );
 
   @override
   Future<void> markThreadRead(String threadId) =>

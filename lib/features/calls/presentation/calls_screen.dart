@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:flutter/material.dart';
 
 import '../../communities/application/communities_controller.dart';
@@ -261,15 +262,7 @@ class _CallsScreenState extends State<CallsScreen> {
                                   startCallFlow(
                                     context,
                                     controller: widget.controller,
-                                    contact: CallContact(
-                                      id: entry.contactId,
-                                      name: entry.name,
-                                      avatarLabel: entry.avatarLabel,
-                                      accentColor: entry.accentColor,
-                                      isGroup: entry.isGroup,
-                                      uid: entry.uid,
-                                      avatarUrl: entry.avatarUrl,
-                                    ),
+                                    contact: _contactForHistoryEntry(entry),
                                     type: entry.type,
                                   );
                                 },
@@ -285,6 +278,47 @@ class _CallsScreenState extends State<CallsScreen> {
             ],
           ),
         );
+      },
+    );
+  }
+
+  /// Builds the [CallContact] for a recent-call entry. For a group entry the
+  /// member uids/names/avatars are recovered from the entry's participant
+  /// snapshot (minus the current user) so re-calling the group works -- an
+  /// entry without any of the other participants would otherwise trip the
+  /// calls controller's "no other members to call" guard.
+  CallContact _contactForHistoryEntry(CallHistoryEntry entry) {
+    if (!entry.isGroup) {
+      return CallContact(
+        id: entry.contactId,
+        name: entry.name,
+        avatarLabel: entry.avatarLabel,
+        accentColor: entry.accentColor,
+        uid: entry.uid,
+        avatarUrl: entry.avatarUrl,
+      );
+    }
+
+    final currentUid = fb_auth.FirebaseAuth.instance.currentUser?.uid;
+    final participants = entry.participants ?? const [];
+    final others = participants
+        .where((p) => p.uid.isNotEmpty && p.uid != currentUid)
+        .toList(growable: false);
+    return CallContact(
+      id: entry.contactId,
+      name: entry.name,
+      avatarLabel: entry.avatarLabel,
+      accentColor: entry.accentColor,
+      isGroup: true,
+      uid: entry.uid,
+      avatarUrl: entry.avatarUrl,
+      memberUids: others.isEmpty
+          ? null
+          : others.map((p) => p.uid).toList(growable: false),
+      memberDisplayNames: {for (final p in others) p.uid: p.name},
+      memberAvatarUrls: {
+        for (final p in others)
+          if (p.avatarUrl != null) p.uid: p.avatarUrl!,
       },
     );
   }

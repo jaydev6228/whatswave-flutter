@@ -11,6 +11,7 @@ import 'package:whatswave/features/chats/application/chats_controller.dart';
 import 'package:whatswave/features/chats/data/chat_repository.dart';
 import 'package:whatswave/features/chats/data/fake_chat_repository.dart';
 import 'package:whatswave/features/chats/domain/chat_attachment.dart';
+import 'package:whatswave/features/chats/domain/chat_message.dart';
 import 'package:whatswave/features/chats/domain/chat_thread.dart';
 import 'package:whatswave/features/chats/domain/message_reply_preview.dart';
 import 'package:whatswave/features/chats/domain/story_reply_context.dart';
@@ -693,7 +694,87 @@ void main() {
         name: 'Ava',
       ), isFalse);
     });
+
+    test(
+        'pages older message history in as the window grows, then stops '
+        'once the thread is exhausted', () async {
+      final pagedController = ChatsController(
+        repository: _SummaryInboxRepository([_threadWithMessages('paged', 120)]),
+      );
+      addTearDown(pagedController.dispose);
+
+      await pagedController.loadThreads();
+      await pagedController.ensureThreadMessagesLoaded('paged');
+
+      // Opening loads only the newest window, not the whole 120-message thread.
+      var messages = pagedController.threadById('paged')!.messages;
+      expect(messages.length, 50);
+      expect(messages.first.id, 'm70');
+      expect(messages.last.id, 'm119');
+      expect(pagedController.hasMoreOlderMessages('paged'), isTrue);
+
+      // Scrolling up pages the next-older window in, contiguously.
+      await pagedController.loadOlderMessages('paged');
+      messages = pagedController.threadById('paged')!.messages;
+      expect(messages.length, 100);
+      expect(messages.first.id, 'm20');
+      expect(pagedController.hasMoreOlderMessages('paged'), isTrue);
+
+      // The final partial window exhausts the history.
+      await pagedController.loadOlderMessages('paged');
+      messages = pagedController.threadById('paged')!.messages;
+      expect(messages.length, 120);
+      expect(messages.first.id, 'm0');
+      expect(pagedController.hasMoreOlderMessages('paged'), isFalse);
+
+      // Nothing left to load -- further requests are no-ops.
+      await pagedController.loadOlderMessages('paged');
+      expect(pagedController.threadById('paged')!.messages.length, 120);
+    });
   });
+}
+
+/// A thread with chronological messages `m0`..`m{count-1}`, for exercising
+/// pagination boundaries.
+ChatThread _threadWithMessages(String id, int count) {
+  final base = DateTime(2026, 1, 1, 8);
+  return ChatThread(
+    id: id,
+    name: 'Paged Thread',
+    avatarLabel: 'PT',
+    accentColor: const Color(0xFF00A884),
+    messages: List<ChatMessage>.generate(
+      count,
+      (i) => ChatMessage(
+        id: 'm$i',
+        senderName: 'Someone',
+        sentAt: base.add(Duration(minutes: i)),
+        isFromCurrentUser: false,
+        text: 'message $i',
+      ),
+    ),
+  );
+}
+
+/// Mimics a real backend where the inbox query (`fetchThreads`) carries only a
+/// last-message preview -- full history is fetched per-thread and paged. The
+/// stock [FakeChatRepository] returns full histories from `fetchThreads`, which
+/// would mask the window growth this test checks.
+class _SummaryInboxRepository extends FakeChatRepository {
+  _SummaryInboxRepository(List<ChatThread> threads)
+      : super(initialThreads: threads, latency: Duration.zero);
+
+  @override
+  Future<List<ChatThread>> fetchThreads() async {
+    final full = await super.fetchThreads();
+    return full
+        .map(
+          (thread) => thread.messages.isEmpty
+              ? thread
+              : thread.copyWith(messages: [thread.messages.last]),
+        )
+        .toList(growable: false);
+  }
 }
 
 class _FakeDeviceLocationService implements DeviceLocationService {
@@ -740,6 +821,18 @@ class _SummaryOnlyAfterSendRepository implements ChatRepository {
   @override
   Future<ChatThread> fetchThreadWithMessages(String threadId) =>
       _delegate.fetchThreadWithMessages(threadId);
+
+  @override
+  Future<ChatMessagePage> fetchThreadMessagesPage({
+    required String threadId,
+    int limit = 50,
+    ChatMessage? before,
+  }) =>
+      _delegate.fetchThreadMessagesPage(
+        threadId: threadId,
+        limit: limit,
+        before: before,
+      );
 
   @override
   Future<void> markThreadRead(String threadId) =>
@@ -822,6 +915,18 @@ class _WatchSummaryRepository implements ChatRepository {
       _delegate.fetchThreadWithMessages(threadId);
 
   @override
+  Future<ChatMessagePage> fetchThreadMessagesPage({
+    required String threadId,
+    int limit = 50,
+    ChatMessage? before,
+  }) =>
+      _delegate.fetchThreadMessagesPage(
+        threadId: threadId,
+        limit: limit,
+        before: before,
+      );
+
+  @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
@@ -857,6 +962,18 @@ class _StaleSummaryAfterSendRepository implements ChatRepository {
       _delegate.fetchThreadWithMessages(threadId);
 
   @override
+  Future<ChatMessagePage> fetchThreadMessagesPage({
+    required String threadId,
+    int limit = 50,
+    ChatMessage? before,
+  }) =>
+      _delegate.fetchThreadMessagesPage(
+        threadId: threadId,
+        limit: limit,
+        before: before,
+      );
+
+  @override
   Future<List<ChatThread>> sendTextMessage({
     required String threadId,
     required String text,
@@ -878,6 +995,9 @@ class _StaleSummaryAfterSendRepository implements ChatRepository {
 }
 
 class _FailingChatRepository implements ChatRepository {
+  @override
+  String get currentUserReactionKey => 'me';
+
   @override
   Future<List<ChatThread>> fetchThreads() {
     throw const ChatRepositoryException('Network went away');
@@ -922,6 +1042,15 @@ class _FailingChatRepository implements ChatRepository {
   @override
   Future<ChatThread> fetchThreadWithMessages(String threadId) {
     throw UnimplementedError();
+  }
+
+  @override
+  Future<ChatMessagePage> fetchThreadMessagesPage({
+    required String threadId,
+    int limit = 50,
+    ChatMessage? before,
+  }) {
+    throw const ChatRepositoryException('Network went away');
   }
 
   @override
@@ -1071,6 +1200,9 @@ class _SendFailingChatRepository implements ChatRepository {
   final FakeChatRepository _delegate;
 
   @override
+  String get currentUserReactionKey => 'me';
+
+  @override
   Future<List<ChatThread>> fetchThreads() => _delegate.fetchThreads();
 
   @override
@@ -1098,6 +1230,18 @@ class _SendFailingChatRepository implements ChatRepository {
   @override
   Future<ChatThread> fetchThreadWithMessages(String threadId) =>
       _delegate.fetchThreadWithMessages(threadId);
+
+  @override
+  Future<ChatMessagePage> fetchThreadMessagesPage({
+    required String threadId,
+    int limit = 50,
+    ChatMessage? before,
+  }) =>
+      _delegate.fetchThreadMessagesPage(
+        threadId: threadId,
+        limit: limit,
+        before: before,
+      );
 
   @override
   Future<void> markThreadRead(String threadId) =>

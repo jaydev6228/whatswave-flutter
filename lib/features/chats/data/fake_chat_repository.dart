@@ -43,6 +43,29 @@ class FakeChatRepository implements ChatRepository {
   }
 
   @override
+  Future<ChatMessagePage> fetchThreadMessagesPage({
+    required String threadId,
+    int limit = 50,
+    ChatMessage? before,
+  }) async {
+    await _wait();
+    // Thread messages are chronological (oldest first).
+    final all = _threadForId(threadId).messages;
+    final int end;
+    if (before == null) {
+      end = all.length;
+    } else {
+      final idx = all.indexWhere((m) => m.id == before.id);
+      end = idx < 0 ? all.length : idx;
+    }
+    final start = (end - limit).clamp(0, end);
+    return ChatMessagePage(
+      messages: all.sublist(start, end).toList(growable: false),
+      hasMoreOlder: start > 0,
+    );
+  }
+
+  @override
   Stream<List<ChatThread>>? watchThreads() => null;
 
   @override
@@ -524,6 +547,9 @@ class FakeChatRepository implements ChatRepository {
   /// single fixed key for "this device's own reaction" -- fine for demo
   /// data, which is always a single-perspective view.
   static const String _currentUserId = 'me';
+
+  @override
+  String get currentUserReactionKey => _currentUserId;
 
   @override
   Future<List<ChatThread>> toggleMessageReaction({

@@ -55,6 +55,15 @@ class ChatsController extends ChangeNotifier {
   final Set<String> _loadingMessageThreadIds = <String>{};
   final Set<String> _hiddenStoryKeys = <String>{};
 
+  /// Windowed pagination state. A thread's loaded `messages` is the currently
+  /// paged-in window (latest [_initialPageSize] on open, extended older as the
+  /// user scrolls up), NOT necessarily its full history. These track, per
+  /// thread, whether older messages remain on the backend and whether an
+  /// older page is currently being fetched.
+  static const int _initialPageSize = 50;
+  final Map<String, bool> _hasMoreOlderMessages = <String, bool>{};
+  final Set<String> _loadingOlderThreadIds = <String>{};
+
   bool get hasLoaded => _hasLoaded;
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
@@ -235,6 +244,15 @@ class ChatsController extends ChangeNotifier {
   bool hasFullyLoadedMessages(String threadId) =>
       _fullyLoadedThreadIds.contains(threadId);
 
+  /// Whether older messages remain to be paged in for [threadId] (drives the
+  /// top-of-list "loading older" affordance). True only once the initial page
+  /// has loaded and the backend reported more history behind it.
+  bool hasMoreOlderMessages(String threadId) =>
+      _hasMoreOlderMessages[threadId] ?? false;
+
+  bool isLoadingOlderMessages(String threadId) =>
+      _loadingOlderThreadIds.contains(threadId);
+
   Future<void> ensureLoaded() async {
     if (_hasLoaded || _isLoading) {
       return;
@@ -316,10 +334,17 @@ class ChatsController extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final fullThread = await _repository.fetchThreadWithMessages(threadId);
+      // Load only the most recent window so opening a long thread stays cheap;
+      // older messages are paged in on demand via [loadOlderMessages].
+      final page = await _repository.fetchThreadMessagesPage(
+        threadId: threadId,
+        limit: _initialPageSize,
+      );
       _fullyLoadedThreadIds.add(threadId);
-      if (threadById(threadId) == null) {
-        _threads = [fullThread, ..._threads];
+      _hasMoreOlderMessages[threadId] = page.hasMoreOlder;
+      final existing = threadById(threadId);
+      if (existing == null) {
+        _errorMessage = 'We could not load that chat right now.';
       } else {
         _threads = _threads
             .map(
@@ -327,8 +352,8 @@ class ChatsController extends ChangeNotifier {
                 if (thread.id != threadId) {
                   return thread;
                 }
-                return fullThread.copyWith(
-                  messages: _mergeMessages(thread.messages, fullThread.messages),
+                return thread.copyWith(
+                  messages: _mergeMessages(thread.messages, page.messages),
                 );
               },
             )
@@ -342,6 +367,82 @@ class ChatsController extends ChangeNotifier {
 
     _loadingMessageThreadIds.remove(threadId);
     notifyListeners();
+  }
+
+  /// Pages in the next-older window for [threadId], prepending it to the loaded
+  /// window. Safe to call repeatedly (e.g. as the user nears the top of the
+  /// list) -- it no-ops while a fetch is in flight or once history is
+  /// exhausted. Contiguous by construction: each page continues from the
+  /// oldest message currently loaded, so [_mergeMessages]'s sort never opens a
+  /// gap.
+  Future<void> loadOlderMessages(String threadId) async {
+    if (!_fullyLoadedThreadIds.contains(threadId) ||
+        _loadingOlderThreadIds.contains(threadId) ||
+        !(_hasMoreOlderMessages[threadId] ?? false)) {
+      return;
+    }
+
+    final current = threadById(threadId);
+    if (current == null || current.messages.isEmpty) {
+      return;
+    }
+    final oldestLoaded = current.messages.first;
+
+    _loadingOlderThreadIds.add(threadId);
+    notifyListeners();
+
+    try {
+      final page = await _repository.fetchThreadMessagesPage(
+        threadId: threadId,
+        limit: _initialPageSize,
+        before: oldestLoaded,
+      );
+      // No new messages behind the cursor means we've reached the top.
+      _hasMoreOlderMessages[threadId] =
+          page.messages.isEmpty ? false : page.hasMoreOlder;
+      final cached = threadById(threadId);
+      if (cached != null && page.messages.isNotEmpty) {
+        final merged = _mergeMessages(cached.messages, page.messages);
+        _threads = _threads
+            .map(
+              (thread) =>
+                  thread.id == threadId ? thread.copyWith(messages: merged) : thread,
+            )
+            .toList(growable: false);
+      }
+    } on ChatRepositoryException catch (error) {
+      _errorMessage = error.message;
+    } catch (_) {
+      // Best-effort; the existing window stays usable and the caller can retry.
+    }
+
+    _loadingOlderThreadIds.remove(threadId);
+    notifyListeners();
+  }
+
+  /// Ensures [messageId] is inside [threadId]'s loaded window, paging older in
+  /// batches until it appears (or history is exhausted). Backs tap-to-jump on a
+  /// quoted reply whose target scrolled out of the loaded window. Bounded so a
+  /// jump to a very old message can't page unboundedly. Returns whether the
+  /// message is now loaded.
+  Future<bool> ensureMessageLoaded(String threadId, String messageId) async {
+    if (!_fullyLoadedThreadIds.contains(threadId)) {
+      await ensureThreadMessagesLoaded(threadId);
+    }
+
+    bool isLoaded() =>
+        threadById(threadId)?.messages.any((m) => m.id == messageId) ?? false;
+
+    // Cap the walk-back so a jump to an ancient message stays bounded.
+    const maxPages = 20;
+    var pages = 0;
+    while (!isLoaded() &&
+        (_hasMoreOlderMessages[threadId] ?? false) &&
+        pages < maxPages) {
+      await loadOlderMessages(threadId);
+      pages++;
+    }
+    return isLoaded();
   }
 
   List<ChatThread> _mergeIncomingThreads(List<ChatThread> incoming) {
@@ -867,6 +968,15 @@ class ChatsController extends ChangeNotifier {
     required String messageId,
     required String emoji,
   }) {
+    // Reflect the reaction (or its removal) immediately -- WhatsApp shows it
+    // the instant you tap. _runThreadMutation then replaces threads with the
+    // real result on success, or re-syncs authoritatively (reverting this)
+    // if the backend rejects the write.
+    _applyOptimisticReaction(
+      threadId: threadId,
+      messageId: messageId,
+      emoji: emoji,
+    );
     return _runThreadMutation(
       threadId,
       () => _repository.toggleMessageReaction(
@@ -877,6 +987,45 @@ class ChatsController extends ChangeNotifier {
       fallbackError: 'We could not update that reaction right now.',
       clearSearch: false,
     );
+  }
+
+  /// Toggles the current user's reaction on a message in local state: a fresh
+  /// emoji is added, tapping the same emoji again removes it. Keyed by the
+  /// backend's [ChatRepository.currentUserReactionKey] so it matches what the
+  /// server will store.
+  void _applyOptimisticReaction({
+    required String threadId,
+    required String messageId,
+    required String emoji,
+  }) {
+    final key = _repository.currentUserReactionKey;
+    if (key.isEmpty) {
+      return;
+    }
+    _threads = _threads
+        .map((thread) {
+          if (thread.id != threadId) {
+            return thread;
+          }
+          return thread.copyWith(
+            messages: thread.messages
+                .map((message) {
+                  if (message.id != messageId) {
+                    return message;
+                  }
+                  final reactions = Map<String, String>.from(message.reactions);
+                  if (reactions[key] == emoji) {
+                    reactions.remove(key);
+                  } else {
+                    reactions[key] = emoji;
+                  }
+                  return message.copyWith(reactions: reactions);
+                })
+                .toList(growable: false),
+          );
+        })
+        .toList(growable: false);
+    notifyListeners();
   }
 
   Future<bool> toggleMessageStar({
@@ -983,6 +1132,11 @@ class ChatsController extends ChangeNotifier {
 
   /// Merges any missing server messages in the background without blocking
   /// send UX or rebuilding the list when nothing changed.
+  /// Upper bound on how much of a (possibly deeply paged-back) window the
+  /// background sync refetches, so reconciliation after a mutation stays cheap
+  /// even when the user has scrolled far into history.
+  static const int _maxSyncWindow = 200;
+
   Future<void> _syncOpenThreadMessagesInBackground(
     String threadId, {
     bool authoritative = false,
@@ -991,35 +1145,42 @@ class ChatsController extends ChangeNotifier {
       return;
     }
 
+    final before = threadById(threadId);
+    if (before == null) {
+      return;
+    }
+    // Refetch a window that covers what's loaded (capped) rather than the
+    // thread's full history -- pagination means `messages` is a window, not
+    // everything.
+    final limit = before.messages.length
+        .clamp(_initialPageSize, _maxSyncWindow);
+
     try {
-      final fullThread = await _repository.fetchThreadWithMessages(threadId);
+      final page = await _repository.fetchThreadMessagesPage(
+        threadId: threadId,
+        limit: limit,
+      );
       final cached = threadById(threadId);
       if (cached == null) {
         return;
       }
+      // The newest window is at least as deep as what we asked for; older
+      // history behind it either still exists or was already known to.
+      _hasMoreOlderMessages[threadId] =
+          page.hasMoreOlder || (_hasMoreOlderMessages[threadId] ?? false);
 
-      if (authoritative) {
-        if (_messageListsEquivalent(cached.messages, fullThread.messages)) {
-          return;
-        }
-        _threads = _threads
-            .map(
-              (thread) => thread.id == threadId ? fullThread : thread,
-            )
-            .toList(growable: false);
-        notifyListeners();
-        return;
-      }
+      final reconciled = authoritative
+          ? _reconcileWindow(cached.messages, page.messages)
+          : _mergeMessages(cached.messages, page.messages);
 
-      final mergedMessages = _mergeMessages(cached.messages, fullThread.messages);
-      if (_messageListsEquivalent(cached.messages, mergedMessages)) {
+      if (_messageListsEquivalent(cached.messages, reconciled)) {
         return;
       }
 
       _threads = _threads
           .map(
             (thread) => thread.id == threadId
-                ? fullThread.copyWith(messages: mergedMessages)
+                ? thread.copyWith(messages: reconciled)
                 : thread,
           )
           .toList(growable: false);
@@ -1027,6 +1188,26 @@ class ChatsController extends ChangeNotifier {
     } catch (_) {
       // Best-effort; merged in-memory state remains usable.
     }
+  }
+
+  /// Authoritative reconciliation for the background sync: the refetched [page]
+  /// is the source of truth for everything from its oldest message onward (so
+  /// deletes/edits inside the window are reflected instead of lingering the way
+  /// a union merge would), while cached history strictly older than the window
+  /// is preserved so paged-in older messages don't vanish.
+  List<ChatMessage> _reconcileWindow(
+    List<ChatMessage> cached,
+    List<ChatMessage> page,
+  ) {
+    if (page.isEmpty) {
+      // The whole refetched window came back empty -- the thread was cleared.
+      return const <ChatMessage>[];
+    }
+    final windowStart = page.first.sentAt;
+    final older = cached
+        .where((message) => message.sentAt.isBefore(windowStart))
+        .toList(growable: false);
+    return List<ChatMessage>.unmodifiable(<ChatMessage>[...older, ...page]);
   }
 
   bool _messageListsEquivalent(

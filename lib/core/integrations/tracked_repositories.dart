@@ -10,6 +10,7 @@ import '../../features/calls/domain/call_history_entry.dart';
 import '../../features/chats/data/chat_repository.dart';
 import '../../features/chats/domain/chat_attachment.dart';
 import '../../features/chats/domain/chat_attachment.dart' as chat_attachment;
+import '../../features/chats/domain/chat_message.dart';
 import '../../features/chats/domain/chat_thread.dart';
 import '../../features/chats/domain/message_reply_preview.dart';
 import '../../features/chats/domain/story_reply_context.dart';
@@ -283,11 +284,26 @@ class TrackedChatRepository implements ChatRepository {
   final IntegrationHubController _integrations;
 
   @override
+  String get currentUserReactionKey => _delegate.currentUserReactionKey;
+
+  @override
   Future<List<ChatThread>> fetchThreads() => _delegate.fetchThreads();
 
   @override
   Future<ChatThread> fetchThreadWithMessages(String threadId) =>
       _delegate.fetchThreadWithMessages(threadId);
+
+  @override
+  Future<ChatMessagePage> fetchThreadMessagesPage({
+    required String threadId,
+    int limit = 50,
+    ChatMessage? before,
+  }) =>
+      _delegate.fetchThreadMessagesPage(
+        threadId: threadId,
+        limit: limit,
+        before: before,
+      );
 
   @override
   Stream<List<ChatThread>>? watchThreads() => _delegate.watchThreads();
