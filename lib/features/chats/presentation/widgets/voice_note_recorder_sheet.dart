@@ -160,19 +160,21 @@ class _VoiceNoteRecorderSheetState extends State<_VoiceNoteRecorderSheet> {
                     key: const Key('voice_recorder_discard_button'),
                     onPressed: isActive ? _discard : null,
                     icon: const Icon(Icons.delete_outline_rounded),
-                    iconSize: 24,
+                    iconSize: 20,
+                    constraints:
+                        const BoxConstraints(minWidth: 44, minHeight: 44),
                     tooltip: 'Discard',
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         SizedBox(
-                          height: 36,
+                          height: 32,
                           child: _RecordingWaveform(samples: _session.samples),
                         ),
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 6),
                         Text(
                           formatVoiceNoteDuration(_session.elapsed),
                           key: const Key('voice_recorder_timer'),
@@ -185,7 +187,7 @@ class _VoiceNoteRecorderSheetState extends State<_VoiceNoteRecorderSheet> {
                       ],
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 8),
                   if (_stage == _RecorderStage.recording ||
                       _stage == _RecorderStage.paused)
                     IconButton.filledTonal(
@@ -196,22 +198,26 @@ class _VoiceNoteRecorderSheetState extends State<_VoiceNoteRecorderSheet> {
                             ? Icons.play_arrow_rounded
                             : Icons.pause_rounded,
                       ),
-                      iconSize: 24,
+                      iconSize: 20,
+                      constraints:
+                          const BoxConstraints(minWidth: 44, minHeight: 44),
                       tooltip: _stage == _RecorderStage.paused
                           ? 'Resume'
                           : 'Pause',
                     ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 6),
                   IconButton.filled(
                     key: const Key('voice_recorder_send_button'),
                     onPressed: isActive ? _stopAndSend : null,
                     icon: const Icon(Icons.send_rounded),
-                    iconSize: 22,
+                    iconSize: 20,
+                    constraints:
+                        const BoxConstraints(minWidth: 44, minHeight: 44),
                     tooltip: 'Send',
                   ),
                 ],
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
               Text(
                 _stage == _RecorderStage.paused
                     ? 'Paused'
@@ -262,38 +268,39 @@ class _WaveformPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    const barWidth = 3.0;
-    const gap = 2.0;
+    if (samples.isEmpty) {
+      // Nothing recorded yet -- draw nothing, rather than a full-width
+      // placeholder line. A placeholder here used to make the very first
+      // real sample look like a jarring collapse: full width, then
+      // suddenly almost empty except for one bar at the right edge. Empty
+      // now flows continuously into the same right-anchored growth below.
+      return;
+    }
+
     final paint = Paint()
       ..color = color
       ..strokeCap = StrokeCap.round;
 
-    if (samples.isEmpty) {
-      final midY = size.height / 2;
-      for (var x = 0.0; x < size.width; x += barWidth + gap) {
-        paint.strokeWidth = barWidth;
-        canvas.drawLine(
-          Offset(x + barWidth / 2, midY - 2),
-          Offset(x + barWidth / 2, midY + 2),
-          paint,
-        );
-      }
-      return;
-    }
-
-    final startX = math.max(
-      0.0,
-      size.width - samples.length * (barWidth + gap),
-    );
+    // Pitch is based on the sliding window's fixed CAPACITY, not the live
+    // (still-ramping-up-from-zero) sample count -- dividing by the live
+    // count made the first handful of samples balloon into a few oversized
+    // blobs that shrank back down as more arrived, instead of already
+    // being the right size. Bars are right-anchored (newest sample nearest
+    // the buttons, oldest scrolled toward the left) like a live VU meter;
+    // once the buffer reaches full capacity this naturally fills the row
+    // edge to edge with no gap on either side.
+    final pitch = size.width / voiceNoteWaveformSampleCap;
+    final barWidth = math.max(1.2, pitch * 0.55);
+    paint.strokeWidth = barWidth;
+    final startX = math.max(0.0, size.width - samples.length * pitch);
     for (var index = 0; index < samples.length; index++) {
       final amplitude = samples[index];
-      final x = startX + index * (barWidth + gap);
-      final barHeight = math.max(4.0, amplitude * size.height);
+      final barCenterX = startX + pitch * index + pitch / 2;
+      final barHeight = math.max(3.0, amplitude * size.height);
       final top = (size.height - barHeight) / 2;
-      paint.strokeWidth = barWidth;
       canvas.drawLine(
-        Offset(x + barWidth / 2, top),
-        Offset(x + barWidth / 2, top + barHeight),
+        Offset(barCenterX, top),
+        Offset(barCenterX, top + barHeight),
         paint,
       );
     }

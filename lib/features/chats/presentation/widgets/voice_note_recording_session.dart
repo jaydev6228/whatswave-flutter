@@ -10,6 +10,14 @@ import '../../domain/chat_attachment.dart';
 /// Minimum recording length before a voice note is worth sending.
 const Duration minimumVoiceNoteDuration = Duration(milliseconds: 500);
 
+/// Sliding-window cap on how many live amplitude samples
+/// [VoiceNoteRecordingSession] keeps -- the buffer never grows past this,
+/// even for a long recording. The waveform painter divides its width by
+/// this fixed capacity (not the live, still-ramping-up sample count) so
+/// bars start at their final thin size from the first sample instead of
+/// beginning as a few oversized blobs that shrink as more arrive.
+const int voiceNoteWaveformSampleCap = 48;
+
 /// Shared mic capture used by the recorder sheet and hold-to-record.
 class VoiceNoteRecordingSession {
   VoiceNoteRecordingSession();
@@ -73,7 +81,7 @@ class VoiceNoteRecordingSession {
         }
         final normalized = _normalizeAmplitude(amplitude.current);
         waveformSamples.add(normalized);
-        if (waveformSamples.length > 48) {
+        if (waveformSamples.length > voiceNoteWaveformSampleCap) {
           waveformSamples.removeAt(0);
         }
       });

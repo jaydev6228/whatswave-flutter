@@ -3104,9 +3104,9 @@ class _MessageBubble extends StatelessWidget {
                           //    time on a shared row (which read as uneven
                           //    padding); the caption simply sits above.
                           if (message.hasAttachments) ...[
-                            _buildAttachmentsContent(context),
-                            const SizedBox(height: 4),
-                            if (message.hasText)
+                            _buildAttachmentsContent(context, contentColor),
+                            if (message.hasText) ...[
+                              const SizedBox(height: 4),
                               // Caption with the time tucked inline bottom-
                               // right -- same line when it fits, end of the
                               // last line when it wraps.
@@ -3119,14 +3119,20 @@ class _MessageBubble extends StatelessWidget {
                                   color: contentColor,
                                   height: 1.28,
                                 ),
-                              )
-                            else
+                              ),
+                            ] else if (!_hasSoleInlineVoiceNoteAttachment) ...[
                               // Attachment with no caption: time on its own
-                              // right-aligned line.
+                              // right-aligned line. A sole voice note is the
+                              // one exception -- it renders the same time+
+                              // ticks inline on its own duration row instead
+                              // (matching WhatsApp's single combined line),
+                              // so it must not be duplicated here.
+                              const SizedBox(height: 4),
                               Align(
                                 alignment: Alignment.centerRight,
                                 child: _metaRow(context, contentColor),
                               ),
+                            ],
                           ] else if (message.hasText)
                             _textWithInlineMeta(
                               context,
@@ -3534,7 +3540,22 @@ class _MessageBubble extends StatelessWidget {
   /// anything without real coordinates/media) keep the icon+title+details
   /// row -- see docs on [_AttachmentPreviewCard], [_MediaAttachmentTile],
   /// and [LocationMapSnippet].
-  Widget _buildAttachmentsContent(BuildContext context) {
+  /// Whether [message] is a single playable voice note with no caption --
+  /// the one attachment case that renders its own inline time+ticks row
+  /// (see [_buildAttachmentRow]) instead of getting a separate one from the
+  /// caller.
+  bool get _hasSoleInlineVoiceNoteAttachment {
+    if (message.attachments.length != 1) {
+      return false;
+    }
+    final attachment = message.attachments.single;
+    final localPath = attachment.localMediaPath;
+    return attachment.type == ChatAttachmentType.voiceNote &&
+        localPath != null &&
+        statusMediaSourceExists(localPath);
+  }
+
+  Widget _buildAttachmentsContent(BuildContext context, Color contentColor) {
     final attachments = message.attachments;
     final isMediaGroup = attachments.every(
       (attachment) =>
@@ -3595,7 +3616,7 @@ class _MessageBubble extends StatelessWidget {
         for (final attachment in attachments)
           Padding(
             padding: const EdgeInsets.only(bottom: 6),
-            child: _buildAttachmentRow(attachment),
+            child: _buildAttachmentRow(context, attachment, contentColor),
           ),
       ],
     );
@@ -3604,7 +3625,11 @@ class _MessageBubble extends StatelessWidget {
   /// A real voice note (a real recorded file, not a placeholder) renders as
   /// an inline playable bubble instead of a tap-through row -- everything
   /// else keeps [_AttachmentPreviewCard]'s icon+title+details row.
-  Widget _buildAttachmentRow(ChatAttachment attachment) {
+  Widget _buildAttachmentRow(
+    BuildContext context,
+    ChatAttachment attachment,
+    Color contentColor,
+  ) {
     final localPath = attachment.localMediaPath;
     if (attachment.type == ChatAttachmentType.voiceNote &&
         localPath != null &&
@@ -3613,7 +3638,13 @@ class _MessageBubble extends StatelessWidget {
         key: Key('voice_note_${attachment.id}'),
         localMediaPath: localPath,
         fallbackLabel: attachment.details,
-        accentColor: attachment.tintColor,
+        contentColor: contentColor,
+        // Only the sole-attachment, no-caption case owns the time+ticks row
+        // itself (see the caller) -- everything else still gets it from the
+        // shared _metaRow placement above.
+        trailingMeta: _hasSoleInlineVoiceNoteAttachment
+            ? _metaRow(context, contentColor)
+            : null,
       );
     }
     return _AttachmentPreviewCard(
