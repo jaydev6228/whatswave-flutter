@@ -14,9 +14,15 @@ Running on the iOS Simulator (iPhone 17 Pro).
 |---|---|---|---|
 | ![Auth](docs/screenshots/01-auth-phone-number.png) | ![Profile setup](docs/screenshots/02-profile-setup.png) | ![Chats list](docs/screenshots/03-chats-list.png) | ![Chat detail](docs/screenshots/04-chat-detail.png) |
 
-| Live video call | Updates | Communities | Settings |
+| Live video call | Group video call | Communities | Calls |
 |---|---|---|---|
-| ![Video call](docs/screenshots/05-video-call-live.png) | ![Updates](docs/screenshots/06-updates-tab.png) | ![Communities](docs/screenshots/07-communities-tab.png) | ![Settings](docs/screenshots/08-settings-tab.png) |
+| ![Video call](docs/screenshots/05-video-call-live.png) | ![Group video call](docs/screenshots/06-group-video-call.png) | ![Communities](docs/screenshots/07-communities-tab.png) | ![Calls](docs/screenshots/08-calls-tab.png) |
+
+| Settings | Draw tool | Crop tool | Music picker |
+|---|---|---|---|
+| ![Settings](docs/screenshots/09-settings-tab.png) | ![Draw tool](docs/screenshots/10-draw-tool-colors.png) | ![Crop tool](docs/screenshots/11-crop-tool-ratios.png) | ![Music picker](docs/screenshots/12-music-picker.png) |
+
+<sub>The status composer's draw, crop, and music tools (above) load their music catalog live from Firestore/Storage.</sub>
 
 This repository is being built in small, reviewable phases:
 
