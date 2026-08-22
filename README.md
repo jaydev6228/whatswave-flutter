@@ -22,6 +22,10 @@ Running on the iOS Simulator (iPhone 17 Pro).
 |---|---|---|---|
 | ![Settings](docs/screenshots/09-settings-tab.png) | ![Draw tool](docs/screenshots/10-draw-tool-colors.png) | ![Crop tool](docs/screenshots/11-crop-tool-ratios.png) | ![Music picker](docs/screenshots/12-music-picker.png) |
 
+| Group info | Contact info | Text status |
+|---|---|---|
+| ![Group info](docs/screenshots/13-group-info.png) | ![Contact info](docs/screenshots/14-contact-info.png) | ![Text status](docs/screenshots/15-text-status-composer.png) |
+
 <sub>The status composer's draw, crop, and music tools (above) load their music catalog live from Firestore/Storage.</sub>
 
 This repository is being built in small, reviewable phases:
