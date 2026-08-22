@@ -13,8 +13,10 @@ import '../application/updates_controller.dart';
 import 'media_status_composer_screen.dart';
 import 'story_viewer_launcher.dart';
 import 'text_status_composer_screen.dart';
-import 'widgets/text_status_canvas.dart';
+import 'widgets/status_media_source.dart';
 import 'widgets/status_ring_avatar.dart';
+import 'widgets/status_story_media_surface.dart';
+import 'widgets/text_status_canvas.dart';
 
 const double _kUpdatesScreenHorizontalPadding = 16;
 const double _kUpdatesRowHorizontalPadding = 18;
@@ -961,18 +963,27 @@ class _StatusSegmentPreview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final mediaPath = segment.localMediaPath?.trim();
-    final mediaFile =
-        mediaPath == null || mediaPath.isEmpty ? null : File(mediaPath);
+    // statusMediaSourceExists (not a raw File.existsSync check) so a
+    // Firebase-backed segment's https:// localMediaPath counts as present
+    // -- a plain existsSync() is always false for a URL, which silently
+    // fell through to the generic placeholder below for every remote
+    // photo. Routing through StatusStoryMediaSurface (instead of a bare
+    // Image.file) also applies the segment's mediaTransform, so a rotated
+    // photo shows correctly here too, matching every other renderer.
     if (segment.type == StatusStoryType.photo &&
-        mediaFile != null &&
-        mediaFile.existsSync()) {
+        mediaPath != null &&
+        mediaPath.isNotEmpty &&
+        statusMediaSourceExists(mediaPath)) {
       return ClipRRect(
         borderRadius: BorderRadius.circular(18),
-        child: Image.file(
-          mediaFile,
+        child: SizedBox(
           width: 62,
           height: 74,
-          fit: BoxFit.cover,
+          child: StatusStoryMediaSurface(
+            type: segment.type,
+            localMediaPath: mediaPath,
+            mediaTransform: segment.mediaTransform,
+          ),
         ),
       );
     }

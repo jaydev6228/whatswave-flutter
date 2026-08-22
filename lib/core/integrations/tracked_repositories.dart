@@ -636,6 +636,8 @@ class TrackedUpdatesRepository implements UpdatesRepository {
     List<String>? stickers,
     StatusMusicTrack? musicTrack,
     int? durationMillis,
+    int? trimStartMillis,
+    List<StatusDrawingStroke>? drawingStrokes,
   }) async {
     final List<StatusStory> stories;
     try {
@@ -653,6 +655,8 @@ class TrackedUpdatesRepository implements UpdatesRepository {
         stickers: stickers,
         musicTrack: musicTrack,
         durationMillis: durationMillis,
+        trimStartMillis: trimStartMillis,
+        drawingStrokes: drawingStrokes,
       );
     } on UpdatesRepositoryException catch (error) {
       unawaited(

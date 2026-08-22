@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
@@ -33,7 +34,10 @@ class StatusStoryMediaSurface extends StatefulWidget {
     this.backgroundColor = Colors.black,
     this.showFrameOutline = false,
     this.unavailableMessage,
+    this.drawingStrokes = const <StatusDrawingStroke>[],
+    this.frameSizeOverride,
     this.onSourceSizeResolved,
+    this.onPhotoLoadSettled,
     this.onTap,
     this.onScaleStart,
     this.onScaleUpdate,
@@ -49,7 +53,29 @@ class StatusStoryMediaSurface extends StatefulWidget {
   final Color backgroundColor;
   final bool showFrameOutline;
   final String? unavailableMessage;
+
+  /// Renders at this exact size instead of the largest rectangle of
+  /// [StatusMediaTransform.frameAspectRatio] that fits the canvas -- used
+  /// only by the composer's free-form crop grid, which needs the frame to
+  /// track a corner drag 1:1 rather than snapping to a re-maximized fit on
+  /// every update. Null (the default) keeps the normal ratio-driven sizing
+  /// every other caller (the story viewer, thumbnails) relies on.
+  final Size? frameSizeOverride;
+
+  /// Freehand doodle strokes, painted on top of the media and clipped to
+  /// the same frame -- shared by composer, viewer, and thumbnails since
+  /// they all render through this one surface.
+  final List<StatusDrawingStroke> drawingStrokes;
   final ValueChanged<Size>? onSourceSizeResolved;
+
+  /// Fires exactly once per photo load attempt, whether it succeeded or
+  /// failed -- unlike [onSourceSizeResolved] (success only), this is meant
+  /// for callers that just need to know loading has *settled* (e.g. the
+  /// story viewer, which pauses its progress bar until the current
+  /// segment's media is actually on screen). Never fires for video/text
+  /// segments, which have their own readiness signals (the video
+  /// initialization future; text has nothing to load).
+  final VoidCallback? onPhotoLoadSettled;
   final VoidCallback? onTap;
   final GestureScaleStartCallback? onScaleStart;
   final GestureScaleUpdateCallback? onScaleUpdate;
@@ -64,6 +90,13 @@ class _StatusStoryMediaSurfaceState extends State<StatusStoryMediaSurface> {
   ImageStream? _imageStream;
   ImageStreamListener? _imageStreamListener;
   Size? _photoIntrinsicSize;
+
+  /// Distinguishes "still decoding" from "gave up" -- both leave
+  /// [_photoIntrinsicSize] null, but only the former should keep the
+  /// top-level loading spinner (below, in build()) on screen. Without this,
+  /// a photo that fails to load (e.g. a dead network URL) left the spinner
+  /// spinning forever instead of handing off to the error state.
+  bool _photoLoadFailed = false;
 
   @override
   void initState() {
@@ -91,6 +124,7 @@ class _StatusStoryMediaSurfaceState extends State<StatusStoryMediaSurface> {
     if (widget.type != StatusStoryType.photo) {
       setState(() {
         _photoIntrinsicSize = null;
+        _photoLoadFailed = false;
       });
       return;
     }
@@ -99,9 +133,17 @@ class _StatusStoryMediaSurfaceState extends State<StatusStoryMediaSurface> {
     if (imageProvider == null) {
       setState(() {
         _photoIntrinsicSize = null;
+        _photoLoadFailed = true;
       });
+      _notifyPhotoLoadSettled();
       return;
     }
+    // Plain field resets, not setState -- this runs synchronously inside
+    // initState (too early for setState) and inside didUpdateWidget (whose
+    // caller is already mid-rebuild, so the imminent build() picks these up
+    // without a separate trigger either way).
+    _photoIntrinsicSize = null;
+    _photoLoadFailed = false;
     final imageStream = imageProvider.resolve(const ImageConfiguration());
     final listener = ImageStreamListener(
       (imageInfo, _) {
@@ -119,6 +161,7 @@ class _StatusStoryMediaSurfaceState extends State<StatusStoryMediaSurface> {
           _photoIntrinsicSize = nextSize;
         });
         widget.onSourceSizeResolved?.call(nextSize);
+        _notifyPhotoLoadSettled();
       },
       onError: (_, __) {
         if (!mounted) {
@@ -126,13 +169,34 @@ class _StatusStoryMediaSurfaceState extends State<StatusStoryMediaSurface> {
         }
         setState(() {
           _photoIntrinsicSize = null;
+          _photoLoadFailed = true;
         });
+        _notifyPhotoLoadSettled();
       },
     );
 
     _imageStream = imageStream;
     _imageStreamListener = listener;
     imageStream.addListener(listener);
+  }
+
+  /// Deferred to the next frame -- `ImageStream.addListener` can resolve
+  /// synchronously for an already-cached image, and `_resolvePhotoIntrinsic
+  /// Size` itself runs synchronously from `initState`. Either way, calling
+  /// straight into a caller's `setState` (the story viewer pausing/resuming
+  /// its progress bar) while this widget is still mid-mount hits Flutter's
+  /// "setState() called during build" guard, since an ancestor can't be
+  /// marked dirty while one of its own descendants is still being built.
+  void _notifyPhotoLoadSettled() {
+    final callback = widget.onPhotoLoadSettled;
+    if (callback == null) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        callback();
+      }
+    });
   }
 
   void _detachImageStream() {
@@ -153,10 +217,11 @@ class _StatusStoryMediaSurfaceState extends State<StatusStoryMediaSurface> {
     final surface = LayoutBuilder(
       builder: (context, constraints) {
         final canvasSize = constraints.biggest;
-        final frameSize = statusStoryFrameSizeFor(
-          canvasSize,
-          widget.mediaTransform.frameAspectRatio,
-        );
+        final frameSize = widget.frameSizeOverride ??
+            statusStoryFrameSizeFor(
+              canvasSize,
+              widget.mediaTransform.frameAspectRatio,
+            );
 
         if (frameSize.width <= 0 || frameSize.height <= 0) {
           return const SizedBox.expand();
@@ -171,13 +236,97 @@ class _StatusStoryMediaSurfaceState extends State<StatusStoryMediaSurface> {
                 key: const Key('updates_media_story_frame'),
                 width: frameSize.width,
                 height: frameSize.height,
-                child: ClipRect(
+                // Rounded to match the frame outline's own corner radius
+                // when it's shown (crop mode) -- a plain ClipRect left the
+                // media's sharp corners poking out past the rounded border,
+                // most visible on taller ratios like 4:5 where more corner
+                // area is exposed.
+                child: ClipRRect(
+                  borderRadius: widget.showFrameOutline
+                      ? BorderRadius.circular(26)
+                      : BorderRadius.zero,
                   child: ColoredBox(
                     color: widget.backgroundColor,
                     child: hasMediaSource
-                        ? _buildTransformedMedia(
-                            mediaPath: mediaPath,
-                            frameSize: frameSize,
+                        ? Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              widget.mediaTransform.blurSigma > 0
+                                  ? ImageFiltered(
+                                      key: const Key(
+                                          'updates_story_blur_layer'),
+                                      imageFilter: ImageFilter.blur(
+                                        sigmaX: widget.mediaTransform.blurSigma,
+                                        sigmaY: widget.mediaTransform.blurSigma,
+                                      ),
+                                      child: _buildTransformedMedia(
+                                        mediaPath: mediaPath,
+                                        frameSize: frameSize,
+                                      ),
+                                    )
+                                  : _buildTransformedMedia(
+                                      mediaPath: mediaPath,
+                                      frameSize: frameSize,
+                                    ),
+                              if (widget.drawingStrokes.isNotEmpty)
+                                IgnorePointer(
+                                  child: CustomPaint(
+                                    key: const Key(
+                                        'updates_story_drawing_layer'),
+                                    painter: _StatusDrawingPainter(
+                                      strokes: widget.drawingStrokes,
+                                      frameSize: frameSize,
+                                    ),
+                                  ),
+                                ),
+                              // Painted as its own top layer, outside the
+                              // blur/transform subtree above -- a spinner
+                              // nested inside `_buildTransformedMedia` got
+                              // scaled by pinch/zoom and blurred by the blur
+                              // tool right along with the (not yet loaded)
+                              // media underneath it, which is what made it
+                              // look faint/"behind" a blurry view instead of
+                              // a crisp loading state on top.
+                              if (widget.type == StatusStoryType.photo &&
+                                  _photoIntrinsicSize == null &&
+                                  !_photoLoadFailed)
+                                const IgnorePointer(
+                                  child: ColoredBox(
+                                    color: Colors.black,
+                                    child: Center(
+                                      child: CircularProgressIndicator(
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              if (widget.type == StatusStoryType.video)
+                                IgnorePointer(
+                                  child: FutureBuilder<void>(
+                                    future: widget.videoInitialization,
+                                    builder: (context, snapshot) {
+                                      // Settled, whether it succeeded or
+                                      // failed -- checking isInitialized too
+                                      // would leave this spinning forever
+                                      // on a video that fails to initialize
+                                      // (the future still completes, just
+                                      // with an error).
+                                      if (snapshot.connectionState ==
+                                          ConnectionState.done) {
+                                        return const SizedBox.shrink();
+                                      }
+                                      return const ColoredBox(
+                                        color: Colors.black,
+                                        child: Center(
+                                          child: CircularProgressIndicator(
+                                            color: Colors.white,
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ),
+                            ],
                           )
                         : _StatusMediaUnavailableState(
                             message: widget.unavailableMessage ??
@@ -262,14 +411,29 @@ class _StatusStoryMediaSurfaceState extends State<StatusStoryMediaSurface> {
       child: SizedBox(
         width: renderedSourceSize.width,
         height: renderedSourceSize.height,
-        child: Transform.rotate(
-          angle: quarterTurns * (math.pi / 2),
-          child: SizedBox(
-            width: sourceSize.width,
-            height: sourceSize.height,
-            child: _buildSourceWidget(
-              mediaPath: mediaPath,
-              sourceSize: sourceSize,
+        // `Transform.rotate` only affects painting, not layout -- without
+        // this `OverflowBox` the tight constraints from this SizedBox
+        // (renderedSourceSize, W/H-swapped for odd quarter turns) would
+        // leak straight through the rotate into the inner SizedBox below,
+        // clamping the real media to the wrong-shaped box: forced over-crop
+        // for photos (which have BoxFit.cover to fall back on) and a hard
+        // stretch for video (which doesn't). Loosening to the true
+        // unrotated sourceSize here lets the media lay out correctly, get
+        // rotated as a whole, and only then get cover-fit into the frame.
+        child: OverflowBox(
+          minWidth: sourceSize.width,
+          maxWidth: sourceSize.width,
+          minHeight: sourceSize.height,
+          maxHeight: sourceSize.height,
+          child: Transform.rotate(
+            angle: quarterTurns * (math.pi / 2),
+            child: SizedBox(
+              width: sourceSize.width,
+              height: sourceSize.height,
+              child: _buildSourceWidget(
+                mediaPath: mediaPath,
+                sourceSize: sourceSize,
+              ),
             ),
           ),
         ),
@@ -316,16 +480,15 @@ class _StatusStoryMediaSurfaceState extends State<StatusStoryMediaSurface> {
         height: sourceSize.height,
         fit: BoxFit.cover,
         alignment: Alignment.center,
+        // The crisp, unblurred/untransformed loading spinner lives as its
+        // own top-level layer above (see build()) -- this placeholder just
+        // needs to hold the frame's shape while decoding, not paint its
+        // own (transformable, blurrable) copy of the spinner.
         loadingBuilder: (context, child, loadingProgress) {
           if (loadingProgress == null) {
             return child;
           }
-          return const ColoredBox(
-            color: Colors.black,
-            child: Center(
-              child: CircularProgressIndicator(color: Colors.white),
-            ),
-          );
+          return const ColoredBox(color: Colors.black);
         },
         errorBuilder: (_, __, ___) {
           return _StatusMediaUnavailableState(
@@ -338,13 +501,11 @@ class _StatusStoryMediaSurfaceState extends State<StatusStoryMediaSurface> {
 
     final controller = widget.videoController;
     final initialization = widget.videoInitialization;
+    // The crisp, unblurred/untransformed loading spinner lives as its own
+    // top-level layer above (see build()) -- these placeholders just need
+    // to hold the frame's shape while the video initializes.
     if (controller == null || initialization == null) {
-      return const ColoredBox(
-        color: Colors.black,
-        child: Center(
-          child: CircularProgressIndicator(color: Colors.white),
-        ),
-      );
+      return const ColoredBox(color: Colors.black);
     }
 
     return FutureBuilder<void>(
@@ -352,12 +513,7 @@ class _StatusStoryMediaSurfaceState extends State<StatusStoryMediaSurface> {
       builder: (context, snapshot) {
         if (snapshot.connectionState != ConnectionState.done ||
             !controller.value.isInitialized) {
-          return const ColoredBox(
-            color: Colors.black,
-            child: Center(
-              child: CircularProgressIndicator(color: Colors.white),
-            ),
-          );
+          return const ColoredBox(color: Colors.black);
         }
 
         return SizedBox(
@@ -383,6 +539,14 @@ class _StatusMediaUnavailableState extends StatelessWidget {
 
   final String message;
 
+  /// Below this height there's no room for the icon+message layout below
+  /// (designed for a full-screen viewer/composer canvas) -- e.g. the small
+  /// 62x74 segment thumbnail in the "Manage status" sheet, which now
+  /// renders through this same shared surface. A fixed icon-only fallback,
+  /// not a shrunk version of the full layout, since text wouldn't stay
+  /// legible at that size anyway.
+  static const double _compactHeightThreshold = 120;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -397,31 +561,92 @@ class _StatusMediaUnavailableState extends StatelessWidget {
           end: Alignment.bottomRight,
         ),
       ),
-      child: Center(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 28),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          if (constraints.maxHeight < _compactHeightThreshold) {
+            return const Center(
+              child: Icon(
                 Icons.perm_media_outlined,
                 color: Colors.white,
-                size: 34,
+                size: 20,
               ),
-              const SizedBox(height: 12),
-              Text(
-                message,
-                textAlign: TextAlign.center,
-                style: theme.textTheme.bodyLarge?.copyWith(
-                  color: Colors.white.withValues(alpha: 0.86),
-                  height: 1.38,
-                  fontWeight: FontWeight.w600,
-                ),
+            );
+          }
+
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 28),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.perm_media_outlined,
+                    color: Colors.white,
+                    size: 34,
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    message,
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      color: Colors.white.withValues(alpha: 0.86),
+                      height: 1.38,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
-        ),
+            ),
+          );
+        },
       ),
     );
+  }
+}
+
+class _StatusDrawingPainter extends CustomPainter {
+  const _StatusDrawingPainter({
+    required this.strokes,
+    required this.frameSize,
+  });
+
+  final List<StatusDrawingStroke> strokes;
+  final Size frameSize;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final shortestSide = math.min(size.width, size.height);
+    // Painted into an offscreen layer so an eraser stroke's BlendMode.clear
+    // only punches through ink laid down earlier in this same layer, never
+    // the photo/video underneath (that's a separate layer beneath this
+    // whole CustomPaint widget).
+    canvas.saveLayer(Offset.zero & size, Paint());
+    for (final stroke in strokes) {
+      if (stroke.points.length < 2) {
+        continue;
+      }
+      final paint = Paint()
+        ..color = stroke.isEraser ? Colors.black : stroke.color
+        ..strokeWidth = stroke.strokeWidth * shortestSide
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round
+        ..style = PaintingStyle.stroke
+        ..blendMode = stroke.isEraser ? BlendMode.clear : BlendMode.srcOver;
+      final path = Path()
+        ..moveTo(
+          stroke.points.first.dx * size.width,
+          stroke.points.first.dy * size.height,
+        );
+      for (final point in stroke.points.skip(1)) {
+        path.lineTo(point.dx * size.width, point.dy * size.height);
+      }
+      canvas.drawPath(path, paint);
+    }
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant _StatusDrawingPainter oldDelegate) {
+    return oldDelegate.strokes != strokes || oldDelegate.frameSize != frameSize;
   }
 }

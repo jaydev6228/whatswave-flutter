@@ -6,14 +6,35 @@ import 'package:flutter/material.dart';
 import '../../../core/models/channel_preview.dart';
 import '../../../core/models/status_story.dart';
 import '../../../core/models/story_viewer.dart';
+import '../data/status_music_repository.dart';
 import '../data/updates_repository.dart';
+import 'status_media_prefetch.dart';
 
 class UpdatesController extends ChangeNotifier {
-  UpdatesController({required UpdatesRepository repository})
-      : _repository = repository;
+  UpdatesController({
+    required UpdatesRepository repository,
+    StatusMusicRepository? musicRepository,
+  })  : _repository = repository,
+        _musicRepository = musicRepository ?? const FakeStatusMusicRepository();
 
   final UpdatesRepository _repository;
+  final StatusMusicRepository _musicRepository;
+  List<StatusMusicTrack>? _cachedMusicTracks;
   StreamSubscription<UpdatesFeed>? _liveUpdatesSubscription;
+
+  /// The "Add music" catalog -- fetched once and cached for the rest of
+  /// this controller's lifetime (the list doesn't change while composing a
+  /// single status, and refetching on every picker open would just be a
+  /// redundant round trip).
+  Future<List<StatusMusicTrack>> fetchMusicTracks() async {
+    final cached = _cachedMusicTracks;
+    if (cached != null) {
+      return cached;
+    }
+    final tracks = await _musicRepository.fetchTracks();
+    _cachedMusicTracks = tracks;
+    return tracks;
+  }
 
   bool _hasLoaded = false;
   bool _isLoading = false;
@@ -180,6 +201,8 @@ class UpdatesController extends ChangeNotifier {
     List<String>? stickers,
     StatusMusicTrack? musicTrack,
     int? durationMillis,
+    int? trimStartMillis,
+    List<StatusDrawingStroke>? drawingStrokes,
   }) async {
     if (_isComposingStatus) {
       return false;
@@ -202,8 +225,15 @@ class UpdatesController extends ChangeNotifier {
         stickers: stickers,
         musicTrack: musicTrack,
         durationMillis: durationMillis,
+        trimStartMillis: trimStartMillis,
+        drawingStrokes: drawingStrokes,
       );
       didSucceed = true;
+      // Fire-and-forget: warms the cache for the segment we just posted so
+      // the very first time it's opened -- including by us, moments later
+      // -- doesn't cold-fetch over the network. See
+      // prefetchStatusMedia's doc comment for why this is needed at all.
+      unawaited(prefetchStatusMedia(myStatus?.latestSegment));
     } on UpdatesRepositoryException catch (error) {
       _errorMessage = error.message;
     } catch (_) {

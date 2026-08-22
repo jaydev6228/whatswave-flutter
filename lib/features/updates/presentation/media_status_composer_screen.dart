@@ -9,9 +9,12 @@ import 'package:video_player/video_player.dart';
 import '../../../app/theme/app_palette.dart';
 import '../../../core/models/status_story.dart';
 import '../../shared/widgets/liquid_glass.dart';
+import '../data/status_music_repository.dart';
+import 'widgets/emoji_picker_sheet.dart';
 import 'widgets/status_media_decoration_overlay.dart';
 import 'widgets/status_story_media_surface.dart';
 import 'widgets/text_status_canvas.dart';
+import 'widgets/video_trim_scrubber.dart';
 
 class MediaStatusComposerDraft {
   const MediaStatusComposerDraft({
@@ -23,6 +26,8 @@ class MediaStatusComposerDraft {
     required this.stickers,
     required this.musicTrack,
     required this.durationMillis,
+    this.trimStartMillis = 0,
+    this.drawingStrokes = const <StatusDrawingStroke>[],
   });
 
   final String caption;
@@ -33,6 +38,8 @@ class MediaStatusComposerDraft {
   final List<String> stickers;
   final StatusMusicTrack? musicTrack;
   final int durationMillis;
+  final int trimStartMillis;
+  final List<StatusDrawingStroke> drawingStrokes;
 }
 
 class _StickerPreset {
@@ -63,51 +70,35 @@ class _MusicBannerStyleOption {
   final IconData icon;
 }
 
-enum _FrameTraySelection {
-  original,
-  fourThree,
-  sixteenNine,
-  square,
-  custom,
+enum _CropCorner { topLeft, topRight, bottomLeft, bottomRight }
+
+class _CropAspectOption {
+  const _CropAspectOption({
+    required this.label,
+    required this.ratio,
+    this.isOriginal = false,
+  });
+
+  final String label;
+
+  /// Null means no fixed shape -- fills the available space (isOriginal
+  /// distinguishes this from "Original", which is also unconstrained until
+  /// resolved but should track the source media's own ratio specifically).
+  final double? ratio;
+
+  /// True only for "Original" -- resolves to the source media's own
+  /// (rotation-adjusted) aspect ratio rather than truly clearing the
+  /// constraint, which is what "Fit to screen" (ratio: null, isOriginal:
+  /// false) does instead.
+  final bool isOriginal;
 }
 
-const EdgeInsets _kComposerOverlayReservedPadding = EdgeInsets.fromLTRB(
-  18,
-  84,
-  18,
-  28,
-);
-
-const List<String> _emojiFontFallback = <String>[
-  'Apple Color Emoji',
-  'Segoe UI Emoji',
-  'Noto Color Emoji',
-];
-
-String? _preferredEmojiFontFamily(TargetPlatform platform) {
-  return switch (platform) {
-    TargetPlatform.iOS || TargetPlatform.macOS => 'Apple Color Emoji',
-    TargetPlatform.android || TargetPlatform.linux => 'Noto Color Emoji',
-    TargetPlatform.windows => 'Segoe UI Emoji',
-    TargetPlatform.fuchsia => null,
-  };
-}
-
-TextStyle _emojiPreviewTextStyle(
-  BuildContext context, {
-  required double fontSize,
-}) {
-  return TextStyle(
-    inherit: false,
-    fontSize: fontSize,
-    fontFamily: _preferredEmojiFontFamily(Theme.of(context).platform),
-    fontFamilyFallback: _emojiFontFallback,
-  );
-}
-
-bool _usesTwemoji(TargetPlatform platform) {
-  return platform == TargetPlatform.iOS || platform == TargetPlatform.macOS;
-}
+// Just enough inset so an overlay's own footprint never pokes past the
+// frame edge -- not a reserved "keep away from the chrome" gutter. WhatsApp
+// lets text sit anywhere on the photo, including behind the floating top
+// bar and bottom tray (both are translucent), so this no longer carves out
+// a large no-go zone around them.
+const EdgeInsets _kComposerOverlayReservedPadding = EdgeInsets.all(10);
 
 Rect _composerOverlaySafeRectForFrame(Size frameSize) {
   final maxHorizontalInset = math.max((frameSize.width - 132) / 2, 0.0);
@@ -139,12 +130,19 @@ class MediaStatusComposerScreen extends StatefulWidget {
     required this.type,
     required this.localMediaPath,
     this.initialSourceSizeHint,
+    this.loadMusicTracks,
     super.key,
   });
 
   final StatusStoryType type;
   final String localMediaPath;
   final Size? initialSourceSizeHint;
+
+  /// Fetches the "Add music" catalog -- defaults to the bundled fallback
+  /// list (same tracks as the real Firestore catalog, served instantly)
+  /// so callers that don't wire a real loader, like widget tests, still
+  /// get a working picker.
+  final Future<List<StatusMusicTrack>> Function()? loadMusicTracks;
 
   @override
   State<MediaStatusComposerScreen> createState() =>
@@ -155,20 +153,15 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
   static const double _minOverlayPosition = 0.04;
   static const double _maxOverlayPosition = 0.96;
 
-  static const List<String> _emojiPresets = <String>[
-    '🔥',
-    '✨',
-    '😍',
-    '🎉',
-    '🤍',
-    '😎',
-    '🌙',
-    '☕️',
-    '📍',
-    '🎧',
-    '🌈',
-    '💫',
-  ];
+  // Room reserved above/below the media so the top controls (close/tools,
+  // trim filmstrip) and bottom controls (caption/send, or a tool's own
+  // floating buttons) never sit on top of it -- applied unconditionally,
+  // in every mode, not just while cropping. Toggling it on/off only in
+  // crop mode was what made the whole video visibly jump position the
+  // moment you tapped the crop button.
+  static const double _kMediaBottomInset = 132;
+  double get _mediaTopInset => _isVideo ? 150 : 74;
+
 
   static const List<_StickerPreset> _stickerPresets = <_StickerPreset>[
     _StickerPreset(
@@ -229,99 +222,6 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
     ),
   ];
 
-  static const List<StatusMusicTrack> _musicPresets = <StatusMusicTrack>[
-    StatusMusicTrack(
-      id: 'city-pulse',
-      title: 'City Pulse',
-      artist: 'Whatswave House',
-      colorValue: 0xFF25D366,
-      secondaryColorValue: 0xFFD9FBE8,
-      previewAssetPath: 'assets/audio/status_music/city_pulse.wav',
-      bannerStyleId: 'cover',
-    ),
-    StatusMusicTrack(
-      id: 'midnight-cab',
-      title: 'Midnight Cab',
-      artist: 'Neon Echo',
-      colorValue: 0xFF58A6FF,
-      secondaryColorValue: 0xFFDCEBFF,
-      previewAssetPath: 'assets/audio/status_music/midnight_cab.wav',
-      bannerStyleId: 'pulse',
-    ),
-    StatusMusicTrack(
-      id: 'golden-hour',
-      title: 'Golden Hour',
-      artist: 'Soft Frames',
-      colorValue: 0xFFFFC857,
-      secondaryColorValue: 0xFFFFF1C5,
-      previewAssetPath: 'assets/audio/status_music/golden_hour.wav',
-      bannerStyleId: 'cover',
-    ),
-    StatusMusicTrack(
-      id: 'afterglow',
-      title: 'Afterglow',
-      artist: 'Velvet Metro',
-      colorValue: 0xFF8C6BFF,
-      secondaryColorValue: 0xFFE8DFFF,
-      previewAssetPath: 'assets/audio/status_music/afterglow.wav',
-      bannerStyleId: 'mix',
-    ),
-    StatusMusicTrack(
-      id: 'quiet-rain',
-      title: 'Quiet Rain',
-      artist: 'Cloudline',
-      colorValue: 0xFF667781,
-      secondaryColorValue: 0xFFE6EAEE,
-      previewAssetPath: 'assets/audio/status_music/quiet_rain.wav',
-      bannerStyleId: 'minimal',
-    ),
-    StatusMusicTrack(
-      id: 'soft-static',
-      title: 'Soft Static',
-      artist: 'North Arcade',
-      colorValue: 0xFFFF7AB6,
-      secondaryColorValue: 0xFFFFDAEB,
-      previewAssetPath: 'assets/audio/status_music/soft_static.wav',
-      bannerStyleId: 'mix',
-    ),
-    StatusMusicTrack(
-      id: 'dawn-run',
-      title: 'Dawn Run',
-      artist: 'Early Shift',
-      colorValue: 0xFFFD8D4F,
-      secondaryColorValue: 0xFFFFE4D0,
-      previewAssetPath: 'assets/audio/status_music/dawn_run.wav',
-      bannerStyleId: 'pulse',
-    ),
-    StatusMusicTrack(
-      id: 'sea-breeze',
-      title: 'Sea Breeze',
-      artist: 'Blue Relay',
-      colorValue: 0xFF3FC2D6,
-      secondaryColorValue: 0xFFD9F7FB,
-      previewAssetPath: 'assets/audio/status_music/sea_breeze.wav',
-      bannerStyleId: 'cover',
-    ),
-    StatusMusicTrack(
-      id: 'retro-lines',
-      title: 'Retro Lines',
-      artist: 'Tape Bloom',
-      colorValue: 0xFFF97316,
-      secondaryColorValue: 0xFFFFE5D4,
-      previewAssetPath: 'assets/audio/status_music/retro_lines.wav',
-      bannerStyleId: 'minimal',
-    ),
-    StatusMusicTrack(
-      id: 'moonlit-steps',
-      title: 'Moonlit Steps',
-      artist: 'Low Tide',
-      colorValue: 0xFF7C8BFF,
-      secondaryColorValue: 0xFFE0E4FF,
-      previewAssetPath: 'assets/audio/status_music/moonlit_steps.wav',
-      bannerStyleId: 'mix',
-    ),
-  ];
-
   static const List<_MusicBannerStyleOption> _musicBannerStyles =
       <_MusicBannerStyleOption>[
     _MusicBannerStyleOption(
@@ -356,30 +256,86 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
   );
 
   late double _durationSeconds;
+
+  /// Where in the source video the trimmed range starts -- WhatsApp's "drag
+  /// the slider at the top to trim the video". Always 0 for photos.
+  double _trimStartSeconds = 0;
   StatusMediaTransform _mediaTransform = const StatusMediaTransform();
   final List<StatusMediaOverlayItem> _overlayItems = <StatusMediaOverlayItem>[];
   late final TextEditingController _inlineTextController;
   late final FocusNode _inlineTextFocusNode;
+  final TextEditingController _captionController = TextEditingController();
   final GlobalKey _deleteTargetKey = GlobalKey();
   String? _selectedOverlayId;
   String? _editingTextOverlayId;
   StatusMusicTrack? _musicTrack;
   String? _previewingMusicTrackId;
+  List<StatusMusicTrack>? _cachedMusicTracks;
   bool _showOverlayGuide = false;
-  bool _showFrameEditingTray = false;
   bool _isDeleteTargetActive = false;
   bool _isDraggingOverlay = false;
   Timer? _overlayGuideTimer;
-  double _customFrameAspectRatio = 1.15;
   double? _originalMediaAspectRatio;
   bool _didSeedInitialMediaFrame = false;
-  StatusMediaTransform? _frameEditingStartTransform;
-  double? _frameEditingStartCustomAspectRatio;
+
+  bool _isDrawMode = false;
+  Color _drawColor = Colors.white;
+  double _drawStrokeWidth = _drawStrokeWidths[1];
+  bool _isEraserMode = false;
+  final List<StatusDrawingStroke> _drawingStrokes = <StatusDrawingStroke>[];
+  List<Offset>? _liveStrokePoints;
+
+  static const List<double> _drawStrokeWidths = <double>[0.008, 0.014, 0.026];
+
+  bool _isBlurMode = false;
+  bool _isCropMode = false;
+
+  /// "Original" and "Fit to screen" both clear the frame's aspect ratio to
+  /// null (neither constrains the shape), so the ratio alone can't tell
+  /// them apart afterward -- this is the one bit that disambiguates which
+  /// of the two null-ratio options is actually selected, for the ratio
+  /// button/bubble's own label and checkmark.
+  bool _isFitToScreenCrop = false;
+
+  /// Set only while a corner is being actively dragged in the free-form
+  /// crop grid -- tracks the literal on-screen size the user dragged to,
+  /// so the frame follows the finger 1:1 instead of being re-fit to the
+  /// largest rectangle of the resulting ratio (which is what made small
+  /// drags appear to snap the media bigger). Cleared by anything that
+  /// picks an explicit ratio some other way (a preset, Original, Fit to
+  /// screen, or rotating), since those are meant to re-maximize within the
+  /// canvas.
+  Size? _customCropFrameSize;
+
+  /// User-controlled mute, independent of the automatic video-vs-music
+  /// volume swap below -- either one silences the video's own audio.
+  bool _isMuted = false;
+
+  // Matches WhatsApp's own crop ratio list -- Original and Fit to screen
+  // both start unconstrained but resolve differently (see
+  // _CropAspectOption.isOriginal), then a full set of common portrait and
+  // landscape ratios, same as the real app's list.
+  static const List<_CropAspectOption> _cropAspectOptions = <_CropAspectOption>[
+    _CropAspectOption(label: 'Original', ratio: null, isOriginal: true),
+    _CropAspectOption(label: 'Fit to screen', ratio: null),
+    _CropAspectOption(label: 'Square', ratio: 1),
+    _CropAspectOption(label: '2:3', ratio: 2 / 3),
+    _CropAspectOption(label: '3:4', ratio: 3 / 4),
+    _CropAspectOption(label: '4:5', ratio: 4 / 5),
+    _CropAspectOption(label: '5:7', ratio: 5 / 7),
+    _CropAspectOption(label: '9:16', ratio: 9 / 16),
+    _CropAspectOption(label: '3:2', ratio: 3 / 2),
+    _CropAspectOption(label: '4:3', ratio: 4 / 3),
+    _CropAspectOption(label: '5:4', ratio: 5 / 4),
+    _CropAspectOption(label: '7:5', ratio: 7 / 5),
+    _CropAspectOption(label: '16:9', ratio: 16 / 9),
+  ];
 
   VideoPlayerController? _videoController;
   Future<void>? _videoInitialization;
   VideoPlayerController? _musicPreviewController;
-  bool _didAdjustDurationManually = false;
+  bool _isVideoPlaying = false;
+  bool _wasPlayingBeforeTrimScrub = false;
 
   StatusMediaOverlayItem? _gestureAnchorOverlay;
   Offset? _gestureStartFocalPoint;
@@ -390,12 +346,18 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
 
   bool get _isVideo => widget.type == StatusStoryType.video;
   bool get _isEditingTextOverlay => _editingTextOverlayId != null;
+  // Repositioning/zooming the photo or video itself is only available
+  // inside the crop tool -- matching WhatsApp exactly, where you can't pan
+  // or pinch the media at all outside of that explicit step. Previously
+  // this was allowed any time nothing else was selected, which is what let
+  // the media drift around during ordinary editing.
   bool get _allowMediaTransformGestures =>
-      !_showFrameEditingTray &&
+      _isCropMode &&
       !_isEditingTextOverlay &&
       _selectedOverlayId == null &&
       _gestureAnchorOverlay == null &&
-      !_isDraggingOverlay;
+      !_isDraggingOverlay &&
+      !_isDrawMode;
 
   double get _minDurationSeconds => _isVideo ? 3 : 4;
 
@@ -423,6 +385,10 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
   }
 
   int get _durationMillis => (_durationSeconds * 1000).round();
+  int get _trimStartMillis => (_trimStartSeconds * 1000).round();
+
+  double get _videoFullDurationSeconds =>
+      (_videoController?.value.duration.inMilliseconds ?? 0) / 1000;
 
   StatusMediaOverlayItem? get _selectedOverlay {
     final selectedId = _selectedOverlayId;
@@ -446,8 +412,6 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
     }
     return null;
   }
-
-  String get _summaryCaption => _primaryTextOverlay?.label.trim() ?? '';
 
   StatusTextStyle get _summaryTextStyle =>
       _primaryTextOverlay?.textStyle ?? _defaultTextOverlayStyle;
@@ -493,24 +457,6 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
     return _musicTrack?.bannerStyleId ?? _musicBannerStyles.first.id;
   }
 
-  _FrameTraySelection get _activeFrameSelection {
-    final aspectRatio = _mediaTransform.frameAspectRatio;
-    if (aspectRatio == null ||
-        _matchesAspectRatio(aspectRatio, _originalMediaAspectRatio)) {
-      return _FrameTraySelection.original;
-    }
-    if ((aspectRatio - (4 / 3)).abs() < 0.02) {
-      return _FrameTraySelection.fourThree;
-    }
-    if ((aspectRatio - (16 / 9)).abs() < 0.02) {
-      return _FrameTraySelection.sixteenNine;
-    }
-    if ((aspectRatio - 1).abs() < 0.02) {
-      return _FrameTraySelection.square;
-    }
-    return _FrameTraySelection.custom;
-  }
-
   @override
   void initState() {
     super.initState();
@@ -537,6 +483,7 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
       ..removeListener(_handleInlineTextChanged)
       ..dispose();
     _inlineTextFocusNode.dispose();
+    _captionController.dispose();
     _videoController?.dispose();
     _musicPreviewController?.dispose();
     super.dispose();
@@ -552,21 +499,20 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
     }
 
     final previousOriginalAspectRatio = _originalMediaAspectRatio;
-    final shouldSeedFrame = !_didSeedInitialMediaFrame &&
-        _mediaTransform.frameAspectRatio == null &&
-        !_showFrameEditingTray &&
-        _frameEditingStartTransform == null;
+    final shouldSeedFrame =
+        !_didSeedInitialMediaFrame && _mediaTransform.frameAspectRatio == null;
+    // A later, more accurate size (e.g. a video controller resolving its
+    // real intrinsic size after the initial hint) re-seeds the frame too --
+    // but only while nothing else has changed it since (there's no manual
+    // crop UI anymore, so in practice that only ever means a rotation).
     final shouldKeepFrameSyncedToOriginal = !shouldSeedFrame &&
         previousOriginalAspectRatio != null &&
-        !_showFrameEditingTray &&
-        _frameEditingStartTransform == null &&
         _matchesAspectRatio(
           _mediaTransform.frameAspectRatio,
           previousOriginalAspectRatio,
         ) &&
         !_matchesAspectRatio(previousOriginalAspectRatio, aspectRatio);
 
-    final clampedCustomAspect = aspectRatio.clamp(0.75, 1.9).toDouble();
     if (!shouldSeedFrame &&
         !shouldKeepFrameSyncedToOriginal &&
         _matchesAspectRatio(previousOriginalAspectRatio, aspectRatio)) {
@@ -578,7 +524,6 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
       if (shouldSeedFrame || shouldKeepFrameSyncedToOriginal) {
         _mediaTransform =
             _mediaTransform.copyWith(frameAspectRatio: aspectRatio);
-        _customFrameAspectRatio = clampedCustomAspect;
         _didSeedInitialMediaFrame = true;
       }
     }
@@ -591,51 +536,9 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
     syncFrame();
   }
 
-  void _resetFrameEditingState({required bool revertChanges}) {
-    if (revertChanges && _frameEditingStartTransform != null) {
-      _mediaTransform = _frameEditingStartTransform!;
-      if (_frameEditingStartCustomAspectRatio != null) {
-        _customFrameAspectRatio = _frameEditingStartCustomAspectRatio!;
-      }
-    }
-    _showFrameEditingTray = false;
-    _frameEditingStartTransform = null;
-    _frameEditingStartCustomAspectRatio = null;
-  }
-
   void _resetMediaGestureState() {
     _mediaGestureAnchorTransform = null;
     _mediaGestureStartFocalPoint = null;
-  }
-
-  void _startFrameEditing() {
-    _commitInlineTextEditing(clearSelection: false);
-    setState(() {
-      _resetMediaGestureState();
-      _frameEditingStartTransform = _mediaTransform;
-      _frameEditingStartCustomAspectRatio = _customFrameAspectRatio;
-      _showFrameEditingTray = true;
-      _selectedOverlayId = null;
-      _showOverlayGuide = false;
-      _isDeleteTargetActive = false;
-      _isDraggingOverlay = false;
-    });
-  }
-
-  void _finishFrameEditing({bool revertChanges = false}) {
-    if (!_showFrameEditingTray &&
-        _frameEditingStartTransform == null &&
-        _frameEditingStartCustomAspectRatio == null) {
-      return;
-    }
-    setState(() {
-      _resetMediaGestureState();
-      _resetFrameEditingState(revertChanges: revertChanges);
-      _selectedOverlayId = null;
-      _showOverlayGuide = false;
-      _isDeleteTargetActive = false;
-      _isDraggingOverlay = false;
-    });
   }
 
   Future<void> _stopMusicPreview({bool clearPreviewingTrack = true}) async {
@@ -692,7 +595,7 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
 
     await _stopMusicPreview(clearPreviewingTrack: false);
 
-    final controller = VideoPlayerController.asset(assetPath);
+    final controller = videoPlayerControllerForAudioPath(assetPath);
     _musicPreviewController = controller;
     try {
       await controller.initialize();
@@ -732,19 +635,25 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
 
     try {
       await initialization;
-      await controller.setLooping(true);
+      // Looping is handled manually via _handleTrimLoopPosition below, so
+      // the trimmed range (not the whole file) is what repeats -- WhatsApp's
+      // real trim slider actually clips playback, it doesn't just annotate
+      // a duration on top of the untouched full video.
+      await controller.setLooping(false);
+      controller.addListener(_handleTrimLoopPosition);
       // The preview should sound the same as the posted story does: the
       // video's own audio plays by default, muted only when a music track
       // is layered on top of it (matching status_story_viewer_screen.dart's
       // identical video-vs-music volume logic). Previously always muted
       // unconditionally, so a picked video had no sound until after
       // posting.
-      await controller.setVolume(_musicTrack == null ? 1 : 0);
-      await controller.play();
+      await controller.setVolume(_effectiveVideoVolume);
+      // Starts paused, showing the first frame with the play overlay ready
+      // to tap -- matches WhatsApp's own video status editor, which never
+      // autoplays either.
       _adoptOriginalMediaFrameIfNeeded(controller.value.size);
 
-      if (!_didAdjustDurationManually &&
-          controller.value.duration > Duration.zero) {
+      if (controller.value.duration > Duration.zero) {
         _durationSeconds = controller.value.duration.inSeconds
             .clamp(_minDurationSeconds.round(), _maxDurationSeconds.round())
             .toDouble();
@@ -756,11 +665,107 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
     } catch (_) {}
   }
 
+  /// Keeps preview playback inside the trimmed range -- `video_player` has
+  /// no native "play just this sub-range" API, but its own ~100ms position
+  /// polling (which already drives this listener) is precise enough to loop
+  /// a status-length clip convincingly.
+  void _handleTrimLoopPosition() {
+    final controller = _videoController;
+    if (controller == null || !controller.value.isInitialized) {
+      return;
+    }
+    final trimEnd = _trimStartSeconds + _durationSeconds;
+    final positionSeconds = controller.value.position.inMilliseconds / 1000;
+    if (positionSeconds >= trimEnd) {
+      unawaited(
+        controller.seekTo(Duration(milliseconds: _trimStartMillis)),
+      );
+    }
+  }
+
+  /// A music track always overrides the video's own audio, same as the
+  /// posted story's own playback logic -- muting is only meaningful when
+  /// no music is layered on top.
+  double get _effectiveVideoVolume =>
+      (_isMuted || _musicTrack != null) ? 0 : 1;
+
+  void _toggleMute() {
+    setState(() {
+      _isMuted = !_isMuted;
+    });
+    if (_musicTrack == null) {
+      unawaited(_videoController?.setVolume(_effectiveVideoVolume));
+    }
+  }
+
+  void _toggleVideoPlayback() {
+    final controller = _videoController;
+    if (controller == null || !controller.value.isInitialized) {
+      return;
+    }
+    final nextPlaying = !_isVideoPlaying;
+    setState(() {
+      _isVideoPlaying = nextPlaying;
+    });
+    if (nextPlaying) {
+      unawaited(controller.play());
+    } else {
+      unawaited(controller.pause());
+    }
+  }
+
+  void _handleTrimScrubStart() {
+    _wasPlayingBeforeTrimScrub = _isVideoPlaying;
+    final controller = _videoController;
+    if (controller != null && controller.value.isInitialized) {
+      unawaited(controller.pause());
+    }
+  }
+
+  /// Seeks the live preview to whichever handle just moved -- WhatsApp's
+  /// own trimmer shows the exact frame you're dragging to, not just an
+  /// abstract range value.
+  void _handleTrimScrubUpdate(RangeValues values, double previewSeconds) {
+    setState(() {
+      _trimStartSeconds = values.start;
+      _durationSeconds = (values.end - values.start)
+          .clamp(_minDurationSeconds, _maxDurationSeconds);
+    });
+    final controller = _videoController;
+    if (controller != null && controller.value.isInitialized) {
+      unawaited(
+        controller.seekTo(
+          Duration(milliseconds: (previewSeconds * 1000).round()),
+        ),
+      );
+    }
+  }
+
+  void _handleTrimScrubEnd() {
+    final controller = _videoController;
+    if (controller == null || !controller.value.isInitialized) {
+      return;
+    }
+    unawaited(
+      controller.seekTo(Duration(milliseconds: _trimStartMillis)),
+    );
+    if (_wasPlayingBeforeTrimScrub) {
+      unawaited(controller.play());
+    }
+  }
+
   void _shareStatus() {
     _commitInlineTextEditing(clearSelection: false);
     Navigator.of(context).pop(
       MediaStatusComposerDraft(
-        caption: _summaryCaption,
+        // WhatsApp/Instagram's plain "Add a caption..." field is its own
+        // independent input, never merged with the rich "Add text"
+        // overlay's own label -- both can be present at once and should
+        // both show up when the story is viewed (see
+        // _RichStatusMediaDecorationOverlay in status_media_decoration_
+        // overlay.dart, which renders the caption alongside overlay
+        // items rather than picking one or the other).
+        caption: _captionController.text.trim(),
         textStyle: _summaryTextStyle,
         mediaTransform: _mediaTransform,
         overlayItems: _normalizedShareableOverlayItems(),
@@ -768,6 +773,8 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
         stickers: _stickerLabels,
         musicTrack: _musicTrack,
         durationMillis: _durationMillis,
+        trimStartMillis: _trimStartMillis,
+        drawingStrokes: List<StatusDrawingStroke>.unmodifiable(_drawingStrokes),
       ),
     );
   }
@@ -895,14 +902,18 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
   StatusMediaOverlayItem _normalizedOverlayItemForCurrentFrame(
     StatusMediaOverlayItem item, {
     Size? frameSize,
+    bool clampPosition = true,
   }) {
     final effectiveFrameSize =
         frameSize ?? _overlayFrameSizeForCurrentContext();
+    final normalizedScale = item.scale.clamp(0.6, 3.0).toDouble();
+    if (!clampPosition) {
+      return item.copyWith(scale: normalizedScale);
+    }
     if (effectiveFrameSize.width <= 0 || effectiveFrameSize.height <= 0) {
       return item;
     }
 
-    final normalizedScale = item.scale.clamp(0.6, 3.0).toDouble();
     final clampedPosition = _clampOverlayPosition(
       item: item,
       canvasSize: effectiveFrameSize,
@@ -937,7 +948,6 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
       _showOverlayGuide = true;
       _isDeleteTargetActive = false;
       _isDraggingOverlay = false;
-      _resetFrameEditingState(revertChanges: false);
       if (!bringToFront) {
         return;
       }
@@ -973,6 +983,12 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
       _commitInlineTextEditing(clearSelection: true);
       return;
     }
+    // Tapping empty video area toggles playback, same as any standard
+    // video player and WhatsApp's own status editor -- this is the only
+    // way back to playing once paused besides the overlay button itself.
+    if (_isVideo && !_isCropMode && !_isDrawMode) {
+      _toggleVideoPlayback();
+    }
     _clearSelection();
   }
 
@@ -980,8 +996,7 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
     _overlayGuideTimer?.cancel();
     if (_selectedOverlayId == null &&
         _editingTextOverlayId == null &&
-        !_showOverlayGuide &&
-        !_showFrameEditingTray) {
+        !_showOverlayGuide) {
       return;
     }
     setState(() {
@@ -989,21 +1004,26 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
       _selectedOverlayId = null;
       _editingTextOverlayId = null;
       _showOverlayGuide = false;
-      _resetFrameEditingState(revertChanges: false);
       _isDeleteTargetActive = false;
       _isDraggingOverlay = false;
     });
     _inlineTextFocusNode.unfocus();
   }
 
-  void _upsertOverlay(StatusMediaOverlayItem item, {bool select = true}) {
-    final normalizedItem = _normalizedOverlayItemForCurrentFrame(item);
+  void _upsertOverlay(
+    StatusMediaOverlayItem item, {
+    bool select = true,
+    bool clampPosition = true,
+  }) {
+    final normalizedItem = _normalizedOverlayItemForCurrentFrame(
+      item,
+      clampPosition: clampPosition,
+    );
     setState(() {
       _overlayItems.removeWhere((entry) => entry.id == normalizedItem.id);
       _overlayItems.add(normalizedItem);
       if (select) {
         _selectedOverlayId = normalizedItem.id;
-        _resetFrameEditingState(revertChanges: false);
       }
     });
   }
@@ -1023,8 +1043,9 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
       if (item.type == StatusMediaOverlayType.music) {
         _musicTrack = null;
         _previewingMusicTrackId = null;
-        // Music removed -- give the video its own audio back.
-        unawaited(_videoController?.setVolume(1));
+        // Music removed -- give the video its own audio back, unless the
+        // user had muted it themselves.
+        unawaited(_videoController?.setVolume(_effectiveVideoVolume));
       }
       if (_selectedOverlayId == overlayId) {
         _selectedOverlayId = null;
@@ -1169,34 +1190,6 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
     });
   }
 
-  Future<void> _openCustomTonePicker() async {
-    final selectedOverlay = _selectedOverlay;
-    if (selectedOverlay == null ||
-        selectedOverlay.type != StatusMediaOverlayType.text) {
-      return;
-    }
-
-    final selection = await showModalBottomSheet<Color>(
-      context: context,
-      useSafeArea: true,
-      isScrollControlled: true,
-      showDragHandle: true,
-      backgroundColor: Theme.of(context).colorScheme.surface,
-      builder: (context) {
-        return _TextTonePickerSheet(
-          initialColor: selectedOverlay.textStyle?.textColor ?? Colors.white,
-        );
-      },
-    );
-    if (!mounted || selection == null) {
-      return;
-    }
-
-    _updateSelectedTextStyle(
-      (style) => style.copyWith(textColorValue: selection.toARGB32()),
-    );
-  }
-
   void _scheduleOverlayGuideHide(
       [Duration delay = const Duration(milliseconds: 900)]) {
     if (_isEditingTextOverlay) {
@@ -1213,73 +1206,79 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
     });
   }
 
-  Future<void> _openEmojiPicker() async {
+  /// One combined sheet for both -- matching WhatsApp's own picker, which
+  /// isn't two separate tools, just one scroll with stickers on top and
+  /// emoji below.
+  Future<void> _openStickerAndEmojiPicker() async {
     final theme = Theme.of(context);
-    final emoji = await showModalBottomSheet<String>(
+    final result = await showModalBottomSheet<Object>(
       context: context,
       useSafeArea: true,
       isScrollControlled: true,
       showDragHandle: true,
       backgroundColor: theme.colorScheme.surface,
       builder: (context) {
-        return _EmojiPickerSheet(
-          emojiPresets: _emojiPresets,
-        );
+        return _StickerAndEmojiPickerSheet(stickerPresets: _stickerPresets);
       },
     );
-    if (!mounted || emoji == null || emoji.isEmpty) {
+    if (!mounted || result == null) {
       return;
     }
 
-    final position = _suggestedNormalizedPosition(baseDx: 0.72, baseDy: 0.28);
-    _upsertOverlay(
-      StatusMediaOverlayItem(
-        id: _nextOverlayId('emoji'),
-        type: StatusMediaOverlayType.emoji,
-        label: emoji,
-        positionDx: position.dx,
-        positionDy: position.dy,
-        scale: 1.18,
-        rotation: 0,
-      ),
-    );
+    if (result is _StickerPreset) {
+      if (result.label.trim().isEmpty) {
+        return;
+      }
+      final position = _suggestedNormalizedPosition(baseDx: 0.48, baseDy: 0.34);
+      _upsertOverlay(
+        StatusMediaOverlayItem(
+          id: _nextOverlayId('sticker'),
+          type: StatusMediaOverlayType.sticker,
+          label: result.label.trim(),
+          positionDx: position.dx,
+          positionDy: position.dy,
+          scale: 1,
+          rotation: 0,
+          accentColorValue: result.accentColorValue,
+          secondaryColorValue: result.secondaryColorValue,
+          variantId: result.id,
+        ),
+      );
+    } else if (result is String && result.isNotEmpty) {
+      final position = _suggestedNormalizedPosition(baseDx: 0.72, baseDy: 0.28);
+      _upsertOverlay(
+        StatusMediaOverlayItem(
+          id: _nextOverlayId('emoji'),
+          type: StatusMediaOverlayType.emoji,
+          label: result,
+          positionDx: position.dx,
+          positionDy: position.dy,
+          scale: 1.18,
+          rotation: 0,
+        ),
+      );
+    }
   }
 
-  Future<void> _openStickerPicker() async {
-    final theme = Theme.of(context);
-    final sticker = await showModalBottomSheet<_StickerPreset>(
-      context: context,
-      useSafeArea: true,
-      isScrollControlled: true,
-      showDragHandle: true,
-      backgroundColor: theme.colorScheme.surface,
-      builder: (context) {
-        return _StickerPickerSheet(stickerPresets: _stickerPresets);
-      },
-    );
-    if (!mounted || sticker == null || sticker.label.trim().isEmpty) {
-      return;
+  /// The "Add music" catalog now always loads from the server (Firestore
+  /// metadata pointing at Firebase Storage-hosted mp3s) instead of a
+  /// bundled asset list -- cached for the rest of this composer session so
+  /// reopening the picker doesn't refetch every time.
+  Future<List<StatusMusicTrack>> _loadMusicTracksAndCache() async {
+    final cached = _cachedMusicTracks;
+    if (cached != null) {
+      return cached;
     }
-
-    final position = _suggestedNormalizedPosition(baseDx: 0.48, baseDy: 0.34);
-    _upsertOverlay(
-      StatusMediaOverlayItem(
-        id: _nextOverlayId('sticker'),
-        type: StatusMediaOverlayType.sticker,
-        label: sticker.label.trim(),
-        positionDx: position.dx,
-        positionDy: position.dy,
-        scale: 1,
-        rotation: 0,
-        accentColorValue: sticker.accentColorValue,
-        secondaryColorValue: sticker.secondaryColorValue,
-        variantId: sticker.id,
-      ),
-    );
+    final loader =
+        widget.loadMusicTracks ?? (() async => kFallbackStatusMusicTracks);
+    final tracks = await loader();
+    _cachedMusicTracks = tracks;
+    return tracks;
   }
 
   Future<void> _openMusicPicker() async {
     final theme = Theme.of(context);
+    final tracksFuture = _loadMusicTracksAndCache();
     final selectedTrack = await showModalBottomSheet<StatusMusicTrack?>(
       context: context,
       useSafeArea: true,
@@ -1287,12 +1286,51 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
       showDragHandle: true,
       backgroundColor: theme.colorScheme.surface,
       builder: (context) {
-        return _MusicPickerSheet(
-          tracks: _musicPresets,
-          selectedTrackId: _musicTrack?.id,
-          previewingTrackId: _previewingMusicTrackId,
-          onPlayPreview: (track) =>
-              _playMusicPreview(track, toggleWhenSameTrack: true),
+        // The preview toggle updates this screen's state asynchronously
+        // (after the player actually starts/stops), but a modal sheet's
+        // `builder` only runs once -- without this StatefulBuilder the
+        // play/pause icon in the list never reflected the new state, even
+        // though the audio itself was toggling correctly underneath.
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return FutureBuilder<List<StatusMusicTrack>>(
+              future: tracksFuture,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState != ConnectionState.done) {
+                  return const SizedBox(
+                    height: 240,
+                    child: Center(
+                      key: Key('updates_media_music_loading'),
+                      child: CircularProgressIndicator(),
+                    ),
+                  );
+                }
+                if (snapshot.hasError || snapshot.data == null) {
+                  return SizedBox(
+                    height: 240,
+                    child: Center(
+                      child: Text(
+                        'Could not load music right now.',
+                        key: const Key('updates_media_music_load_error'),
+                        style: theme.textTheme.bodyMedium,
+                      ),
+                    ),
+                  );
+                }
+                return _MusicPickerSheet(
+                  tracks: snapshot.data!,
+                  selectedTrackId: _musicTrack?.id,
+                  previewingTrackId: _previewingMusicTrackId,
+                  onPlayPreview: (track) async {
+                    await _playMusicPreview(track, toggleWhenSameTrack: true);
+                    if (context.mounted) {
+                      setSheetState(() {});
+                    }
+                  },
+                );
+              },
+            );
+          },
         );
       },
     );
@@ -1336,7 +1374,6 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
       );
       _overlayItems.add(overlay);
       _selectedOverlayId = overlay.id;
-      _resetFrameEditingState(revertChanges: false);
     });
     unawaited(_playMusicPreview(selectedTrack));
   }
@@ -1357,35 +1394,6 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
       _showOverlayGuide = true;
     });
     _scheduleOverlayGuideHide();
-  }
-
-  Future<void> _openTimingSheet() async {
-    final selection = await showModalBottomSheet<double>(
-      context: context,
-      useSafeArea: true,
-      isScrollControlled: true,
-      showDragHandle: true,
-      backgroundColor: Theme.of(context).colorScheme.surface,
-      builder: (context) {
-        return _TimingSheet(
-          initialValue:
-              _durationSeconds.clamp(_minDurationSeconds, _maxDurationSeconds),
-          minDurationSeconds: _minDurationSeconds,
-          maxDurationSeconds: _maxDurationSeconds,
-        );
-      },
-    );
-    if (!mounted || selection == null) {
-      return;
-    }
-    _updateDuration(selection);
-  }
-
-  void _updateDuration(double value) {
-    setState(() {
-      _didAdjustDurationManually = true;
-      _durationSeconds = value.clamp(_minDurationSeconds, _maxDurationSeconds);
-    });
   }
 
   void _onOverlayScaleStart(
@@ -1426,21 +1434,20 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
     final nextDy = ((anchorOverlay.positionDy * canvasSize.height) + delta.dy) /
         canvasSize.height;
     final nextScale = (anchorOverlay.scale * details.scale).clamp(0.6, 3.0);
-    final clampedPosition = _clampOverlayPosition(
-      item: anchorOverlay,
-      canvasSize: canvasSize,
-      positionDx: nextDx,
-      positionDy: nextDy,
-      scale: nextScale,
-    );
 
+    // Deliberately unclamped while the finger is down -- the overlay must be
+    // free to travel past the frame edges, all the way down to the delete
+    // target below the canvas, exactly like WhatsApp. It only gets snapped
+    // back inside the visible frame in _onOverlayScaleEnd, and only if the
+    // drag didn't end on the delete target.
     _upsertOverlay(
       anchorOverlay.copyWith(
-        positionDx: clampedPosition.dx,
-        positionDy: clampedPosition.dy,
+        positionDx: nextDx,
+        positionDy: nextDy,
         scale: nextScale,
         rotation: anchorOverlay.rotation + details.rotation,
       ),
+      clampPosition: false,
     );
     _updateDeleteTargetHover(
       globalFocalPoint: details.focalPoint,
@@ -1451,6 +1458,7 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
   void _onOverlayScaleEnd(ScaleEndDetails details) {
     final overlayToDelete =
         _isDeleteTargetActive ? _gestureAnchorOverlay : null;
+    final draggedOverlayId = _gestureAnchorOverlay?.id;
     _gestureAnchorOverlay = null;
     _gestureStartFocalPoint = null;
     setState(() {
@@ -1460,6 +1468,16 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
     if (overlayToDelete != null) {
       _removeOverlay(overlayToDelete.id);
       return;
+    }
+    if (draggedOverlayId != null) {
+      // Released without hitting the delete target -- now settle the
+      // overlay back inside the visible frame (it was allowed to travel
+      // past the frame edges during the drag itself).
+      final index =
+          _overlayItems.indexWhere((entry) => entry.id == draggedOverlayId);
+      if (index != -1) {
+        _upsertOverlay(_overlayItems[index]);
+      }
     }
     _scheduleOverlayGuideHide();
   }
@@ -1509,54 +1527,108 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
     _resetMediaGestureState();
   }
 
-  void _toggleFrameEditingTray() {
-    if (_showFrameEditingTray) {
-      _finishFrameEditing();
+  void _toggleDrawMode() {
+    setState(() {
+      _isDrawMode = !_isDrawMode;
+      _liveStrokePoints = null;
+    });
+  }
+
+  /// Converts a raw local gesture position (in the outer canvas box) into
+  /// frame-normalized [0,1] coordinates -- the frame is centered within,
+  /// and can be smaller than, that canvas box (letterboxing), matching
+  /// exactly how `StatusStoryMediaSurface` centers and sizes its own frame.
+  Offset _framePointFromLocal(Offset localPoint, Size canvasSize) {
+    final frameSize = _mediaFrameSizeFor(canvasSize);
+    if (frameSize.width <= 0 || frameSize.height <= 0) {
+      return Offset.zero;
+    }
+    final frameOrigin = Offset(
+      (canvasSize.width - frameSize.width) / 2,
+      (canvasSize.height - frameSize.height) / 2,
+    );
+    final framePoint = localPoint - frameOrigin;
+    return Offset(
+      (framePoint.dx / frameSize.width).clamp(0.0, 1.0),
+      (framePoint.dy / frameSize.height).clamp(0.0, 1.0),
+    );
+  }
+
+  void _handleDrawPanStart(DragStartDetails details, Size canvasSize) {
+    setState(() {
+      _liveStrokePoints = <Offset>[
+        _framePointFromLocal(details.localPosition, canvasSize),
+      ];
+    });
+  }
+
+  void _handleDrawPanUpdate(DragUpdateDetails details, Size canvasSize) {
+    final points = _liveStrokePoints;
+    if (points == null) {
       return;
     }
-    _startFrameEditing();
+    setState(() {
+      _liveStrokePoints = <Offset>[
+        ...points,
+        _framePointFromLocal(details.localPosition, canvasSize),
+      ];
+    });
   }
 
-  void _applyFrameSelection(_FrameTraySelection selection) {
+  void _handleDrawPanEnd(DragEndDetails details) {
+    final points = _liveStrokePoints;
     setState(() {
-      _selectedOverlayId = null;
-      _showOverlayGuide = false;
-      switch (selection) {
-        case _FrameTraySelection.original:
-          final originalAspectRatio = _originalMediaAspectRatio;
-          _mediaTransform = originalAspectRatio == null
-              ? _mediaTransform.copyWith(clearFrameAspectRatio: true)
-              : _mediaTransform.copyWith(frameAspectRatio: originalAspectRatio);
-          break;
-        case _FrameTraySelection.fourThree:
-          _mediaTransform = _mediaTransform.copyWith(frameAspectRatio: 4 / 3);
-          break;
-        case _FrameTraySelection.sixteenNine:
-          _mediaTransform = _mediaTransform.copyWith(frameAspectRatio: 16 / 9);
-          break;
-        case _FrameTraySelection.square:
-          _mediaTransform = _mediaTransform.copyWith(frameAspectRatio: 1);
-          break;
-        case _FrameTraySelection.custom:
-          _mediaTransform = _mediaTransform.copyWith(
-            frameAspectRatio: _customFrameAspectRatio,
-          );
-          break;
+      if (points != null && points.length > 1) {
+        _drawingStrokes.add(
+          StatusDrawingStroke(
+            points: List<Offset>.unmodifiable(points),
+            colorValue: _drawColor.toARGB32(),
+            strokeWidth: _drawStrokeWidth,
+            isEraser: _isEraserMode,
+          ),
+        );
       }
+      _liveStrokePoints = null;
     });
   }
 
-  void _updateCustomFrameAspect(double value) {
+  void _undoLastStroke() {
+    if (_drawingStrokes.isEmpty) {
+      return;
+    }
     setState(() {
-      _customFrameAspectRatio = value;
-      _mediaTransform = _mediaTransform.copyWith(frameAspectRatio: value);
+      _drawingStrokes.removeLast();
     });
+  }
+
+  List<StatusDrawingStroke> get _displayedDrawingStrokes {
+    final liveStroke = _liveStrokePoints;
+    if (liveStroke == null || liveStroke.length < 2) {
+      return _drawingStrokes;
+    }
+    return <StatusDrawingStroke>[
+      ..._drawingStrokes,
+      StatusDrawingStroke(
+        points: liveStroke,
+        colorValue: _drawColor.toARGB32(),
+        strokeWidth: _drawStrokeWidth,
+        isEraser: _isEraserMode,
+      ),
+    ];
   }
 
   void _rotateMediaClockwise() {
     setState(() {
+      // A crop frame is a plain width/height ratio with no memory of the
+      // content's rotation -- statusStoryFrameSizeFor has no way to know a
+      // 4:3 landscape frame should become 3:4 portrait once the media
+      // inside it spins 90 degrees, so that has to happen here, at the one
+      // place the rotation actually changes.
+      _customCropFrameSize = null;
+      final currentRatio = _mediaTransform.frameAspectRatio;
       _mediaTransform = _mediaTransform.copyWith(
         rotationQuarterTurns: _mediaTransform.rotationQuarterTurns + 1,
+        frameAspectRatio: currentRatio == null ? null : 1 / currentRatio,
       );
     });
   }
@@ -1566,6 +1638,315 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
       canvasSize,
       _mediaTransform.frameAspectRatio,
     );
+  }
+
+  /// The original media's aspect ratio, adjusted for the current rotation
+  /// -- what "Original" in the crop tray should restore.
+  double? get _effectiveOriginalAspectRatio {
+    final original = _originalMediaAspectRatio;
+    if (original == null) {
+      return null;
+    }
+    return _mediaTransform.rotationQuarterTurns.isOdd ? 1 / original : original;
+  }
+
+  void _toggleCropMode() {
+    setState(() {
+      _isCropMode = !_isCropMode;
+      if (!_isCropMode) {
+        // Leaving crop mode settles the frame onto the standard
+        // ratio-maximized sizing that the rest of the app (and the posted
+        // story) uses -- the literal dragged size only makes sense as a
+        // live drag aid tied to this exact on-screen canvas.
+        _customCropFrameSize = null;
+      }
+    });
+  }
+
+  void _selectCropAspectOption(_CropAspectOption option) {
+    setState(() {
+      _customCropFrameSize = null;
+      if (option.isOriginal) {
+        _isFitToScreenCrop = false;
+        final original = _effectiveOriginalAspectRatio;
+        _mediaTransform = _mediaTransform.copyWith(
+          frameAspectRatio: original,
+          clearFrameAspectRatio: original == null,
+        );
+      } else if (option.ratio == null) {
+        // Fit to screen -- no fixed shape at all, fills the available space.
+        _isFitToScreenCrop = true;
+        _mediaTransform = _mediaTransform.copyWith(clearFrameAspectRatio: true);
+      } else {
+        _isFitToScreenCrop = false;
+        _mediaTransform =
+            _mediaTransform.copyWith(frameAspectRatio: option.ratio);
+      }
+    });
+  }
+
+  /// Drags a corner of the crop frame to reshape it to any ratio, tracking
+  /// the finger 1:1 like WhatsApp's own free-form crop grid (dragging a
+  /// corner by 20px changes that edge by 20px, not 40 -- doubling the
+  /// delta to keep the frame centered made every drag feel like it was
+  /// moving twice as fast as the finger, and made it hard to predict which
+  /// direction would grow vs. shrink the shape once it got small).
+  void _resizeCropFrameByCorner(
+    _CropCorner corner,
+    Offset delta,
+    Size canvasSize,
+  ) {
+    if (canvasSize.width <= 0 || canvasSize.height <= 0) {
+      return;
+    }
+    // Continue from the literal size the last drag update landed on, not a
+    // freshly re-fit "largest rectangle of this ratio" -- re-deriving from
+    // the ratio each update is what let the frame balloon back up mid-drag
+    // instead of tracking the finger.
+    final currentFrameSize = _customCropFrameSize ??
+        statusStoryFrameSizeFor(
+          canvasSize,
+          _mediaTransform.frameAspectRatio ??
+              (canvasSize.width / canvasSize.height),
+        );
+
+    final isRight = corner == _CropCorner.topRight ||
+        corner == _CropCorner.bottomRight;
+    final isBottom = corner == _CropCorner.bottomLeft ||
+        corner == _CropCorner.bottomRight;
+    final dx = isRight ? delta.dx : -delta.dx;
+    final dy = isBottom ? delta.dy : -delta.dy;
+
+    const minSize = 110.0;
+    final newWidth =
+        (currentFrameSize.width + dx).clamp(minSize, canvasSize.width);
+    final newHeight =
+        (currentFrameSize.height + dy).clamp(minSize, canvasSize.height);
+
+    setState(() {
+      _isFitToScreenCrop = false;
+      _customCropFrameSize = Size(newWidth, newHeight);
+      _mediaTransform =
+          _mediaTransform.copyWith(frameAspectRatio: newWidth / newHeight);
+    });
+  }
+
+  /// Undoes any pinch/pan repositioning made while in the crop tool --
+  /// matches the "Reset" action in WhatsApp's own crop screen. Leaves
+  /// rotation and the selected aspect ratio alone; those are separate,
+  /// deliberate choices with their own controls, not drift to undo.
+  void _resetMediaTransformOffset() {
+    setState(() {
+      _mediaTransform = _mediaTransform.copyWith(
+        scale: 1,
+        offsetDx: 0,
+        offsetDy: 0,
+      );
+    });
+  }
+
+  void _toggleBlurMode() {
+    setState(() {
+      _isBlurMode = !_isBlurMode;
+    });
+  }
+
+  void _setBlurSigma(double sigma) {
+    setState(() {
+      _mediaTransform = _mediaTransform.copyWith(blurSigma: sigma);
+    });
+  }
+
+  /// The picked ratio doesn't always match one of the presets exactly --
+  /// dragging a corner handle in the free-form grid can land on anything.
+  String get _currentCropRatioLabel {
+    final ratio = _mediaTransform.frameAspectRatio;
+    if (ratio == null) {
+      return _isFitToScreenCrop ? 'Fit to screen' : 'Original';
+    }
+    for (final option in _cropAspectOptions) {
+      if (option.ratio != null && (option.ratio! - ratio).abs() < 0.001) {
+        return option.label;
+      }
+    }
+    return 'Custom';
+  }
+
+  /// The top-of-screen row: close plus whichever controls belong to the
+  /// active mode -- the full add-tool toolbar by default, a done/undo pair
+  /// while cropping/drawing/blurring, or the existing text-selection
+  /// close+edit pair. Always visible, in the same place, so it never has
+  /// to slide the media around to make room the way the old bottom-tray
+  /// swap did.
+  Widget _buildTopRow() {
+    if (_isCropMode) {
+      return Row(
+        children: [
+          _GlassCircleButton(
+            key: const Key('updates_media_crop_cancel_button'),
+            tooltip: 'Cancel',
+            icon: Icons.close_rounded,
+            onTap: _toggleCropMode,
+            showBorder: false,
+          ),
+          const Spacer(),
+          _GlassCircleButton(
+            key: const Key('updates_media_crop_done_button'),
+            tooltip: 'Done',
+            icon: Icons.check_rounded,
+            onTap: _toggleCropMode,
+          ),
+        ],
+      );
+    }
+    if (_isDrawMode) {
+      return Row(
+        children: [
+          _GlassCircleButton(
+            key: const Key('updates_media_draw_cancel_button'),
+            tooltip: 'Cancel',
+            icon: Icons.close_rounded,
+            onTap: _toggleDrawMode,
+            showBorder: false,
+          ),
+          const Spacer(),
+          IconButton(
+            key: const Key('updates_media_draw_undo_button'),
+            tooltip: 'Undo stroke',
+            onPressed: _drawingStrokes.isNotEmpty ? _undoLastStroke : null,
+            icon: Icon(
+              Icons.undo_rounded,
+              color: _drawingStrokes.isNotEmpty
+                  ? Colors.white
+                  : Colors.white.withValues(alpha: 0.32),
+            ),
+          ),
+          _GlassCircleButton(
+            key: const Key('updates_media_draw_done_button'),
+            tooltip: 'Done',
+            icon: Icons.check_rounded,
+            onTap: _toggleDrawMode,
+          ),
+        ],
+      );
+    }
+    if (_isBlurMode) {
+      return Row(
+        children: [
+          _GlassCircleButton(
+            key: const Key('updates_media_blur_cancel_button'),
+            tooltip: 'Cancel',
+            icon: Icons.close_rounded,
+            onTap: _toggleBlurMode,
+            showBorder: false,
+          ),
+          const Spacer(),
+          _GlassCircleButton(
+            key: const Key('updates_media_blur_done_button'),
+            tooltip: 'Done',
+            icon: Icons.check_rounded,
+            onTap: _toggleBlurMode,
+          ),
+        ],
+      );
+    }
+    if (_selectedOverlay != null) {
+      return _ComposerTopBar(
+        selectedOverlay: _selectedOverlay,
+        isEditingText: _isEditingTextOverlay,
+        onClose: () => Navigator.of(context).maybePop(),
+        onEditText: _editSelectedTextOverlay,
+        onDoneEditing: () => _commitInlineTextEditing(clearSelection: false),
+      );
+    }
+    return Row(
+      children: [
+        _GlassCircleButton(
+          key: const Key('updates_media_close_composer_button'),
+          tooltip: 'Close',
+          icon: Icons.close_rounded,
+          onTap: () => Navigator.of(context).maybePop(),
+          showBorder: false,
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _ComposerToolbar(
+            hasMusic: _musicTrack != null,
+            isTextSelected: false,
+            onAddText: _addTextOverlay,
+            onAddStickerOrEmoji: _openStickerAndEmojiPicker,
+            onAddMusic: _openMusicPicker,
+            onDraw: _toggleDrawMode,
+            onBlur: _toggleBlurMode,
+            onCropOrRotate: _toggleCropMode,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// A tool's own small tray, floating directly above the always-visible
+  /// caption+send row -- null when nothing needs it (default toolbar
+  /// state, and crop/draw, whose controls float over the media itself
+  /// instead).
+  Widget? _buildBottomCenterTray(bool isTextSelected) {
+    if (isTextSelected) {
+      return _ComposerTextEditingTray(
+        textStyleModel: _activeTextStyle,
+        onAddText: _selectedOverlay?.type == StatusMediaOverlayType.text
+            ? _editSelectedTextOverlay
+            : _addTextOverlay,
+        onFontSelected: (fontId) {
+          _updateSelectedTextStyle(
+            (style) => style.copyWith(fontId: fontId),
+          );
+        },
+        onToneSelected: (colorValue) {
+          _updateSelectedTextStyle(
+            (style) => style.copyWith(
+              textColorValue: colorValue,
+              clearTextColor: colorValue == null,
+            ),
+          );
+        },
+        onToggleBackground: () {
+          _updateSelectedTextStyle((style) {
+            final nextSelected = !style.useSolidBackground;
+            return style.copyWith(
+              useSolidBackground: nextSelected,
+              backgroundColorValue:
+                  nextSelected ? (style.backgroundColorValue ?? 0xCC101418) : null,
+              clearBackgroundColor: !nextSelected,
+            );
+          });
+        },
+        onCycleAlignment: () {
+          _updateSelectedTextStyle((style) {
+            final nextAlignment = switch (style.alignment) {
+              StatusTextAlignment.left => StatusTextAlignment.center,
+              StatusTextAlignment.center => StatusTextAlignment.right,
+              StatusTextAlignment.right => StatusTextAlignment.left,
+            };
+            return style.copyWith(alignment: nextAlignment);
+          });
+        },
+      );
+    }
+    if (_selectedOverlay?.type == StatusMediaOverlayType.music) {
+      return _ComposerMusicEditingTray(
+        onAddText: _addTextOverlay,
+        selectedStyleId: _selectedMusicStyleId,
+        styleOptions: _musicBannerStyles,
+        onSelectStyle: _updateSelectedMusicStyle,
+      );
+    }
+    if (_isBlurMode) {
+      return _BlurEditingTray(
+        blurSigma: _mediaTransform.blurSigma,
+        onChanged: _setBlurSigma,
+      );
+    }
+    return null;
   }
 
   void _updateDeleteTargetHover({
@@ -1602,8 +1983,13 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
   Widget build(BuildContext context) {
     final isTextSelected =
         _selectedOverlay?.type == StatusMediaOverlayType.text;
-    final showPlacementGuide = (_showOverlayGuide || _isEditingTextOverlay) &&
-        _overlayItems.isNotEmpty;
+    // Crop mode is the only case that still needs a frame boundary shown --
+    // placing/dragging text, emoji, stickers etc. no longer shows any
+    // border: WhatsApp doesn't show one either, it was inaccurate once
+    // overlays became free to move across the whole frame, and it visually
+    // doubled up with this same frame outline whenever both were active at
+    // once (e.g. in crop mode).
+    final showPlacementGuide = _isCropMode;
 
     return Scaffold(
       key: const Key('updates_media_composer_screen'),
@@ -1611,19 +1997,75 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          _ComposerMediaLayer(
-            type: widget.type,
-            localMediaPath: widget.localMediaPath,
-            mediaTransform: _mediaTransform,
-            videoController: _videoController,
-            videoInitialization: _videoInitialization,
-            allowTransformGestures: _allowMediaTransformGestures,
-            showFrameOutline: _showFrameEditingTray || showPlacementGuide,
-            onSourceSizeResolved: _adoptOriginalMediaFrameIfNeeded,
-            onScaleStart: _onMediaScaleStart,
-            onScaleUpdate: _onMediaScaleUpdate,
-            onScaleEnd: _onMediaScaleEnd,
+          Positioned(
+            top: _mediaTopInset,
+            bottom: _kMediaBottomInset,
+            left: 0,
+            right: 0,
+            child: _ComposerMediaLayer(
+              type: widget.type,
+              localMediaPath: widget.localMediaPath,
+              mediaTransform: _mediaTransform,
+              videoController: _videoController,
+              videoInitialization: _videoInitialization,
+              allowTransformGestures: _allowMediaTransformGestures,
+              showFrameOutline: showPlacementGuide,
+              drawingStrokes: _displayedDrawingStrokes,
+              frameSizeOverride: _isCropMode ? _customCropFrameSize : null,
+              onSourceSizeResolved: _adoptOriginalMediaFrameIfNeeded,
+              onScaleStart: _onMediaScaleStart,
+              onScaleUpdate: _onMediaScaleUpdate,
+              onScaleEnd: _onMediaScaleEnd,
+            ),
           ),
+          // WhatsApp's own crop screen: a 3x3 grid with draggable corner
+          // handles lets you shape the frame to any custom ratio, not just
+          // the presets in the list below. Inset the same way as the media
+          // layer above (and by the same exact amount, so the grid lines up
+          // with the frame pixel-for-pixel) -- letting either fill the raw
+          // full screen during crop mode would put the bottom corner
+          // handles right behind the crop tray, unreachable.
+          if (_isCropMode)
+            Positioned(
+              top: _mediaTopInset,
+              bottom: _kMediaBottomInset,
+              left: 0,
+              right: 0,
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final canvasSize = constraints.biggest;
+                  final frameSize = _customCropFrameSize ??
+                      statusStoryFrameSizeFor(
+                        canvasSize,
+                        _mediaTransform.frameAspectRatio,
+                      );
+                  return Center(
+                    child: _FreeformCropGrid(
+                      frameSize: frameSize,
+                      onCornerPanUpdate: (corner, delta) =>
+                          _resizeCropFrameByCorner(corner, delta, canvasSize),
+                    ),
+                  );
+                },
+              ),
+            ),
+          if (_isDrawMode)
+            Positioned.fill(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final canvasSize = constraints.biggest;
+                  return GestureDetector(
+                    key: const Key('updates_media_draw_surface'),
+                    behavior: HitTestBehavior.opaque,
+                    onPanStart: (details) =>
+                        _handleDrawPanStart(details, canvasSize),
+                    onPanUpdate: (details) =>
+                        _handleDrawPanUpdate(details, canvasSize),
+                    onPanEnd: _handleDrawPanEnd,
+                  );
+                },
+              ),
+            ),
           const IgnorePointer(
             child: DecoratedBox(
               decoration: BoxDecoration(
@@ -1669,6 +2111,14 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
                                 height: frameSize.height,
                                 child: Stack(
                                   fit: StackFit.expand,
+                                  // Lets a dragged overlay keep tracking the
+                                  // finger past the frame edge, all the way
+                                  // down to the delete target below the
+                                  // canvas -- Stack clips overflow by
+                                  // default, which would otherwise make the
+                                  // overlay vanish the moment it left the
+                                  // photo instead of following the drag.
+                                  clipBehavior: Clip.none,
                                   children: [
                                     for (final item in _overlayItems)
                                       _InteractiveMediaOverlay(
@@ -1723,77 +2173,215 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
                           },
                         ),
                       ),
-                      Positioned.fill(
-                        child: IgnorePointer(
-                          child: AnimatedSwitcher(
-                            duration: const Duration(milliseconds: 140),
-                            child: showPlacementGuide
-                                ? LayoutBuilder(
-                                    key: const Key(
-                                      'updates_media_overlay_guide_frame',
-                                    ),
-                                    builder: (context, constraints) {
-                                      final frameSize = statusStoryFrameSizeFor(
-                                        Size(
-                                          constraints.maxWidth,
-                                          constraints.maxHeight,
-                                        ),
-                                        _mediaTransform.frameAspectRatio,
-                                      );
-                                      final safeRect =
-                                          _composerOverlaySafeRectForFrame(
-                                        frameSize,
-                                      );
-                                      return Center(
-                                        child: SizedBox(
-                                          width: frameSize.width,
-                                          height: frameSize.height,
-                                          child: Stack(
-                                            children: [
-                                              Positioned(
-                                                left: safeRect.left,
-                                                top: safeRect.top,
-                                                width: safeRect.width,
-                                                height: safeRect.height,
-                                                child:
-                                                    const _ComposerPlacementGuide(),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                  )
-                                : const SizedBox.shrink(),
-                          ),
-                        ),
-                      ),
                     ],
                   ),
                 ),
+                // WhatsApp's own top chrome: close/tool icons always live
+                // here, with the video trim filmstrip and a mute toggle
+                // directly beneath -- never swapped out for a tool's own
+                // tray the way the bottom controls used to be, so the
+                // media's framing never has to jump when a tool opens.
                 Positioned(
                   top: 14,
                   left: 14,
                   right: 14,
-                  child: _ComposerTopBar(
-                    selectedOverlay: _selectedOverlay,
-                    isEditingText: _isEditingTextOverlay,
-                    isFrameEditing: _showFrameEditingTray,
-                    onClose: () => Navigator.of(context).maybePop(),
-                    onCancelFrameEditing: () =>
-                        _finishFrameEditing(revertChanges: true),
-                    onEditText: _editSelectedTextOverlay,
-                    onDoneEditing: () =>
-                        _commitInlineTextEditing(clearSelection: false),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildTopRow(),
+                      if (_isVideo && _videoFullDurationSeconds > 0)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 14),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              _GlassCircleButton(
+                                key: const Key('updates_media_mute_button'),
+                                tooltip: _isMuted ? 'Unmute' : 'Mute',
+                                icon: _isMuted
+                                    ? Icons.volume_off_rounded
+                                    : Icons.volume_up_rounded,
+                                onTap: _toggleMute,
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: VideoTrimScrubber(
+                                  key: const Key('updates_media_trim_scrubber'),
+                                  videoPath: widget.localMediaPath,
+                                  fullDurationSeconds:
+                                      _videoFullDurationSeconds,
+                                  trimStartSeconds: _trimStartSeconds,
+                                  trimEndSeconds:
+                                      _trimStartSeconds + _durationSeconds,
+                                  minTrimSeconds: _minDurationSeconds,
+                                  maxTrimSeconds: _maxDurationSeconds,
+                                  onScrubStart: _handleTrimScrubStart,
+                                  onScrubUpdate: _handleTrimScrubUpdate,
+                                  onScrubEnd: _handleTrimScrubEnd,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
                   ),
                 ),
+                // WhatsApp's own big center play/pause overlay -- only
+                // shown while paused, tapping it resumes playback.
+                if (_isVideo && !_isVideoPlaying)
+                  Positioned.fill(
+                    child: Center(
+                      child: _VideoPlayPauseOverlay(
+                        onTap: _toggleVideoPlayback,
+                      ),
+                    ),
+                  ),
+                // Crop mode's own floating controls, in the gap below the
+                // media's bottom edge -- matches WhatsApp's own crop screen:
+                // rotate at bottom-left, the ratio bubble at bottom-right,
+                // Reset centered above them. Kept clear of the media itself
+                // (rather than overlapping its bottom edge) so they never
+                // sit on top of the free-form grid's own corner handles.
+                if (_isCropMode) ...[
+                  Positioned(
+                    left: 14,
+                    bottom: 74,
+                    child: _GlassCircleButton(
+                      key: const Key('updates_media_rotate_button'),
+                      tooltip: 'Rotate',
+                      icon: Icons.rotate_90_degrees_cw_rounded,
+                      onTap: _rotateMediaClockwise,
+                    ),
+                  ),
+                  Positioned(
+                    right: 14,
+                    bottom: 74,
+                    child: _CropRatioBubbleButton(
+                      label: _currentCropRatioLabel,
+                      options: _cropAspectOptions,
+                      selectedRatio: _mediaTransform.frameAspectRatio,
+                      isFitToScreen: _isFitToScreenCrop,
+                      onSelectOption: _selectCropAspectOption,
+                    ),
+                  ),
+                  if (_mediaTransform.scale != 1 ||
+                      _mediaTransform.offsetDx != 0 ||
+                      _mediaTransform.offsetDy != 0)
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 130,
+                      child: Center(
+                        child: TextButton(
+                          key: const Key('updates_media_crop_reset_button'),
+                          onPressed: _resetMediaTransformOffset,
+                          style: TextButton.styleFrom(
+                            foregroundColor: Colors.white,
+                            backgroundColor:
+                                Colors.black.withValues(alpha: 0.32),
+                            shape: const StadiumBorder(),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 6,
+                            ),
+                          ),
+                          child: const Text(
+                            'Reset',
+                            style: TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+                // Draw mode's own floating controls -- a vertical color
+                // rail down the right side (matches WhatsApp's reference
+                // screenshot) and a small pill for eraser/stroke size
+                // centered above the always-visible caption row.
+                if (_isDrawMode) ...[
+                  Positioned(
+                    top: _mediaTopInset + 10,
+                    right: 14,
+                    bottom: _kMediaBottomInset + 10,
+                    child: _DrawColorRail(
+                      selectedColor: _drawColor,
+                      isEraserMode: _isEraserMode,
+                      onSelectColor: (color) {
+                        setState(() {
+                          _drawColor = color;
+                          _isEraserMode = false;
+                        });
+                      },
+                    ),
+                  ),
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 74,
+                    child: Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withValues(alpha: 0.22),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.1),
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              key: const Key('updates_media_draw_eraser_button'),
+                              tooltip: _isEraserMode ? 'Pen' : 'Eraser',
+                              onPressed: () => setState(
+                                () => _isEraserMode = !_isEraserMode,
+                              ),
+                              iconSize: 24,
+                              style: IconButton.styleFrom(
+                                minimumSize: const Size(44, 44),
+                                backgroundColor: _isEraserMode
+                                    ? Colors.white.withValues(alpha: 0.18)
+                                    : null,
+                              ),
+                              icon: Icon(
+                                _isEraserMode
+                                    ? Icons.edit_rounded
+                                    : Icons.auto_fix_off_rounded,
+                                color: Colors.white,
+                              ),
+                            ),
+                            for (var i = 0; i < _drawStrokeWidths.length; i++)
+                              Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 2),
+                                child: _StrokeSizeButton(
+                                  dotDiameter:
+                                      (_isEraserMode ? 10.0 : 6.0) + i * 4.0,
+                                  color: _isEraserMode
+                                      ? Colors.white
+                                      : _drawColor,
+                                  selected: _drawStrokeWidth ==
+                                      _drawStrokeWidths[i],
+                                  onTap: () => setState(
+                                    () => _drawStrokeWidth =
+                                        _drawStrokeWidths[i],
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
                 Positioned(
                   left: 0,
                   right: 0,
-                  bottom: 92,
-                  child: _selectedOverlay == null ||
-                          _showFrameEditingTray ||
-                          _isEditingTextOverlay
+                  bottom: _kMediaBottomInset,
+                  child: _selectedOverlay == null || _isEditingTextOverlay
                       ? const SizedBox.shrink()
                       : Center(
                           key: const Key('updates_media_delete_target_host'),
@@ -1828,107 +2416,36 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
                           ),
                         ),
                 ),
+                // Caption + send always live together in one row now --
+                // never hidden behind whichever tool is active. A tool's
+                // own tray (text style options, music banner style, blur
+                // slider) floats directly above this row when relevant.
                 Positioned(
                   left: 14,
                   right: 14,
                   bottom: 14,
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.end,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Expanded(
-                        child: isTextSelected
-                            ? _ComposerTextEditingTray(
-                                textStyleModel: _activeTextStyle,
-                                onAddText: _selectedOverlay?.type ==
-                                        StatusMediaOverlayType.text
-                                    ? _editSelectedTextOverlay
-                                    : _addTextOverlay,
-                                onFontSelected: (fontId) {
-                                  _updateSelectedTextStyle(
-                                    (style) => style.copyWith(fontId: fontId),
-                                  );
-                                },
-                                onToneSelected: (colorValue) {
-                                  _updateSelectedTextStyle(
-                                    (style) => style.copyWith(
-                                      textColorValue: colorValue,
-                                      clearTextColor: colorValue == null,
-                                    ),
-                                  );
-                                },
-                                onOpenTonePicker: _openCustomTonePicker,
-                                onToggleBackground: () {
-                                  _updateSelectedTextStyle((style) {
-                                    final nextSelected =
-                                        !style.useSolidBackground;
-                                    return style.copyWith(
-                                      useSolidBackground: nextSelected,
-                                      backgroundColorValue: nextSelected
-                                          ? (style.backgroundColorValue ??
-                                              0xCC101418)
-                                          : null,
-                                      clearBackgroundColor: !nextSelected,
-                                    );
-                                  });
-                                },
-                                onCycleAlignment: () {
-                                  _updateSelectedTextStyle((style) {
-                                    final nextAlignment =
-                                        switch (style.alignment) {
-                                      StatusTextAlignment.left =>
-                                        StatusTextAlignment.center,
-                                      StatusTextAlignment.center =>
-                                        StatusTextAlignment.right,
-                                      StatusTextAlignment.right =>
-                                        StatusTextAlignment.left,
-                                    };
-                                    return style.copyWith(
-                                      alignment: nextAlignment,
-                                    );
-                                  });
-                                },
-                                onSelectSize: (sizeScale) {
-                                  _updateSelectedTextStyle(
-                                    (style) =>
-                                        style.copyWith(sizeScale: sizeScale),
-                                  );
-                                },
-                              )
-                            : _showFrameEditingTray
-                                ? _ComposerFrameEditingTray(
-                                    selectedFrame: _activeFrameSelection,
-                                    customAspectRatio: _customFrameAspectRatio,
-                                    onSelectFrame: _applyFrameSelection,
-                                    onCustomAspectChanged:
-                                        _updateCustomFrameAspect,
-                                    onRotate: _rotateMediaClockwise,
-                                  )
-                                : _selectedOverlay?.type ==
-                                        StatusMediaOverlayType.music
-                                    ? _ComposerMusicEditingTray(
-                                        onAddText: _addTextOverlay,
-                                        selectedStyleId: _selectedMusicStyleId,
-                                        styleOptions: _musicBannerStyles,
-                                        onSelectStyle:
-                                            _updateSelectedMusicStyle,
-                                      )
-                                    : _ComposerToolbar(
-                                        durationLabel:
-                                            '${_durationSeconds.round()}s',
-                                        hasMusic: _musicTrack != null,
-                                        isTextSelected: false,
-                                        onAddText: _addTextOverlay,
-                                        onAddEmoji: _openEmojiPicker,
-                                        onAddSticker: _openStickerPicker,
-                                        onAddMusic: _openMusicPicker,
-                                        onEditFrame: _toggleFrameEditingTray,
-                                        onEditTiming: _openTimingSheet,
-                                      ),
+                      if (_buildBottomCenterTray(isTextSelected)
+                          case final tray?)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: tray,
+                        ),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Expanded(
+                            child: _ComposerCaptionField(
+                              controller: _captionController,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          _ShareButton(onTap: _shareStatus),
+                        ],
                       ),
-                      const SizedBox(width: 12),
-                      _showFrameEditingTray
-                          ? _DoneButton(onTap: () => _finishFrameEditing())
-                          : _ShareButton(onTap: _shareStatus),
                     ],
                   ),
                 ),
@@ -1954,6 +2471,8 @@ class _ComposerMediaLayer extends StatelessWidget {
     required this.onScaleEnd,
     this.videoController,
     this.videoInitialization,
+    this.drawingStrokes = const <StatusDrawingStroke>[],
+    this.frameSizeOverride,
   });
 
   final StatusStoryType type;
@@ -1968,6 +2487,8 @@ class _ComposerMediaLayer extends StatelessWidget {
   final void Function(ScaleUpdateDetails details, Size canvasSize)
       onScaleUpdate;
   final GestureScaleEndCallback onScaleEnd;
+  final List<StatusDrawingStroke> drawingStrokes;
+  final Size? frameSizeOverride;
 
   @override
   Widget build(BuildContext context) {
@@ -1981,6 +2502,8 @@ class _ComposerMediaLayer extends StatelessWidget {
           videoInitialization: videoInitialization,
           showFrameOutline: showFrameOutline,
           unavailableMessage: 'This media is no longer available.',
+          drawingStrokes: drawingStrokes,
+          frameSizeOverride: frameSizeOverride,
           onSourceSizeResolved: onSourceSizeResolved,
           onScaleStart: allowTransformGestures ? onScaleStart : null,
           onScaleUpdate: allowTransformGestures
@@ -1991,6 +2514,114 @@ class _ComposerMediaLayer extends StatelessWidget {
       },
     );
   }
+}
+
+/// The free-form crop grid: rule-of-thirds lines plus 4 draggable corner
+/// handles over the current frame, matching WhatsApp's own crop screen.
+/// Dragging a corner reshapes the frame to any custom ratio live -- the
+/// actual resize math lives in the composer (it needs the canvas size and
+/// current transform), this widget only reports raw per-frame drag deltas.
+class _FreeformCropGrid extends StatelessWidget {
+  const _FreeformCropGrid({
+    required this.frameSize,
+    required this.onCornerPanUpdate,
+  });
+
+  final Size frameSize;
+  final void Function(_CropCorner corner, Offset delta) onCornerPanUpdate;
+
+  static const double _handleHitSize = 44;
+  static const double _handleVisualSize = 22;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: frameSize.width,
+      height: frameSize.height,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          IgnorePointer(
+            child: CustomPaint(
+              size: frameSize,
+              painter: const _CropGridPainter(),
+            ),
+          ),
+          _buildHandle(_CropCorner.topLeft),
+          _buildHandle(_CropCorner.topRight),
+          _buildHandle(_CropCorner.bottomLeft),
+          _buildHandle(_CropCorner.bottomRight),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHandle(_CropCorner corner) {
+    final isLeft = corner == _CropCorner.topLeft ||
+        corner == _CropCorner.bottomLeft;
+    final isTop =
+        corner == _CropCorner.topLeft || corner == _CropCorner.topRight;
+
+    // Flush with the inside of the frame's corner rather than straddling
+    // it -- when the frame fills the whole available canvas ("Fit to
+    // screen"), a handle centered on the corner would overhang past the
+    // physical screen edge and become unreachable.
+    return Positioned(
+      left: isLeft ? 0 : null,
+      right: isLeft ? null : 0,
+      top: isTop ? 0 : null,
+      bottom: isTop ? null : 0,
+      width: _handleHitSize,
+      height: _handleHitSize,
+      child: GestureDetector(
+        key: Key('updates_media_crop_corner_${corner.name}'),
+        behavior: HitTestBehavior.opaque,
+        onPanUpdate: (details) => onCornerPanUpdate(corner, details.delta),
+        child: Center(
+          child: Container(
+            width: _handleVisualSize,
+            height: _handleVisualSize,
+            decoration: BoxDecoration(
+              border: Border(
+                top: isTop
+                    ? const BorderSide(color: Colors.white, width: 3)
+                    : BorderSide.none,
+                bottom: !isTop
+                    ? const BorderSide(color: Colors.white, width: 3)
+                    : BorderSide.none,
+                left: isLeft
+                    ? const BorderSide(color: Colors.white, width: 3)
+                    : BorderSide.none,
+                right: !isLeft
+                    ? const BorderSide(color: Colors.white, width: 3)
+                    : BorderSide.none,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CropGridPainter extends CustomPainter {
+  const _CropGridPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.56)
+      ..strokeWidth = 1;
+    for (var i = 1; i < 3; i++) {
+      final x = size.width * i / 3;
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
+      final y = size.height * i / 3;
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _CropGridPainter oldDelegate) => false;
 }
 
 class _InteractiveMediaOverlay extends StatelessWidget {
@@ -2082,18 +2713,14 @@ class _ComposerTopBar extends StatelessWidget {
   const _ComposerTopBar({
     required this.selectedOverlay,
     required this.isEditingText,
-    required this.isFrameEditing,
     required this.onClose,
-    required this.onCancelFrameEditing,
     required this.onEditText,
     required this.onDoneEditing,
   });
 
   final StatusMediaOverlayItem? selectedOverlay;
   final bool isEditingText;
-  final bool isFrameEditing;
   final VoidCallback onClose;
-  final VoidCallback onCancelFrameEditing;
   final VoidCallback onEditText;
   final VoidCallback onDoneEditing;
 
@@ -2105,17 +2732,14 @@ class _ComposerTopBar extends StatelessWidget {
     return Row(
       children: [
         _GlassCircleButton(
-          key: Key(
-            isFrameEditing
-                ? 'updates_media_cancel_frame_editing_button'
-                : 'updates_media_close_composer_button',
-          ),
-          tooltip: isFrameEditing ? 'Cancel frame editing' : 'Close',
-          icon: isFrameEditing ? Icons.arrow_back_rounded : Icons.close_rounded,
-          onTap: isFrameEditing ? onCancelFrameEditing : onClose,
+          key: const Key('updates_media_close_composer_button'),
+          tooltip: 'Close',
+          icon: Icons.close_rounded,
+          onTap: onClose,
+          showBorder: false,
         ),
         const Spacer(),
-        if (!isFrameEditing && hasTextSelection) ...[
+        if (hasTextSelection) ...[
           _GlassCircleButton(
             tooltip: isEditingText ? 'Done editing' : 'Edit text',
             icon: isEditingText ? Icons.check_rounded : Icons.edit_outlined,
@@ -2192,90 +2816,6 @@ class _ComposerDeleteDropTarget extends StatelessWidget {
   }
 }
 
-class _ComposerPlacementGuide extends StatelessWidget {
-  const _ComposerPlacementGuide();
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      key: const Key('updates_media_overlay_guide'),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.56),
-          width: 1.1,
-        ),
-        gradient: LinearGradient(
-          colors: [
-            Colors.white.withValues(alpha: 0.06),
-            Colors.transparent,
-            Colors.white.withValues(alpha: 0.04),
-          ],
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-        ),
-      ),
-      child: Stack(
-        children: const [
-          _GuideCorner(alignment: Alignment.topLeft),
-          _GuideCorner(alignment: Alignment.topRight),
-          _GuideCorner(alignment: Alignment.bottomLeft),
-          _GuideCorner(alignment: Alignment.bottomRight),
-        ],
-      ),
-    );
-  }
-}
-
-class _GuideCorner extends StatelessWidget {
-  const _GuideCorner({
-    required this.alignment,
-  });
-
-  final Alignment alignment;
-
-  @override
-  Widget build(BuildContext context) {
-    final isTop = alignment.y < 0;
-    final isLeft = alignment.x < 0;
-    return Align(
-      alignment: alignment,
-      child: Container(
-        width: 20,
-        height: 20,
-        margin: const EdgeInsets.all(10),
-        decoration: BoxDecoration(
-          border: Border(
-            top: isTop
-                ? BorderSide(
-                    color: Colors.white.withValues(alpha: 0.88),
-                    width: 2.2,
-                  )
-                : BorderSide.none,
-            bottom: !isTop
-                ? BorderSide(
-                    color: Colors.white.withValues(alpha: 0.88),
-                    width: 2.2,
-                  )
-                : BorderSide.none,
-            left: isLeft
-                ? BorderSide(
-                    color: Colors.white.withValues(alpha: 0.88),
-                    width: 2.2,
-                  )
-                : BorderSide.none,
-            right: !isLeft
-                ? BorderSide(
-                    color: Colors.white.withValues(alpha: 0.88),
-                    width: 2.2,
-                  )
-                : BorderSide.none,
-          ),
-        ),
-      ),
-    );
-  }
-}
 
 class _EditableTextOverlayCard extends StatelessWidget {
   const _EditableTextOverlayCard({
@@ -2359,128 +2899,97 @@ class _ComposerTextEditingTray extends StatelessWidget {
     required this.onAddText,
     required this.onFontSelected,
     required this.onToneSelected,
-    required this.onOpenTonePicker,
     required this.onToggleBackground,
     required this.onCycleAlignment,
-    required this.onSelectSize,
   });
 
   final StatusTextStyle textStyleModel;
   final VoidCallback onAddText;
   final ValueChanged<String> onFontSelected;
   final ValueChanged<int?> onToneSelected;
-  final VoidCallback onOpenTonePicker;
   final VoidCallback onToggleBackground;
   final VoidCallback onCycleAlignment;
-  final ValueChanged<double> onSelectSize;
+
+  void _cycleFont() {
+    final currentIndex = kTextStatusFontLooks
+        .indexWhere((look) => look.id == textStyleModel.fontId);
+    final nextIndex = (currentIndex + 1) % kTextStatusFontLooks.length;
+    onFontSelected(kTextStatusFontLooks[nextIndex].id);
+  }
+
+  void _cycleTone() {
+    final currentIndex = kTextStatusTonePresets.indexWhere(
+      (tone) => tone.colorValue == textStyleModel.textColorValue,
+    );
+    final nextIndex =
+        (currentIndex == -1 ? 0 : currentIndex + 1) % kTextStatusTonePresets.length;
+    onToneSelected(kTextStatusTonePresets[nextIndex].colorValue);
+  }
 
   @override
   Widget build(BuildContext context) {
+    // Mirrors the text-status composer's own top-bar icons exactly (single
+    // tap cycles font/color) instead of the old chip-strip + S/M/L buttons
+    // -- size is now a pinch gesture on the selected overlay itself, same
+    // as every other overlay type already supports.
     return Container(
       key: const Key('updates_media_text_editing_tray'),
-      padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.22),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.1),
-        ),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _ToolbarToolButton(
-                  key: const Key('updates_media_panel_fonts'),
-                  tooltip: 'Edit text',
-                  icon: Icons.text_fields_rounded,
-                  onTap: onAddText,
-                  isActive: true,
-                  expand: false,
-                ),
-                _ToolbarToolButton(
-                  tooltip: 'Pick custom color',
-                  icon: Icons.palette_outlined,
-                  onTap: onOpenTonePicker,
-                  expand: false,
-                ),
-                _ToolbarToolButton(
-                  tooltip: 'Toggle background',
-                  icon: textStyleModel.useSolidBackground
-                      ? Icons.crop_square_rounded
-                      : Icons.crop_landscape_rounded,
-                  onTap: onToggleBackground,
-                  isActive: textStyleModel.useSolidBackground,
-                  expand: false,
-                ),
-                _ToolbarToolButton(
-                  tooltip: 'Change alignment',
-                  icon: switch (textStyleModel.alignment) {
-                    StatusTextAlignment.left => Icons.format_align_left_rounded,
-                    StatusTextAlignment.center =>
-                      Icons.format_align_center_rounded,
-                    StatusTextAlignment.right =>
-                      Icons.format_align_right_rounded,
-                  },
-                  onTap: onCycleAlignment,
-                  expand: false,
-                ),
-                for (final entry in <(double, String)>[
-                  (0.86, 'S'),
-                  (1.0, 'M'),
-                  (1.16, 'L'),
-                ])
-                  _TraySizeButton(
-                    label: entry.$2,
-                    selected:
-                        (textStyleModel.sizeScale - entry.$1).abs() < 0.02,
-                    onTap: () => onSelectSize(entry.$1),
-                  ),
-              ],
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            _ToolbarToolButton(
+              key: const Key('updates_media_panel_fonts'),
+              tooltip: 'Edit text',
+              icon: Icons.edit_outlined,
+              onTap: onAddText,
+              isActive: true,
+              expand: false,
             ),
-          ),
-          const SizedBox(height: 8),
-          SizedBox(
-            height: 42,
-            child: ListView.separated(
-              key: const Key('updates_media_inline_font_row'),
-              scrollDirection: Axis.horizontal,
-              itemCount: kTextStatusFontLooks.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 8),
-              itemBuilder: (context, index) {
-                final font = kTextStatusFontLooks[index];
-                return _FontLookChip(
-                  key: Key('updates_media_font_${font.id}'),
-                  look: font,
-                  isSelected: textStyleModel.fontId == font.id,
-                  onTap: () => onFontSelected(font.id),
-                );
+            _ToolbarToolButton(
+              key: const Key('updates_media_cycle_font_button'),
+              tooltip: 'Change font',
+              icon: Icons.font_download_outlined,
+              onTap: _cycleFont,
+              expand: false,
+            ),
+            _ToolbarToolButton(
+              key: const Key('updates_media_cycle_tone_button'),
+              tooltip: 'Change color',
+              icon: Icons.palette_outlined,
+              onTap: _cycleTone,
+              expand: false,
+            ),
+            _ToolbarToolButton(
+              key: const Key('updates_media_toggle_text_background_button'),
+              tooltip: 'Toggle background',
+              icon: textStyleModel.useSolidBackground
+                  ? Icons.crop_square_rounded
+                  : Icons.crop_landscape_rounded,
+              onTap: onToggleBackground,
+              isActive: textStyleModel.useSolidBackground,
+              expand: false,
+            ),
+            _ToolbarToolButton(
+              key: const Key('updates_media_cycle_alignment_button'),
+              tooltip: 'Change alignment',
+              icon: switch (textStyleModel.alignment) {
+                StatusTextAlignment.left => Icons.format_align_left_rounded,
+                StatusTextAlignment.center =>
+                  Icons.format_align_center_rounded,
+                StatusTextAlignment.right => Icons.format_align_right_rounded,
               },
+              onTap: onCycleAlignment,
+              expand: false,
             ),
-          ),
-          const SizedBox(height: 8),
-          SizedBox(
-            height: 32,
-            child: ListView.separated(
-              key: const Key('updates_media_inline_tone_row'),
-              scrollDirection: Axis.horizontal,
-              itemCount: kTextStatusTonePresets.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 10),
-              itemBuilder: (context, index) {
-                final tone = kTextStatusTonePresets[index];
-                return _ToneSwatchChip(
-                  tone: tone,
-                  isSelected: textStyleModel.textColorValue == tone.colorValue,
-                  onTap: () => onToneSelected(tone.colorValue),
-                );
-              },
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -2551,173 +3060,306 @@ class _ComposerMusicEditingTray extends StatelessWidget {
   }
 }
 
-class _ComposerFrameEditingTray extends StatelessWidget {
-  const _ComposerFrameEditingTray({
-    required this.selectedFrame,
-    required this.customAspectRatio,
-    required this.onSelectFrame,
-    required this.onCustomAspectChanged,
-    required this.onRotate,
+/// The vertical color rail shown down the right side of the media while
+/// drawing -- matches WhatsApp's own draw screen, which keeps color
+/// selection as a tall strip beside the canvas rather than a horizontal
+/// tray. Tapping the rainbow swatch reveals a vertical hue bar in its
+/// place; the back arrow brings the swatches back.
+/// WhatsApp's own draw tool is one continuous color bar, not a column of
+/// preset swatches plus a separate "custom color" toggle -- the swatches
+/// took real vertical space and the two-step reveal was an extra tap for
+/// what should be a single drag. White sits at the top, black at the
+/// bottom, the hue spectrum runs between them, and a drag/tap anywhere
+/// picks the color straight off the bar.
+class _DrawColorRail extends StatefulWidget {
+  const _DrawColorRail({
+    required this.selectedColor,
+    required this.isEraserMode,
+    required this.onSelectColor,
   });
 
-  final _FrameTraySelection selectedFrame;
-  final double customAspectRatio;
-  final ValueChanged<_FrameTraySelection> onSelectFrame;
-  final ValueChanged<double> onCustomAspectChanged;
-  final VoidCallback onRotate;
+  final Color selectedColor;
+  final bool isEraserMode;
+  final ValueChanged<Color> onSelectColor;
+
+  @override
+  State<_DrawColorRail> createState() => _DrawColorRailState();
+}
+
+class _DrawColorRailState extends State<_DrawColorRail> {
+  double _barPosition = 0;
+
+  void _updateFromLocalY(double localY, double height) {
+    if (height <= 0) {
+      return;
+    }
+    final position = (localY / height).clamp(0.0, 1.0);
+    setState(() => _barPosition = position);
+    widget.onSelectColor(_colorForDrawBarPosition(position));
+  }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return Container(
-      key: const Key('updates_media_frame_editing_tray'),
-      padding: const EdgeInsets.fromLTRB(10, 10, 10, 8),
+      key: const Key('updates_media_draw_editing_tray'),
+      width: 34,
+      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 6),
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.22),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.1),
-        ),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final height = constraints.maxHeight;
+          return GestureDetector(
+            key: const Key('updates_media_draw_color_bar'),
+            behavior: HitTestBehavior.opaque,
+            onTapDown: (details) =>
+                _updateFromLocalY(details.localPosition.dy, height),
+            onVerticalDragStart: (details) =>
+                _updateFromLocalY(details.localPosition.dy, height),
+            onVerticalDragUpdate: (details) =>
+                _updateFromLocalY(details.localPosition.dy, height),
+            child: Stack(
+              clipBehavior: Clip.none,
               children: [
-                _FrameOptionChip(
-                  key: const Key('updates_media_frame_option_original'),
-                  label: 'Original',
-                  selected: selectedFrame == _FrameTraySelection.original,
-                  onTap: () => onSelectFrame(_FrameTraySelection.original),
+                Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(999),
+                    gradient: const LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: _kDrawColorBarStops,
+                    ),
+                  ),
                 ),
-                _FrameOptionChip(
-                  key: const Key('updates_media_frame_option_four_three'),
-                  label: '4:3',
-                  selected: selectedFrame == _FrameTraySelection.fourThree,
-                  onTap: () => onSelectFrame(_FrameTraySelection.fourThree),
-                ),
-                _FrameOptionChip(
-                  key: const Key('updates_media_frame_option_sixteen_nine'),
-                  label: '16:9',
-                  selected: selectedFrame == _FrameTraySelection.sixteenNine,
-                  onTap: () => onSelectFrame(_FrameTraySelection.sixteenNine),
-                ),
-                _FrameOptionChip(
-                  key: const Key('updates_media_frame_option_square'),
-                  label: '1:1',
-                  selected: selectedFrame == _FrameTraySelection.square,
-                  onTap: () => onSelectFrame(_FrameTraySelection.square),
-                ),
-                _FrameOptionChip(
-                  key: const Key('updates_media_frame_option_custom'),
-                  label: 'Custom',
-                  selected: selectedFrame == _FrameTraySelection.custom,
-                  onTap: () => onSelectFrame(_FrameTraySelection.custom),
-                ),
-                const SizedBox(width: 4),
-                _MiniOptionChip(
-                  key: const Key('updates_media_rotate_button'),
-                  selected: false,
-                  onTap: onRotate,
-                  icon: Icons.rotate_90_degrees_cw_rounded,
+                Positioned(
+                  top: (_barPosition * height - 9)
+                      .clamp(0.0, math.max(height - 18, 0.0)),
+                  left: -5,
+                  right: -5,
+                  child: IgnorePointer(
+                    child: Container(
+                      key: const Key('updates_media_draw_color_thumb'),
+                      height: 18,
+                      decoration: BoxDecoration(
+                        color: widget.isEraserMode
+                            ? Colors.transparent
+                            : widget.selectedColor,
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: Colors.white, width: 3),
+                        boxShadow: const [
+                          BoxShadow(color: Colors.black38, blurRadius: 4),
+                        ],
+                      ),
+                    ),
+                  ),
                 ),
               ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+const List<Color> _kDrawColorBarStops = [
+  Colors.white,
+  Color(0xFFFF3B30),
+  Color(0xFFFF9500),
+  Color(0xFFFFCC00),
+  Color(0xFF34C759),
+  Color(0xFF00C7BE),
+  Color(0xFF0A84FF),
+  Color(0xFFBF5AF2),
+  Colors.black,
+];
+
+Color _colorForDrawBarPosition(double t) {
+  final stops = _kDrawColorBarStops;
+  final segmentCount = stops.length - 1;
+  final scaled = t.clamp(0.0, 1.0) * segmentCount;
+  final index = scaled.floor().clamp(0, segmentCount - 1);
+  final localT = scaled - index;
+  return Color.lerp(stops[index], stops[index + 1], localT)!;
+}
+
+/// A stroke-width option shown as an actual dot at that size, in the pen's
+/// current color -- shows you what the stroke will really look like,
+/// instead of an abstract "S/M/L" label.
+class _StrokeSizeButton extends StatelessWidget {
+  const _StrokeSizeButton({
+    required this.dotDiameter,
+    required this.color,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final double dotDiameter;
+  final Color color;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        width: 34,
+        height: 34,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: selected ? Colors.white.withValues(alpha: 0.18) : null,
+        ),
+        child: Center(
+          child: Container(
+            width: dotDiameter,
+            height: dotDiameter,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+              border: color == Colors.white
+                  ? Border.all(color: Colors.black26)
+                  : null,
             ),
           ),
-          if (selectedFrame == _FrameTraySelection.custom) ...[
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Text(
-                  'Wide',
-                  style: theme.textTheme.labelMedium?.copyWith(
-                    color: Colors.white.withValues(alpha: 0.72),
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                Expanded(
-                  child: SliderTheme(
-                    data: SliderTheme.of(context).copyWith(
-                      trackHeight: 2,
-                      thumbShape: const RoundSliderThumbShape(
-                        enabledThumbRadius: 7,
-                      ),
-                      overlayShape: SliderComponentShape.noOverlay,
-                    ),
-                    child: Slider(
-                      key: const Key('updates_media_frame_custom_slider'),
-                      value: customAspectRatio.clamp(0.75, 1.9),
-                      min: 0.75,
-                      max: 1.9,
-                      divisions: 23,
-                      onChanged: onCustomAspectChanged,
-                    ),
-                  ),
-                ),
-                Text(
-                  'Tall',
-                  style: theme.textTheme.labelMedium?.copyWith(
-                    color: Colors.white.withValues(alpha: 0.72),
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
+        ),
+      ),
+    );
+  }
+}
+
+class _BlurEditingTray extends StatelessWidget {
+  const _BlurEditingTray({
+    required this.blurSigma,
+    required this.onChanged,
+  });
+
+  final double blurSigma;
+  final ValueChanged<double> onChanged;
+
+  static const double _maxBlurSigma = 12;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const Key('updates_media_blur_editing_tray'),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.22),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.blur_on_rounded, color: Colors.white, size: 18),
+          Expanded(
+            child: SliderTheme(
+              data: SliderTheme.of(context).copyWith(
+                trackHeight: 2.5,
+                activeTrackColor: Colors.white,
+                inactiveTrackColor: Colors.white.withValues(alpha: 0.28),
+                thumbColor: Colors.white,
+                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+              ),
+              child: Slider(
+                key: const Key('updates_media_blur_slider'),
+                value: blurSigma.clamp(0, _maxBlurSigma),
+                min: 0,
+                max: _maxBlurSigma,
+                onChanged: onChanged,
+              ),
             ),
-          ],
+          ),
         ],
       ),
     );
   }
 }
 
-class _FrameOptionChip extends StatelessWidget {
-  const _FrameOptionChip({
+/// The floating ratio button shown at the bottom-right of the media while
+/// cropping -- tapping it opens a small liquid-glass bubble anchored right
+/// above the button, matching WhatsApp's own compact ratio picker instead
+/// of a full-height modal sheet or Material's default popup-menu chrome.
+class _CropRatioBubbleButton extends StatelessWidget {
+  const _CropRatioBubbleButton({
     required this.label,
-    required this.selected,
-    required this.onTap,
-    super.key,
+    required this.options,
+    required this.selectedRatio,
+    required this.isFitToScreen,
+    required this.onSelectOption,
   });
 
   final String label;
-  final bool selected;
-  final VoidCallback onTap;
+  final List<_CropAspectOption> options;
+  final double? selectedRatio;
 
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 8),
-      child: _MiniOptionChip(
-        label: label,
-        selected: selected,
-        onTap: onTap,
-      ),
-    );
+  /// Disambiguates the two options that both leave [selectedRatio] null --
+  /// see the field of the same purpose on the composer's state.
+  final bool isFitToScreen;
+  final ValueChanged<_CropAspectOption> onSelectOption;
+
+  bool _isOptionSelected(_CropAspectOption option) {
+    if (selectedRatio == null) {
+      if (option.isOriginal) {
+        return !isFitToScreen;
+      }
+      return option.ratio == null && isFitToScreen;
+    }
+    return option.ratio != null &&
+        (option.ratio! - selectedRatio!).abs() < 0.001;
   }
-}
 
-class _TraySizeButton extends StatelessWidget {
-  const _TraySizeButton({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
+  Future<void> _openBubble(BuildContext buttonContext) async {
+    final picked = await showLiquidGlassBubbleMenu<_CropAspectOption>(
+      anchorContext: buttonContext,
+      itemBuilder: (context) => [
+        for (final option in options)
+          LiquidGlassBubbleItem(
+            key: Key('updates_media_crop_aspect_${option.label}'),
+            label: option.label,
+            selected: _isOptionSelected(option),
+            onTap: () => Navigator.of(context).pop(option),
+          ),
+      ],
+    );
+    if (picked != null) {
+      onSelectOption(picked);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: 38,
-      child: _MiniOptionChip(
-        label: label,
-        selected: selected,
-        onTap: onTap,
+    return Builder(
+      builder: (buttonContext) => GestureDetector(
+        key: const Key('updates_media_crop_aspect_ratio_button'),
+        onTap: () => _openBubble(buttonContext),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.32),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.crop_rounded, color: Colors.white, size: 18),
+              const SizedBox(width: 6),
+              Text(
+                label,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -2725,26 +3367,24 @@ class _TraySizeButton extends StatelessWidget {
 
 class _ComposerToolbar extends StatelessWidget {
   const _ComposerToolbar({
-    required this.durationLabel,
     required this.hasMusic,
     required this.isTextSelected,
     required this.onAddText,
-    required this.onAddEmoji,
-    required this.onAddSticker,
+    required this.onAddStickerOrEmoji,
     required this.onAddMusic,
-    required this.onEditFrame,
-    required this.onEditTiming,
+    required this.onDraw,
+    required this.onBlur,
+    required this.onCropOrRotate,
   });
 
-  final String durationLabel;
   final bool hasMusic;
   final bool isTextSelected;
   final VoidCallback onAddText;
-  final VoidCallback onAddEmoji;
-  final VoidCallback onAddSticker;
+  final VoidCallback onAddStickerOrEmoji;
   final VoidCallback onAddMusic;
-  final VoidCallback onEditFrame;
-  final VoidCallback onEditTiming;
+  final VoidCallback onDraw;
+  final VoidCallback onBlur;
+  final VoidCallback onCropOrRotate;
 
   @override
   Widget build(BuildContext context) {
@@ -2755,50 +3395,63 @@ class _ComposerToolbar extends StatelessWidget {
         borderRadius: BorderRadius.circular(999),
         border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
       ),
-      child: Row(
-        children: [
-          _ToolbarToolButton(
-            key: const Key('updates_media_panel_fonts'),
-            tooltip: isTextSelected ? 'Edit text' : 'Add text',
-            icon: isTextSelected
-                ? Icons.edit_outlined
-                : Icons.text_fields_rounded,
-            onTap: onAddText,
-            isActive: isTextSelected,
-          ),
-          _ToolbarToolButton(
-            key: const Key('updates_media_add_emoji_button'),
-            tooltip: 'Add emoji',
-            icon: Icons.emoji_emotions_outlined,
-            onTap: onAddEmoji,
-          ),
-          _ToolbarToolButton(
-            key: const Key('updates_media_add_sticker_button'),
-            tooltip: 'Add sticker',
-            icon: Icons.sell_outlined,
-            onTap: onAddSticker,
-          ),
-          _ToolbarToolButton(
-            key: const Key('updates_media_add_music_button'),
-            tooltip: hasMusic ? 'Change music' : 'Add music',
-            icon:
-                hasMusic ? Icons.graphic_eq_rounded : Icons.music_note_rounded,
-            onTap: onAddMusic,
-            isActive: hasMusic,
-          ),
-          _ToolbarToolButton(
-            key: const Key('updates_media_frame_button'),
-            tooltip: 'Adjust frame',
-            icon: Icons.aspect_ratio_rounded,
-            onTap: onEditFrame,
-          ),
-          _ToolbarTimeButton(
-            key: const Key('updates_media_edit_timing_button'),
-            tooltip: 'Change status duration',
-            label: durationLabel,
-            onTap: onEditTiming,
-          ),
-        ],
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            // Order matches WhatsApp's own photo/video status editor:
+            // text, stickers & emoji (one combined tool), draw, music,
+            // blur, crop/rotate.
+            _ToolbarToolButton(
+              key: const Key('updates_media_panel_fonts'),
+              tooltip: isTextSelected ? 'Edit text' : 'Add text',
+              icon: isTextSelected
+                  ? Icons.edit_outlined
+                  : Icons.text_fields_rounded,
+              onTap: onAddText,
+              isActive: isTextSelected,
+              expand: false,
+            ),
+            _ToolbarToolButton(
+              key: const Key('updates_media_add_emoji_button'),
+              tooltip: 'Stickers & emoji',
+              icon: Icons.emoji_emotions_outlined,
+              onTap: onAddStickerOrEmoji,
+              expand: false,
+            ),
+            _ToolbarToolButton(
+              key: const Key('updates_media_draw_button'),
+              tooltip: 'Draw',
+              icon: Icons.edit_note_rounded,
+              onTap: onDraw,
+              expand: false,
+            ),
+            _ToolbarToolButton(
+              key: const Key('updates_media_add_music_button'),
+              tooltip: hasMusic ? 'Change music' : 'Add music',
+              icon: hasMusic
+                  ? Icons.graphic_eq_rounded
+                  : Icons.music_note_rounded,
+              onTap: onAddMusic,
+              isActive: hasMusic,
+              expand: false,
+            ),
+            _ToolbarToolButton(
+              key: const Key('updates_media_blur_button'),
+              tooltip: 'Blur',
+              icon: Icons.blur_on_rounded,
+              onTap: onBlur,
+              expand: false,
+            ),
+            _ToolbarToolButton(
+              key: const Key('updates_media_crop_rotate_button'),
+              tooltip: 'Crop or rotate',
+              icon: Icons.crop_rotate_rounded,
+              onTap: onCropOrRotate,
+              expand: false,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -2861,63 +3514,19 @@ class _ToolbarToolButton extends StatelessWidget {
   }
 }
 
-class _ToolbarTimeButton extends StatelessWidget {
-  const _ToolbarTimeButton({
-    required this.tooltip,
-    required this.label,
-    required this.onTap,
-    super.key,
-  });
-
-  final String tooltip;
-  final String label;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: Tooltip(
-        message: tooltip,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(16),
-          child: Container(
-            height: 42,
-            margin: const EdgeInsets.symmetric(horizontal: 2),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.12),
-              ),
-            ),
-            child: Center(
-              child: Text(
-                label,
-                style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w800,
-                    ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _GlassCircleButton extends StatelessWidget {
   const _GlassCircleButton({
     required this.tooltip,
     required this.icon,
     required this.onTap,
+    this.showBorder = true,
     super.key,
   });
 
   final String tooltip;
   final IconData icon;
   final VoidCallback onTap;
+  final bool showBorder;
 
   @override
   Widget build(BuildContext context) {
@@ -2932,7 +3541,88 @@ class _GlassCircleButton extends StatelessWidget {
       iconSize: 20,
       iconColor: Colors.white,
       color: Colors.black.withValues(alpha: 0.28),
-      borderColor: Colors.white.withValues(alpha: 0.18),
+      borderColor:
+          showBorder ? Colors.white.withValues(alpha: 0.18) : Colors.transparent,
+    );
+  }
+}
+
+/// The big play button WhatsApp overlays centered on a paused video status
+/// -- a light glass circle with a dark play glyph, distinct from the dark
+/// glass chrome used everywhere else on this screen since it sits directly
+/// on the video content, not floating above it.
+class _VideoPlayPauseOverlay extends StatelessWidget {
+  const _VideoPlayPauseOverlay({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      shape: const CircleBorder(),
+      child: InkWell(
+        key: const Key('updates_media_video_play_pause_overlay'),
+        onTap: onTap,
+        customBorder: const CircleBorder(),
+        canRequestFocus: false,
+        child: Container(
+          width: 68,
+          height: 68,
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.82),
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.24),
+                blurRadius: 18,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: const Icon(
+            Icons.play_arrow_rounded,
+            color: Colors.black87,
+            size: 40,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// A plain "Add a caption..." field -- WhatsApp/Instagram's simple caption
+/// input, distinct from the rich draggable text tool. Multi-line since a
+/// caption (unlike a single styled text overlay) is expected to wrap.
+class _ComposerCaptionField extends StatelessWidget {
+  const _ComposerCaptionField({required this.controller});
+
+  final TextEditingController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.28),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+      ),
+      child: TextField(
+        key: const Key('updates_media_caption_field'),
+        controller: controller,
+        maxLines: 3,
+        minLines: 1,
+        style: const TextStyle(color: Colors.white),
+        decoration: InputDecoration(
+          hintText: 'Add a caption...',
+          hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
+          border: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 12,
+          ),
+        ),
+      ),
     );
   }
 }
@@ -2944,159 +3634,26 @@ class _ShareButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return FilledButton(
-      key: const Key('updates_share_media_status_button'),
-      onPressed: onTap,
-      style: FilledButton.styleFrom(
-        backgroundColor: AppPalette.emerald,
-        foregroundColor: Colors.white,
-        minimumSize: const Size(54, 54),
-        maximumSize: const Size(54, 54),
-        padding: EdgeInsets.zero,
-        shape: const CircleBorder(),
-        elevation: 0,
-      ),
-      child: const Icon(Icons.send_rounded, size: 24),
-    );
-  }
-}
-
-class _DoneButton extends StatelessWidget {
-  const _DoneButton({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return FilledButton(
-      key: const Key('updates_done_frame_editing_button'),
-      onPressed: onTap,
-      style: FilledButton.styleFrom(
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-        minimumSize: const Size(54, 54),
-        maximumSize: const Size(54, 54),
-        padding: EdgeInsets.zero,
-        shape: const CircleBorder(),
-        elevation: 0,
-      ),
-      child: const Icon(Icons.check_rounded, size: 24),
-    );
-  }
-}
-
-class _FontLookChip extends StatelessWidget {
-  const _FontLookChip({
-    required this.look,
-    required this.isSelected,
-    required this.onTap,
-    super.key,
-  });
-
-  final TextStatusFontLook look;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final sampleStyle = look.apply(
-      (theme.textTheme.titleMedium ?? const TextStyle()).copyWith(
-        color: isSelected
-            ? theme.colorScheme.onPrimaryContainer
-            : theme.colorScheme.onSurface,
-        fontWeight: FontWeight.w800,
-      ),
-    );
-
-    return InkWell(
+    // Same dark-glass chrome as every other floating control on this
+    // screen (close, edit, toolbar icons) -- an emerald tint keeps it
+    // reading as the primary action without breaking from that theme with
+    // a solid, unrelated fill.
+    return LiquidGlassIconButton(
+      actionKey: const Key('updates_share_media_status_button'),
+      icon: Icons.send_rounded,
+      tooltip: 'Share status',
       onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        curve: Curves.easeOutCubic,
-        width: 50,
-        decoration: BoxDecoration(
-          color: isSelected
-              ? theme.colorScheme.primaryContainer
-              : theme.colorScheme.surfaceContainerHighest
-                  .withValues(alpha: 0.42),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: isSelected
-                ? theme.colorScheme.primary.withValues(alpha: 0.82)
-                : theme.colorScheme.outlineVariant.withValues(alpha: 0.28),
-          ),
-        ),
-        child: Center(
-          child: Text(
-            look.uppercase ? look.sample.toUpperCase() : look.sample,
-            style: sampleStyle,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ToneSwatchChip extends StatelessWidget {
-  const _ToneSwatchChip({
-    required this.tone,
-    required this.isSelected,
-    required this.onTap,
-  });
-
-  final TextStatusTonePreset tone;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final color = tone.color;
-
-    return InkWell(
-      onTap: onTap,
-      customBorder: const CircleBorder(),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        curve: Curves.easeOutCubic,
-        width: 32,
-        height: 32,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: color ?? theme.colorScheme.surfaceContainerHighest,
-          border: Border.all(
-            color: isSelected
-                ? theme.colorScheme.primary
-                : theme.colorScheme.outlineVariant.withValues(alpha: 0.44),
-            width: isSelected ? 2.2 : 1.2,
-          ),
-          boxShadow: isSelected
-              ? [
-                  BoxShadow(
-                    color: theme.colorScheme.primary.withValues(alpha: 0.16),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  ),
-                ]
-              : null,
-        ),
-        child: color == null
-            ? Icon(
-                Icons.auto_awesome_rounded,
-                size: 16,
-                color: theme.colorScheme.onSurfaceVariant,
-              )
-            : null,
-      ),
+      size: 54,
+      iconSize: 24,
+      iconColor: Colors.white,
+      color: AppPalette.emerald.withValues(alpha: 0.86),
+      borderColor: Colors.white.withValues(alpha: 0.22),
     );
   }
 }
 
 class _MiniOptionChip extends StatelessWidget {
   const _MiniOptionChip({
-    super.key,
     required this.selected,
     required this.onTap,
     this.label,
@@ -3178,149 +3735,205 @@ class _MiniOptionChip extends StatelessWidget {
   }
 }
 
-class _EmojiPickerSheet extends StatelessWidget {
-  const _EmojiPickerSheet({
-    required this.emojiPresets,
-  });
-
-  final List<String> emojiPresets;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Add emoji',
-            style: theme.textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          const SizedBox(height: 14),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              for (var index = 0; index < emojiPresets.length; index++)
-                InkWell(
-                  key: Key('updates_media_emoji_option_$index'),
-                  onTap: () => Navigator.of(context).pop(emojiPresets[index]),
-                  borderRadius: BorderRadius.circular(18),
-                  child: Container(
-                    width: 52,
-                    height: 52,
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.surfaceContainerHighest
-                          .withValues(alpha: 0.62),
-                      borderRadius: BorderRadius.circular(18),
-                    ),
-                    child: Center(
-                      child: _usesTwemoji(theme.platform)
-                          ? Semantics(
-                              label: emojiPresets[index],
-                              child: ExcludeSemantics(
-                                child: Twemoji(
-                                  emoji: emojiPresets[index],
-                                  width: 28,
-                                  height: 28,
-                                ),
-                              ),
-                            )
-                          : Text(
-                              emojiPresets[index],
-                              style: _emojiPreviewTextStyle(
-                                context,
-                                fontSize: 28,
-                              ),
-                            ),
-                      ),
-                  ),
-                ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _StickerPickerSheet extends StatelessWidget {
-  const _StickerPickerSheet({
-    required this.stickerPresets,
-  });
+/// One combined sheet for both stickers and emoji -- matching WhatsApp's
+/// own "Add yours" picker, which shows stickers first and emoji below it
+/// in a single scroll, not two separate tools/sheets.
+class _StickerAndEmojiPickerSheet extends StatefulWidget {
+  const _StickerAndEmojiPickerSheet({required this.stickerPresets});
 
   final List<_StickerPreset> stickerPresets;
 
   @override
+  State<_StickerAndEmojiPickerSheet> createState() =>
+      _StickerAndEmojiPickerSheetState();
+}
+
+class _StickerAndEmojiPickerSheetState
+    extends State<_StickerAndEmojiPickerSheet> {
+  final TextEditingController _searchController = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Add sticker',
-            style: theme.textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.w900,
+    final query = _query.trim().toLowerCase();
+    final visibleStickers = query.isEmpty
+        ? widget.stickerPresets
+        : widget.stickerPresets
+            .where((preset) => preset.label.toLowerCase().contains(query))
+            .toList(growable: false);
+    var flatEmojiIndex = 0;
+
+    return FractionallySizedBox(
+      heightFactor: 0.72,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Stickers & emoji',
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w900,
+              ),
             ),
-          ),
-          const SizedBox(height: 14),
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: stickerPresets.length,
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
-              mainAxisSpacing: 12,
-              crossAxisSpacing: 12,
-              childAspectRatio: 1.35,
-            ),
-            itemBuilder: (context, index) {
-              final preset = stickerPresets[index];
-              final previewItem = StatusMediaOverlayItem(
-                id: 'sticker-preview-${preset.id}',
-                type: StatusMediaOverlayType.sticker,
-                label: preset.label,
-                accentColorValue: preset.accentColorValue,
-                secondaryColorValue: preset.secondaryColorValue,
-                variantId: preset.id,
-              );
-              return InkWell(
-                key: Key('updates_media_sticker_option_$index'),
-                onTap: () => Navigator.of(context).pop(preset),
-                borderRadius: BorderRadius.circular(20),
-                child: Ink(
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.surfaceContainerHighest
-                        .withValues(alpha: 0.42),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: theme.colorScheme.outlineVariant
-                          .withValues(alpha: 0.3),
-                    ),
-                  ),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 14,
-                  ),
-                  child: Center(
-                    child: StatusOverlayContent(
-                      item: previewItem,
-                      compact: false,
-                      accentColor: Color(preset.accentColorValue),
-                    ),
-                  ),
+            const SizedBox(height: 12),
+            TextField(
+              key: const Key('updates_media_sticker_search_field'),
+              controller: _searchController,
+              onChanged: (value) => setState(() => _query = value),
+              decoration: InputDecoration(
+                hintText: 'Search stickers',
+                prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                isDense: true,
+                filled: true,
+                fillColor: theme.colorScheme.surfaceContainerHighest
+                    .withValues(alpha: 0.52),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(999),
+                  borderSide: BorderSide.none,
                 ),
-              );
-            },
-          ),
-        ],
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Expanded(
+              child: ListView(
+                key: const Key('updates_media_sticker_emoji_list'),
+                children: [
+                  Text(
+                    'Stickers',
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  if (visibleStickers.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      child: Text(
+                        'No stickers match that search.',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color:
+                              theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                        ),
+                      ),
+                    )
+                  else
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: [
+                        for (final preset in visibleStickers)
+                          InkWell(
+                            key: Key(
+                              'updates_media_sticker_option_'
+                              '${widget.stickerPresets.indexOf(preset)}',
+                            ),
+                            onTap: () => Navigator.of(context).pop(preset),
+                            borderRadius: BorderRadius.circular(999),
+                            child: StatusOverlayContent(
+                              item: StatusMediaOverlayItem(
+                                id: 'sticker-preview-${preset.id}',
+                                type: StatusMediaOverlayType.sticker,
+                                label: preset.label,
+                                accentColorValue: preset.accentColorValue,
+                                secondaryColorValue: preset.secondaryColorValue,
+                                variantId: preset.id,
+                              ),
+                              compact: true,
+                              accentColor: Color(preset.accentColorValue),
+                            ),
+                          ),
+                      ],
+                    ),
+                  const SizedBox(height: 22),
+                  Text(
+                    'Emoji',
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  for (final category in kStatusEmojiCategories) ...[
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Text(
+                        category.label,
+                        style: theme.textTheme.labelLarge?.copyWith(
+                          fontWeight: FontWeight.w800,
+                          color:
+                              theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                        ),
+                      ),
+                    ),
+                    GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: category.emoji.length,
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 6,
+                        mainAxisSpacing: 10,
+                        crossAxisSpacing: 10,
+                        childAspectRatio: 1,
+                      ),
+                      itemBuilder: (context, i) {
+                        final emoji = category.emoji[i];
+                        final index = flatEmojiIndex++;
+                        return InkWell(
+                          key: Key('updates_media_emoji_option_$index'),
+                          onTap: () => Navigator.of(context).pop(emoji),
+                          borderRadius: BorderRadius.circular(16),
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.surfaceContainerHighest
+                                  .withValues(alpha: 0.52),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Center(
+                              child: usesTwemoji(theme.platform)
+                                  ? Semantics(
+                                      label: emoji,
+                                      child: ExcludeSemantics(
+                                        child: Twemoji(
+                                          emoji: emoji,
+                                          width: 26,
+                                          height: 26,
+                                        ),
+                                      ),
+                                    )
+                                  : Text(
+                                      emoji,
+                                      style: emojiPreviewTextStyle(
+                                        context,
+                                        fontSize: 26,
+                                      ),
+                                    ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 18),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -3489,379 +4102,3 @@ class _MusicArtBadge extends StatelessWidget {
   }
 }
 
-class _TimingSheet extends StatefulWidget {
-  const _TimingSheet({
-    required this.initialValue,
-    required this.minDurationSeconds,
-    required this.maxDurationSeconds,
-  });
-
-  final double initialValue;
-  final double minDurationSeconds;
-  final double maxDurationSeconds;
-
-  @override
-  State<_TimingSheet> createState() => _TimingSheetState();
-}
-
-class _TimingSheetState extends State<_TimingSheet> {
-  late double _durationSeconds;
-
-  @override
-  void initState() {
-    super.initState();
-    _durationSeconds = widget.initialValue;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Story duration',
-            style: theme.textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Slider(
-            key: const Key('updates_media_status_timing_slider'),
-            value: _durationSeconds.clamp(
-              widget.minDurationSeconds,
-              widget.maxDurationSeconds,
-            ),
-            min: widget.minDurationSeconds,
-            max: widget.maxDurationSeconds,
-            divisions:
-                (widget.maxDurationSeconds - widget.minDurationSeconds).round(),
-            label: '${_durationSeconds.round()}s',
-            onChanged: (value) {
-              setState(() {
-                _durationSeconds = value;
-              });
-            },
-          ),
-          const SizedBox(height: 4),
-          Align(
-            alignment: Alignment.centerRight,
-            child: Text(
-              '${_durationSeconds.round()} seconds',
-              style: theme.textTheme.labelLarge?.copyWith(
-                color: theme.colorScheme.primary,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('Cancel'),
-              ),
-              const Spacer(),
-              FilledButton(
-                onPressed: () => Navigator.of(context).pop(_durationSeconds),
-                child: const Text('Apply'),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _TextTonePickerSheet extends StatefulWidget {
-  const _TextTonePickerSheet({
-    required this.initialColor,
-  });
-
-  final Color initialColor;
-
-  @override
-  State<_TextTonePickerSheet> createState() => _TextTonePickerSheetState();
-}
-
-class _TextTonePickerSheetState extends State<_TextTonePickerSheet> {
-  late HSVColor _selectedColor;
-
-  @override
-  void initState() {
-    super.initState();
-    _selectedColor = HSVColor.fromColor(widget.initialColor);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final color = _selectedColor.toColor();
-
-    return Padding(
-      padding: EdgeInsets.fromLTRB(
-        16,
-        8,
-        16,
-        MediaQuery.viewInsetsOf(context).bottom + 16,
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Pick text color',
-            style: theme.textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              Container(
-                width: 22,
-                height: 22,
-                decoration: BoxDecoration(
-                  color: color,
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.82),
-                    width: 1.6,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  _hexLabel(color),
-                  style: theme.textTheme.labelLarge?.copyWith(
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 0.4,
-                  ),
-                ),
-              ),
-              Text(
-                'Aa',
-                style: theme.textTheme.titleLarge?.copyWith(
-                  color: color,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          AspectRatio(
-            aspectRatio: 1.18,
-            child: _ToneSaturationValueBoard(
-              color: _selectedColor,
-              onChanged: (color) {
-                setState(() {
-                  _selectedColor = color;
-                });
-              },
-            ),
-          ),
-          const SizedBox(height: 18),
-          _ToneHueSpectrumSlider(
-            hue: _selectedColor.hue,
-            onChanged: (hue) {
-              setState(() {
-                _selectedColor = _selectedColor.withHue(hue);
-              });
-            },
-          ),
-          const SizedBox(height: 18),
-          Row(
-            children: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('Cancel'),
-              ),
-              const Spacer(),
-              OutlinedButton(
-                onPressed: () {
-                  setState(() {
-                    _selectedColor = HSVColor.fromColor(widget.initialColor);
-                  });
-                },
-                child: const Text('Reset'),
-              ),
-              const SizedBox(width: 10),
-              FilledButton(
-                onPressed: () => Navigator.of(context).pop(color),
-                child: const Text('Apply'),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  static String _hexLabel(Color color) {
-    final argb = color.toARGB32().toRadixString(16).padLeft(8, '0');
-    return '#${argb.substring(2).toUpperCase()}';
-  }
-}
-
-class _ToneSaturationValueBoard extends StatelessWidget {
-  const _ToneSaturationValueBoard({
-    required this.color,
-    required this.onChanged,
-  });
-
-  final HSVColor color;
-  final ValueChanged<HSVColor> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final size = constraints.biggest;
-        final markerLeft = color.saturation * size.width;
-        final markerTop = (1 - color.value) * size.height;
-        final hueColor = HSVColor.fromAHSV(1, color.hue, 1, 1).toColor();
-
-        void updateColor(Offset localPosition) {
-          final dx = localPosition.dx.clamp(0.0, size.width);
-          final dy = localPosition.dy.clamp(0.0, size.height);
-          onChanged(
-            color
-                .withSaturation(dx / size.width)
-                .withValue(1 - (dy / size.height)),
-          );
-        }
-
-        return GestureDetector(
-          onTapDown: (details) => updateColor(details.localPosition),
-          onPanDown: (details) => updateColor(details.localPosition),
-          onPanUpdate: (details) => updateColor(details.localPosition),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(28),
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [Colors.white, hueColor],
-                    ),
-                  ),
-                ),
-                const DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [Colors.transparent, Colors.black],
-                    ),
-                  ),
-                ),
-                Positioned(
-                  left: markerLeft.clamp(14.0, size.width - 14.0) - 14,
-                  top: markerTop.clamp(14.0, size.height - 14.0) - 14,
-                  child: Container(
-                    width: 28,
-                    height: 28,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: color.toColor(),
-                      border: Border.all(color: Colors.white, width: 2.6),
-                      boxShadow: <BoxShadow>[
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.18),
-                          blurRadius: 14,
-                          offset: const Offset(0, 6),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _ToneHueSpectrumSlider extends StatelessWidget {
-  const _ToneHueSpectrumSlider({
-    required this.hue,
-    required this.onChanged,
-  });
-
-  final double hue;
-  final ValueChanged<double> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      height: 34,
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final width = constraints.maxWidth;
-          final markerLeft = (hue / 360) * width;
-
-          void updateHue(Offset localPosition) {
-            final dx = localPosition.dx.clamp(0.0, width);
-            onChanged((dx / width) * 360);
-          }
-
-          return GestureDetector(
-            onTapDown: (details) => updateHue(details.localPosition),
-            onPanDown: (details) => updateHue(details.localPosition),
-            onPanUpdate: (details) => updateHue(details.localPosition),
-            child: Stack(
-              alignment: Alignment.centerLeft,
-              children: [
-                Container(
-                  height: 16,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(999),
-                    gradient: const LinearGradient(
-                      colors: [
-                        Color(0xFFFF0000),
-                        Color(0xFFFFFF00),
-                        Color(0xFF00FF00),
-                        Color(0xFF00FFFF),
-                        Color(0xFF0000FF),
-                        Color(0xFFFF00FF),
-                        Color(0xFFFF0000),
-                      ],
-                    ),
-                  ),
-                ),
-                Positioned(
-                  left: markerLeft.clamp(14.0, width - 14.0) - 14,
-                  top: 3,
-                  child: Container(
-                    width: 28,
-                    height: 28,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: HSVColor.fromAHSV(1, hue, 1, 1).toColor(),
-                      border: Border.all(color: Colors.white, width: 2.6),
-                      boxShadow: <BoxShadow>[
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.14),
-                          blurRadius: 10,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          );
-        },
-      ),
-    );
-  }
-}

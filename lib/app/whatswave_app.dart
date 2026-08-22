@@ -171,6 +171,7 @@ class _WhatsWaveAppState extends State<WhatsWaveApp> {
             widget.updatesRepository ?? repositoryBundle.updatesRepository,
         integrations: _integrationController,
       ),
+      musicRepository: repositoryBundle.statusMusicRepository,
     );
     _authController.addListener(_handleIntegrationContextChanged);
     _preferencesController.addListener(_handleIntegrationContextChanged);

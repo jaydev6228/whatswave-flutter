@@ -130,6 +130,7 @@ class StatusMediaDecorationOverlay extends StatelessWidget {
       return _RichStatusMediaDecorationOverlay(
         segment: segment,
         accentColor: accentColor,
+        padding: padding,
         compact: compact,
         showBackdrop: showBackdrop,
         showTopDecorations: showTopDecorations,
@@ -140,7 +141,7 @@ class StatusMediaDecorationOverlay extends StatelessWidget {
     final theme = Theme.of(context);
     final caption = meaningfulStatusCaption(segment);
     final captionMaxLines = compact ? 3 : 4;
-    final captionFontSize = _captionFontSizeFor(
+    final captionFontSize = captionFontSizeFor(
       caption,
       compact: compact,
     );
@@ -332,45 +333,51 @@ class StatusMediaDecorationOverlay extends StatelessWidget {
     );
   }
 
-  double _captionFontSizeFor(
-    String caption, {
-    required bool compact,
-  }) {
-    final normalizedCaption = caption.trim();
-    if (normalizedCaption.isEmpty) {
-      return compact ? 12 : 20;
-    }
+}
 
-    final lineCount = '\n'.allMatches(normalizedCaption).length + 1;
-    final textLength = normalizedCaption.length;
-
-    if (compact) {
-      if (lineCount >= 3 || textLength > 90) {
-        return 11;
-      }
-      if (lineCount >= 2 || textLength > 48) {
-        return 11.5;
-      }
-      return 12;
-    }
-
-    if (lineCount >= 4 || textLength > 180) {
-      return 14;
-    }
-    if (lineCount >= 3 || textLength > 120) {
-      return 15.5;
-    }
-    if (lineCount >= 2 || textLength > 72) {
-      return 17;
-    }
-    return 19;
+/// Shared by both rendering paths below -- shrinks the caption card's font
+/// as the text gets longer, so a short caption still reads big and bold
+/// (matching WhatsApp/Instagram) while a long one doesn't blow past the
+/// card's bounds.
+double captionFontSizeFor(
+  String caption, {
+  required bool compact,
+}) {
+  final normalizedCaption = caption.trim();
+  if (normalizedCaption.isEmpty) {
+    return compact ? 12 : 20;
   }
+
+  final lineCount = '\n'.allMatches(normalizedCaption).length + 1;
+  final textLength = normalizedCaption.length;
+
+  if (compact) {
+    if (lineCount >= 3 || textLength > 90) {
+      return 11;
+    }
+    if (lineCount >= 2 || textLength > 48) {
+      return 11.5;
+    }
+    return 12;
+  }
+
+  if (lineCount >= 4 || textLength > 180) {
+    return 14;
+  }
+  if (lineCount >= 3 || textLength > 120) {
+    return 15.5;
+  }
+  if (lineCount >= 2 || textLength > 72) {
+    return 17;
+  }
+  return 19;
 }
 
 class _RichStatusMediaDecorationOverlay extends StatelessWidget {
   const _RichStatusMediaDecorationOverlay({
     required this.segment,
     required this.accentColor,
+    required this.padding,
     required this.compact,
     required this.showBackdrop,
     required this.showTopDecorations,
@@ -379,6 +386,7 @@ class _RichStatusMediaDecorationOverlay extends StatelessWidget {
 
   final StatusStorySegment segment;
   final Color accentColor;
+  final EdgeInsets padding;
   final bool compact;
   final bool showBackdrop;
   final bool showTopDecorations;
@@ -397,9 +405,27 @@ class _RichStatusMediaDecorationOverlay extends StatelessWidget {
       if (showCaption) ...textItems,
     ];
 
-    if (!showBackdrop && visibleItems.isEmpty) {
+    // WhatsApp shows the plain typed caption *and* any placed overlays
+    // together -- they're independent inputs in the composer. The one
+    // exception: older stored segments (and any other caller that never
+    // adopted the rich overlay list) get a caption synthesized into a
+    // single text overlay item instead of a real `previewText` -- in that
+    // case the caption card would just be showing the same string twice.
+    final caption = meaningfulStatusCaption(segment);
+    final captionAlreadyRepresented = textItems.any(
+      (item) => item.label.trim() == caption,
+    );
+    final hasCaption =
+        showCaption && caption.isNotEmpty && !captionAlreadyRepresented;
+    final captionMaxLines = compact ? 3 : 4;
+    final captionFontSize = captionFontSizeFor(caption, compact: compact);
+
+    if (!showBackdrop && visibleItems.isEmpty && !hasCaption) {
       return const SizedBox.shrink();
     }
+
+    final overlayColor = Colors.black.withValues(alpha: compact ? 0.26 : 0.34);
+    final borderColor = Colors.white.withValues(alpha: compact ? 0.12 : 0.18);
 
     return Stack(
       fit: StackFit.expand,
@@ -421,39 +447,73 @@ class _RichStatusMediaDecorationOverlay extends StatelessWidget {
               ),
             ),
           ),
-        if (visibleItems.isNotEmpty)
+        if (visibleItems.isNotEmpty || hasCaption)
           Positioned.fill(
-            child: IgnorePointer(
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final availableSize = Size(
-                    constraints.maxWidth,
-                    constraints.maxHeight,
-                  );
-                  final frameSize = statusStoryFrameSizeFor(
-                    availableSize,
-                    segment.mediaTransform.frameAspectRatio,
-                  );
-                  return Center(
-                    child: SizedBox(
-                      width: frameSize.width,
-                      height: frameSize.height,
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          for (final item in visibleItems)
-                            _StaticStatusOverlayPosition(
-                              item: item,
-                              canvasSize: frameSize,
-                              compact: compact,
-                              accentColor: accentColor,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final availableSize = Size(
+                  constraints.maxWidth,
+                  constraints.maxHeight,
+                );
+                final frameSize = statusStoryFrameSizeFor(
+                  availableSize,
+                  segment.mediaTransform.frameAspectRatio,
+                );
+                return Center(
+                  child: SizedBox(
+                    width: frameSize.width,
+                    height: frameSize.height,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        if (visibleItems.isNotEmpty)
+                          IgnorePointer(
+                            child: Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                for (final item in visibleItems)
+                                  _StaticStatusOverlayPosition(
+                                    item: item,
+                                    canvasSize: frameSize,
+                                    compact: compact,
+                                    accentColor: accentColor,
+                                  ),
+                              ],
                             ),
-                        ],
-                      ),
+                          ),
+                        if (hasCaption)
+                          Positioned(
+                            left: padding.left,
+                            right: padding.right,
+                            bottom: padding.bottom,
+                            child: Align(
+                              alignment: Alignment.bottomLeft,
+                              child: ConstrainedBox(
+                                constraints: BoxConstraints(
+                                  maxWidth: compact ? 236 : 420,
+                                ),
+                                child: _ExpandableCaptionCard(
+                                  key: ValueKey<String>(
+                                    'status-caption-${segment.id}-${compact ? 'compact' : 'regular'}',
+                                  ),
+                                  caption: caption,
+                                  compact: compact,
+                                  overlayColor: overlayColor,
+                                  borderColor: borderColor,
+                                  accentColor: accentColor,
+                                  textStyleModel: segment.textStyle ??
+                                      _defaultMediaCaptionStyle,
+                                  collapsedMaxLines: captionMaxLines,
+                                  collapsedFontSize: captionFontSize,
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
-                  );
-                },
-              ),
+                  ),
+                );
+              },
             ),
           ),
       ],
@@ -860,22 +920,48 @@ class _StatusMusicBanner extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(
-                Icons.music_note_rounded,
-                color: primaryColor,
-                size: compact ? 15 : 17,
+              Container(
+                width: compact ? 24 : 28,
+                height: compact ? 24 : 28,
+                decoration: BoxDecoration(
+                  color: primaryColor.withValues(alpha: 0.22),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.music_note_rounded,
+                  color: primaryColor,
+                  size: compact ? 13 : 15,
+                ),
               ),
               SizedBox(width: compact ? 8 : 10),
               ConstrainedBox(
                 constraints: BoxConstraints(maxWidth: compact ? 120 : 160),
-                child: Text(
-                  item.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.labelLarge?.copyWith(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w800,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      item.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                        height: 1.1,
+                      ),
+                    ),
+                    if (item.subtitle?.isNotEmpty == true)
+                      Text(
+                        item.subtitle!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: Colors.white.withValues(alpha: 0.64),
+                          fontWeight: FontWeight.w600,
+                          height: 1.1,
+                        ),
+                      ),
+                  ],
                 ),
               ),
             ],

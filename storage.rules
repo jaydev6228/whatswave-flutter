@@ -49,6 +49,15 @@ service firebase.storage {
         && request.auth.uid in firestore.get(/databases/(default)/documents/chatThreads/$(threadId)).data.get('groupAdminUids', []);
     }
 
+    // "Add music" catalog audio at statusMusic/{fileName} -- admin-uploaded
+    // (see the seeding script referenced by statusMusicTracks in
+    // firestore.rules), never written from the client. Readable by any
+    // signed-in user, same as every other shared-catalog asset above.
+    match /statusMusic/{fileName} {
+      allow read: if request.auth != null;
+      allow write, delete: if false;
+    }
+
     // Deny everything else by default.
     match /{allPaths=**} {
       allow read, write: if false;

@@ -211,6 +211,19 @@ service cloud.firestore {
       }
     }
 
+    match /statusMusicTracks/{trackId} {
+      // The "Add music" catalog offered by the status composer -- a
+      // read-only shared list, seeded server-side (Storage for the mp3
+      // files, one doc per track here for title/artist/color/preview URL
+      // metadata) via the Admin SDK, never written from the client. Any
+      // signed-in user can read it, matching how every other picker's
+      // options (fonts, backgrounds, stickers) are just bundled constants
+      // today -- this is the first one that lives server-side instead, so
+      // it needs an explicit read rule with writes fully closed.
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
     match /communities/{communityId} {
       // Membership-gated, like a real private group: only uids in
       // memberUids can read the document at all. Only the owner can write

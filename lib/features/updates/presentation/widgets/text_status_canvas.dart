@@ -604,10 +604,27 @@ class TextStatusCanvas extends StatelessWidget {
                     child: FractionallySizedBox(
                       widthFactor: _textWidthFactor(style.layout),
                       alignment: _alignmentFor(style.alignment, style.layout),
-                      child: _TextPanel(
-                        layout: style.layout,
-                        background: background,
-                        child: resolvedTextChild,
+                      // A short status still centers freely inside the
+                      // panel exactly as before -- this cap only ever
+                      // bites once typed text would otherwise need more
+                      // room than the canvas actually has, which used to
+                      // just paint straight past the card's edges instead
+                      // of stopping anywhere. Past the cap the panel holds
+                      // at its max height and the text scrolls inside it,
+                      // so "how much you've typed" never depends on
+                      // outgrowing a frame that can't actually grow
+                      // further than the screen itself.
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxHeight: constraints.maxHeight * 0.86,
+                        ),
+                        child: _TextPanel(
+                          layout: style.layout,
+                          background: background,
+                          child: SingleChildScrollView(
+                            child: resolvedTextChild,
+                          ),
+                        ),
                       ),
                     ),
                   ),
@@ -630,17 +647,20 @@ class TextStatusCanvas extends StatelessWidget {
   }) {
     final clampedScale = style.sizeScale.clamp(0.72, 1.45);
     var baseSize = shortestSide * 0.124;
-    if (textLength > 44) {
-      baseSize *= 0.88;
-    }
-    if (textLength > 88) {
-      baseSize *= 0.76;
-    }
-    if (textLength > 140) {
-      baseSize *= 0.64;
-    }
+    // Each length tier is its own target scale for that much text, not a
+    // further cut on top of every shorter tier's cut already applied --
+    // these used to be separate `if`s that all fired at once past 220
+    // characters, compounding to ~27% of base size instead of the
+    // intended 56% and shrinking any longer status down to a tiny pill of
+    // text in an otherwise empty card.
     if (textLength > 220) {
       baseSize *= 0.56;
+    } else if (textLength > 140) {
+      baseSize *= 0.64;
+    } else if (textLength > 88) {
+      baseSize *= 0.76;
+    } else if (textLength > 44) {
+      baseSize *= 0.88;
     }
 
     final baseStyle =

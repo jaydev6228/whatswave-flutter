@@ -33,6 +33,8 @@ abstract class UpdatesRepository {
     List<String>? stickers,
     StatusMusicTrack? musicTrack,
     int? durationMillis,
+    int? trimStartMillis,
+    List<StatusDrawingStroke>? drawingStrokes,
   });
 
   Future<List<StatusStory>> markStoryViewed(

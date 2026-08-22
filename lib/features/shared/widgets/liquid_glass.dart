@@ -267,3 +267,155 @@ class LiquidGlassChip extends StatelessWidget {
     );
   }
 }
+
+/// A frosted liquid-glass popup anchored right next to the button that
+/// opened it -- a "tooltip bubble" in place of Material's [showMenu] or a
+/// full-height modal sheet, for any picker/menu that should feel like it
+/// belongs to the app's own floating glass chrome. Pass the tapped
+/// button's own [BuildContext] (e.g. via a [Builder] wrapping just that
+/// button) as [anchorContext] so the bubble lands precisely at it rather
+/// than the whole enclosing widget.
+Future<T?> showLiquidGlassBubbleMenu<T>({
+  required BuildContext anchorContext,
+  required List<Widget> Function(BuildContext context) itemBuilder,
+  /// True opens the bubble growing downward from the button's bottom edge
+  /// (for a button near the top of the screen); false (the default) grows
+  /// upward from the button's top edge (for a button near the bottom).
+  bool openBelow = false,
+}) {
+  final anchorBox = anchorContext.findRenderObject()! as RenderBox;
+  final overlayBox =
+      Overlay.of(anchorContext).context.findRenderObject()! as RenderBox;
+  final anchorTopLeft =
+      anchorBox.localToGlobal(Offset.zero, ancestor: overlayBox);
+  final anchorSize = anchorBox.size;
+  final screenSize = overlayBox.size;
+
+  // Anchoring purely from the right edge (as if every button lived in the
+  // bottom-right) starved the bubble of width whenever the real button sat
+  // near the left instead -- the padding meant to clear the button ate
+  // almost the whole screen, squeezing the content into a sliver. Anchor
+  // from whichever horizontal edge is actually closer to the button.
+  final anchorsLeftHalf =
+      (anchorTopLeft.dx + anchorSize.width / 2) < screenSize.width / 2;
+  final leftInset = anchorTopLeft.dx.clamp(12.0, screenSize.width - 12);
+  final rightInset = (screenSize.width - anchorTopLeft.dx - anchorSize.width)
+      .clamp(12.0, screenSize.width - 12);
+  final alignment = Alignment(
+    anchorsLeftHalf ? -1 : 1,
+    openBelow ? -1 : 1,
+  );
+  final verticalInset = openBelow
+      ? (anchorTopLeft.dy + anchorSize.height + 10)
+          .clamp(12.0, screenSize.height - 12)
+      : (screenSize.height - anchorTopLeft.dy + 10)
+          .clamp(12.0, screenSize.height - 12);
+  final padding = EdgeInsets.only(
+    left: anchorsLeftHalf ? leftInset : 0,
+    right: anchorsLeftHalf ? 0 : rightInset,
+    top: openBelow ? verticalInset : 0,
+    bottom: openBelow ? 0 : verticalInset,
+  );
+
+  return showGeneralDialog<T>(
+    context: anchorContext,
+    barrierLabel: 'Dismiss',
+    barrierColor: Colors.transparent,
+    barrierDismissible: true,
+    transitionDuration: const Duration(milliseconds: 160),
+    pageBuilder: (context, animation, secondaryAnimation) {
+      return Align(
+        alignment: alignment,
+        child: Padding(
+          padding: padding,
+          child: FadeTransition(
+            opacity: animation,
+            child: ScaleTransition(
+              scale: Tween<double>(begin: 0.9, end: 1).animate(animation),
+              alignment: alignment,
+              child: LiquidGlassSurface(
+                borderRadius: BorderRadius.circular(18),
+                blurSigma: 22,
+                color: Colors.black.withValues(alpha: 0.5),
+                borderColor: Colors.white.withValues(alpha: 0.16),
+                child: Material(
+                  type: MaterialType.transparency,
+                  child: ConstrainedBox(
+                    constraints:
+                        const BoxConstraints(maxHeight: 320, minWidth: 168),
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      // Shrink-wraps the bubble to its widest item's own
+                      // natural width -- without this, the Column below
+                      // (needed so each item's Row can *stretch* to match
+                      // it, instead of centering under it) would otherwise
+                      // just take all the width this unbounded-ish parent
+                      // is willing to hand out, ballooning out toward the
+                      // screen edge instead of hugging the label text.
+                      child: IntrinsicWidth(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: itemBuilder(context),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    },
+  );
+}
+
+/// One selectable row inside a [showLiquidGlassBubbleMenu] popup.
+class LiquidGlassBubbleItem extends StatelessWidget {
+  const LiquidGlassBubbleItem({
+    required this.label,
+    required this.onTap,
+    this.icon,
+    this.selected = false,
+    super.key,
+  });
+
+  final String label;
+  final IconData? icon;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 11),
+        // Fills the row the stretched Column gave it (not just its own
+        // content width) so the icon+label always start flush against the
+        // left edge, and the trailing checkmark (when selected) still
+        // pins to the right instead of hugging the label.
+        child: Row(
+          children: [
+            if (icon != null) ...[
+              Icon(icon, color: Colors.white, size: 18),
+              const SizedBox(width: 10),
+            ],
+            Text(
+              label,
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
+              ),
+            ),
+            if (selected) ...[
+              const Spacer(),
+              const Icon(Icons.check_rounded, color: Colors.white, size: 16),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}

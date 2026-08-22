@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:whatswave/app/theme/app_theme.dart';
@@ -5,8 +7,10 @@ import 'package:whatswave/core/models/status_story.dart';
 import 'package:whatswave/core/models/story_viewer.dart';
 import 'package:whatswave/features/updates/application/updates_controller.dart';
 import 'package:whatswave/features/updates/data/fake_updates_repository.dart';
+import 'package:whatswave/features/updates/data/status_media_store.dart';
 import 'package:whatswave/features/updates/data/updates_repository.dart';
 import 'package:whatswave/features/updates/presentation/updates_screen.dart';
+import 'package:whatswave/features/updates/presentation/widgets/status_story_media_surface.dart';
 
 import '../../../support/device_matrix.dart';
 
@@ -197,6 +201,56 @@ void main() {
     expect(find.text('Older status to reopen'), findsWidgets);
   });
 
+  testWidgets(
+      'renders a rotated, Firebase-backed photo segment through the shared '
+      'media surface in the manage-status sheet, instead of falling back '
+      'to the generic placeholder', (tester) async {
+    // Mimics FirebaseStatusMediaStore: importMedia returns a remote URL,
+    // not a local path -- the old thumbnail's plain File(url).existsSync()
+    // check is always false for a URL, so this exact shape is what used to
+    // silently fall through to the generic "PHOTO" placeholder.
+    final controller = UpdatesController(
+      repository: FakeUpdatesRepository(
+        latency: Duration.zero,
+        mediaStore: const _PassThroughStatusMediaStore(
+          'https://example.com/status-photo.jpg',
+        ),
+      ),
+    );
+    await controller.loadUpdates();
+    await controller.createStatus(
+      type: StatusStoryType.photo,
+      localMediaPath: '/picked/photo.jpg',
+      mediaTransform: const StatusMediaTransform(
+        rotationQuarterTurns: 1,
+        frameAspectRatio: 3 / 4,
+      ),
+    );
+
+    await HttpOverrides.runZoned(() async {
+      await _pumpUpdatesScreen(
+        tester,
+        device: iphoneSeProfile,
+        controller: controller,
+      );
+
+      await tester
+          .tap(find.byKey(const Key('updates_my_status_manage_button')));
+      await tester.pumpAndSettle();
+
+      final surfaceFinder = find.descendant(
+        of: find.byKey(const Key('updates_my_status_segment_0')),
+        matching: find.byType(StatusStoryMediaSurface),
+      );
+      expect(surfaceFinder, findsOneWidget);
+      final surface = tester.widget<StatusStoryMediaSurface>(surfaceFinder);
+      expect(surface.localMediaPath, 'https://example.com/status-photo.jpg');
+      expect(surface.mediaTransform.rotationQuarterTurns, 1);
+      expect(surface.mediaTransform.frameAspectRatio, closeTo(3 / 4, 0.0001));
+      expect(find.text('PHOTO'), findsNothing);
+    }, createHttpClient: (context) => _ThrowingHttpClient());
+  });
+
   testWidgets('deletes one status from manager and clears the rest',
       (tester) async {
     final controller = UpdatesController(
@@ -334,6 +388,8 @@ class _FlakyUpdatesRepository implements UpdatesRepository {
     List<String>? stickers,
     StatusMusicTrack? musicTrack,
     int? durationMillis,
+    int? trimStartMillis,
+    List<StatusDrawingStroke>? drawingStrokes,
   }) =>
       _delegate.createStatus(
         type: type,
@@ -346,6 +402,8 @@ class _FlakyUpdatesRepository implements UpdatesRepository {
         stickers: stickers,
         musicTrack: musicTrack,
         durationMillis: durationMillis,
+        trimStartMillis: trimStartMillis,
+        drawingStrokes: drawingStrokes,
       );
 
   @override
@@ -397,4 +455,36 @@ class _FlakyUpdatesRepository implements UpdatesRepository {
   @override
   Stream<List<StoryViewer>>? watchStoryViewers(String storyId) =>
       _delegate.watchStoryViewers(storyId);
+}
+
+class _PassThroughStatusMediaStore implements StatusMediaStore {
+  const _PassThroughStatusMediaStore(this.targetPath);
+
+  final String targetPath;
+
+  @override
+  Future<String> importMedia(
+    String sourcePath, {
+    required StatusStoryType type,
+  }) async {
+    return targetPath;
+  }
+
+  @override
+  Future<void> deleteMedia(Iterable<String> mediaPaths) async {}
+}
+
+/// Fails every request immediately instead of attempting a real network
+/// call -- widget tests run without network access, and a remote-media
+/// StatusStoryMediaSurface otherwise hangs waiting on a response that
+/// never arrives. Matches the pattern already used in avatar_badge_test.dart
+/// for the same reason.
+class _ThrowingHttpClient implements HttpClient {
+  @override
+  Future<HttpClientRequest> getUrl(Uri url) async {
+    throw const SocketException('No network in tests.');
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

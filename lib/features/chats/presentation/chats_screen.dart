@@ -1341,7 +1341,8 @@ class _StatusStrip extends StatelessWidget {
                       chatsController: chatsController,
                     )
                 : null,
-            onAdd: () => showStatusComposeChoice(context, controller, imagePicker),
+            onAdd: (buttonContext) =>
+                showStatusComposeChoice(buttonContext, controller, imagePicker),
           ),
           for (final story in otherStories) ...[
             const SizedBox(width: 14),
@@ -1374,7 +1375,7 @@ class _MyStatusStripItem extends StatelessWidget {
   final AppUser? currentUser;
   final bool isBusy;
   final VoidCallback? onView;
-  final VoidCallback onAdd;
+  final ValueChanged<BuildContext> onAdd;
 
   @override
   Widget build(BuildContext context) {
@@ -1385,7 +1386,7 @@ class _MyStatusStripItem extends StatelessWidget {
       children: [
         GestureDetector(
           key: const Key('chats_status_mine'),
-          onTap: onView ?? onAdd,
+          onTap: onView ?? () => onAdd(context),
           child: Stack(
             clipBehavior: Clip.none,
             children: [
@@ -1415,38 +1416,43 @@ class _MyStatusStripItem extends StatelessWidget {
               Positioned(
                 right: -2,
                 bottom: -2,
-                child: Material(
-                  color: theme.colorScheme.primary,
-                  shape: const CircleBorder(),
-                  child: InkWell(
-                    key: const Key('chats_status_add_button'),
-                    customBorder: const CircleBorder(),
-                    onTap: isBusy ? null : onAdd,
-                    child: Container(
-                      width: 22,
-                      height: 22,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: theme.colorScheme.surface,
-                          width: 2,
+                // Scoped to just this badge (not the whole avatar Column
+                // above) so the liquid-glass compose-choice bubble it opens
+                // anchors precisely to the "+" button itself.
+                child: Builder(
+                  builder: (buttonContext) => Material(
+                    color: theme.colorScheme.primary,
+                    shape: const CircleBorder(),
+                    child: InkWell(
+                      key: const Key('chats_status_add_button'),
+                      customBorder: const CircleBorder(),
+                      onTap: isBusy ? null : () => onAdd(buttonContext),
+                      child: Container(
+                        width: 22,
+                        height: 22,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: theme.colorScheme.surface,
+                            width: 2,
+                          ),
                         ),
-                      ),
-                      child: Center(
-                        child: isBusy
-                            ? SizedBox(
-                                width: 11,
-                                height: 11,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 1.8,
+                        child: Center(
+                          child: isBusy
+                              ? SizedBox(
+                                  width: 11,
+                                  height: 11,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 1.8,
+                                    color: theme.colorScheme.onPrimary,
+                                  ),
+                                )
+                              : Icon(
+                                  Icons.add_rounded,
+                                  size: 14,
                                   color: theme.colorScheme.onPrimary,
                                 ),
-                              )
-                            : Icon(
-                                Icons.add_rounded,
-                                size: 14,
-                                color: theme.colorScheme.onPrimary,
-                              ),
+                        ),
                       ),
                     ),
                   ),

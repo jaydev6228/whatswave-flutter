@@ -41,13 +41,19 @@ abstract final class DemoData {
     textColorValue: 0xFFFFFFFF,
     sizeScale: 0.94,
   );
-  static const StatusMusicTrack _demoCityPulseTrack = StatusMusicTrack(
-    id: 'city-pulse',
-    title: 'City Pulse',
-    artist: 'Whatswave House',
+  // Same track as the real catalog's first entry (see
+  // kFallbackStatusMusicTracks in status_music_repository.dart). No
+  // previewAssetPath -- the real Storage download URL is a per-object
+  // bearer token (anyone holding it can fetch that file with no auth
+  // check), so it only ever lives in Firestore, never in this app's
+  // committed source. The demo story shows the music banner; it just
+  // can't actually play a preview.
+  static const StatusMusicTrack _demoMusicTrack = StatusMusicTrack(
+    id: 'hip-hop-02',
+    title: 'Hip Hop 02',
+    artist: 'Lily J',
     colorValue: 0xFF25D366,
     secondaryColorValue: 0xFFD9FBE8,
-    previewAssetPath: 'assets/audio/status_music/city_pulse.wav',
     bannerStyleId: 'pulse',
   );
 
@@ -538,13 +544,13 @@ abstract final class DemoData {
           previewText: 'Shared a new video update',
           localMediaPath: _demoStatusCityWalkAsset,
           durationMillis: 7000,
-          musicTrack: _demoCityPulseTrack,
+          musicTrack: _demoMusicTrack,
           overlayItems: <StatusMediaOverlayItem>[
             StatusMediaOverlayItem(
               id: 'noah-story-0-music',
               type: StatusMediaOverlayType.music,
-              label: 'City Pulse',
-              subtitle: 'Whatswave House',
+              label: 'Hip Hop 02',
+              subtitle: 'Lily J',
               positionDx: 0.22,
               positionDy: 0.16,
               accentColorValue: 0xFF25D366,

@@ -11,6 +11,7 @@ class StatusMediaTransform {
     this.offsetDy = 0,
     this.rotationQuarterTurns = 0,
     this.frameAspectRatio,
+    this.blurSigma = 0,
   });
 
   final double scale;
@@ -19,6 +20,9 @@ class StatusMediaTransform {
   final int rotationQuarterTurns;
   final double? frameAspectRatio;
 
+  /// Whole-media blur strength (0 = off), matching WhatsApp's "blur" tool.
+  final double blurSigma;
+
   StatusMediaTransform copyWith({
     double? scale,
     double? offsetDx,
@@ -26,6 +30,7 @@ class StatusMediaTransform {
     int? rotationQuarterTurns,
     double? frameAspectRatio,
     bool clearFrameAspectRatio = false,
+    double? blurSigma,
   }) {
     return StatusMediaTransform(
       scale: scale ?? this.scale,
@@ -35,6 +40,7 @@ class StatusMediaTransform {
       frameAspectRatio: clearFrameAspectRatio
           ? null
           : (frameAspectRatio ?? this.frameAspectRatio),
+      blurSigma: blurSigma ?? this.blurSigma,
     );
   }
 
@@ -45,6 +51,7 @@ class StatusMediaTransform {
       'offsetDy': offsetDy,
       'rotationQuarterTurns': rotationQuarterTurns,
       'frameAspectRatio': frameAspectRatio,
+      'blurSigma': blurSigma,
     };
   }
 
@@ -63,6 +70,7 @@ class StatusMediaTransform {
           (_doubleValueFromRaw(raw['frameAspectRatio'])?.isFinite ?? false)
               ? (_doubleValueFromRaw(raw['frameAspectRatio'])!).clamp(0.5, 2.2)
               : null,
+      blurSigma: (_doubleValueFromRaw(raw['blurSigma']) ?? 0).clamp(0.0, 20.0),
     );
   }
 }
@@ -399,6 +407,72 @@ class StatusMediaOverlayItem {
   }
 }
 
+/// One freehand doodle stroke drawn onto a story's canvas. Points are
+/// normalized (0-1) relative to the story frame, the same convention
+/// [StatusMediaOverlayItem] uses for its position -- so a stroke drawn in
+/// the composer lands in the same spot in the viewer and thumbnails
+/// regardless of the actual pixel size each one renders at.
+class StatusDrawingStroke {
+  const StatusDrawingStroke({
+    required this.points,
+    required this.colorValue,
+    required this.strokeWidth,
+    this.isEraser = false,
+  });
+
+  final List<Offset> points;
+  final int colorValue;
+
+  /// Normalized to the story frame's shortest side, matching how
+  /// [strokeWidth] should be scaled back up wherever it's painted.
+  final double strokeWidth;
+
+  /// When true, this stroke punches a hole through earlier ink (not the
+  /// photo/video beneath it) wherever it's painted -- the eraser tool.
+  final bool isEraser;
+
+  Color get color => Color(colorValue);
+
+  Map<String, Object?> toJson() {
+    return <String, Object?>{
+      'points': points
+          .map((point) => <String, Object?>{'dx': point.dx, 'dy': point.dy})
+          .toList(growable: false),
+      'colorValue': colorValue,
+      'strokeWidth': strokeWidth,
+      if (isEraser) 'isEraser': true,
+    };
+  }
+
+  static StatusDrawingStroke? fromJson(Object? raw) {
+    if (raw is! Map<String, dynamic>) {
+      return null;
+    }
+    final pointsRaw = raw['points'];
+    if (pointsRaw is! List) {
+      return null;
+    }
+    final points = <Offset>[
+      for (final entry in pointsRaw)
+        if (entry is Map<String, dynamic> &&
+            entry['dx'] is num &&
+            entry['dy'] is num)
+          Offset((entry['dx'] as num).toDouble(), (entry['dy'] as num).toDouble()),
+    ];
+    final colorValue = raw['colorValue'];
+    if (points.isEmpty || colorValue is! int) {
+      return null;
+    }
+    final strokeWidth = raw['strokeWidth'];
+    return StatusDrawingStroke(
+      points: List<Offset>.unmodifiable(points),
+      colorValue: colorValue,
+      strokeWidth: strokeWidth is num ? strokeWidth.toDouble() : 0.012,
+      isEraser: raw['isEraser'] == true,
+    );
+  }
+}
+
 /// WhatsApp-style relative label for a status segment's [postedAt].
 String statusRelativeTimeLabel(DateTime? postedAt, {String fallback = ''}) {
   if (postedAt == null) {
@@ -422,11 +496,13 @@ class StatusStorySegment {
     this.localMediaPath,
     this.mediaTransform = const StatusMediaTransform(),
     this.durationMillis,
+    this.trimStartMillis = 0,
     this.textStyle,
     this.emoji,
     this.stickers = const <String>[],
     this.musicTrack,
     this.overlayItems = const <StatusMediaOverlayItem>[],
+    this.drawingStrokes = const <StatusDrawingStroke>[],
     this.postedAt,
   });
 
@@ -436,11 +512,18 @@ class StatusStorySegment {
   final String? localMediaPath;
   final StatusMediaTransform mediaTransform;
   final int? durationMillis;
+
+  /// Where in the source video playback starts (WhatsApp's "drag the slider
+  /// to trim the video") -- the trimmed range is
+  /// `[trimStartMillis, trimStartMillis + durationMillis)`. Always 0 for
+  /// photo/text segments.
+  final int trimStartMillis;
   final StatusTextStyle? textStyle;
   final String? emoji;
   final List<String> stickers;
   final StatusMusicTrack? musicTrack;
   final List<StatusMediaOverlayItem> overlayItems;
+  final List<StatusDrawingStroke> drawingStrokes;
   final DateTime? postedAt;
 
   bool get hasLocalMedia => localMediaPath?.trim().isNotEmpty == true;
@@ -457,6 +540,7 @@ class StatusStorySegment {
     String? localMediaPath,
     StatusMediaTransform? mediaTransform,
     int? durationMillis,
+    int? trimStartMillis,
     StatusTextStyle? textStyle,
     bool clearTextStyle = false,
     String? emoji,
@@ -465,6 +549,7 @@ class StatusStorySegment {
     StatusMusicTrack? musicTrack,
     bool clearMusicTrack = false,
     List<StatusMediaOverlayItem>? overlayItems,
+    List<StatusDrawingStroke>? drawingStrokes,
     DateTime? postedAt,
   }) {
     return StatusStorySegment(
@@ -474,12 +559,16 @@ class StatusStorySegment {
       localMediaPath: localMediaPath ?? this.localMediaPath,
       mediaTransform: mediaTransform ?? this.mediaTransform,
       durationMillis: durationMillis ?? this.durationMillis,
+      trimStartMillis: trimStartMillis ?? this.trimStartMillis,
       textStyle: clearTextStyle ? null : (textStyle ?? this.textStyle),
       emoji: clearEmoji ? null : (emoji ?? this.emoji),
       stickers: List<String>.unmodifiable(stickers ?? this.stickers),
       musicTrack: clearMusicTrack ? null : (musicTrack ?? this.musicTrack),
       overlayItems: List<StatusMediaOverlayItem>.unmodifiable(
         overlayItems ?? this.overlayItems,
+      ),
+      drawingStrokes: List<StatusDrawingStroke>.unmodifiable(
+        drawingStrokes ?? this.drawingStrokes,
       ),
       postedAt: postedAt ?? this.postedAt,
     );
@@ -493,12 +582,16 @@ class StatusStorySegment {
       'localMediaPath': localMediaPath,
       'mediaTransform': mediaTransform.toJson(),
       'durationMillis': durationMillis,
+      'trimStartMillis': trimStartMillis,
       'textStyle': textStyle?.toJson(),
       'emoji': emoji,
       'stickers': stickers,
       'musicTrack': musicTrack?.toJson(),
       'overlayItems': overlayItems
           .map((overlay) => overlay.toJson())
+          .toList(growable: false),
+      'drawingStrokes': drawingStrokes
+          .map((stroke) => stroke.toJson())
           .toList(growable: false),
       'postedAt': postedAt?.millisecondsSinceEpoch,
     };
@@ -528,6 +621,12 @@ class StatusStorySegment {
       for (final entry in _overlayListFromRaw(raw['overlayItems']))
         if (StatusMediaOverlayItem.fromJson(entry) case final overlay?) overlay,
     ];
+    final drawingStrokesRaw = raw['drawingStrokes'];
+    final drawingStrokes = <StatusDrawingStroke>[
+      if (drawingStrokesRaw is List)
+        for (final entry in drawingStrokesRaw)
+          if (StatusDrawingStroke.fromJson(entry) case final stroke?) stroke,
+    ];
     return StatusStorySegment(
       id: id,
       type: type,
@@ -542,6 +641,12 @@ class StatusStorySegment {
         String value => int.tryParse(value),
         _ => null,
       },
+      trimStartMillis: switch (raw['trimStartMillis']) {
+        int value => value,
+        num value => value.toInt(),
+        String value => int.tryParse(value) ?? 0,
+        _ => 0,
+      },
       textStyle: textStyle,
       emoji: raw['emoji'] is String && (raw['emoji'] as String).isNotEmpty
           ? raw['emoji'] as String
@@ -549,6 +654,7 @@ class StatusStorySegment {
       stickers: List<String>.unmodifiable(stickers),
       musicTrack: musicTrack,
       overlayItems: List<StatusMediaOverlayItem>.unmodifiable(overlayItems),
+      drawingStrokes: List<StatusDrawingStroke>.unmodifiable(drawingStrokes),
       postedAt: raw['postedAt'] is int
           ? DateTime.fromMillisecondsSinceEpoch(raw['postedAt'] as int)
           : null,

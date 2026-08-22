@@ -131,6 +131,34 @@ void main() {
     );
   }
 
+  testWidgets(
+      'the "+" on My status opens a liquid-glass bubble, and picking Text '
+      'status opens the text composer', (tester) async {
+    await _pumpChatsScreen(
+      tester,
+      device: iphoneProProfile,
+      controller: ChatsController(
+        repository: FakeChatRepository(latency: Duration.zero),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('chats_status_add_button')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('status_compose_choice_text')),
+        findsOneWidget);
+    expect(find.byKey(const Key('status_compose_choice_media')),
+        findsOneWidget);
+    expect(find.text('Text status'), findsOneWidget);
+    expect(find.text('Photo or video'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('status_compose_choice_text')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('updates_composer_sheet')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('opens a conversation, previews media, and sends new content',
       (tester) async {
     const composerFieldKey = Key('conversation_composer_field');

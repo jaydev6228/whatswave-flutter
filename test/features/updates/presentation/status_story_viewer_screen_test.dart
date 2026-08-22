@@ -112,14 +112,40 @@ void main() {
         previewText: 'Shared a new photo update',
         localMediaPath: '/missing/media/music.jpg',
         musicTrack: StatusMusicTrack(
-          id: 'city-pulse',
-          title: 'City Pulse',
-          artist: 'Whatswave House',
+          id: 'hip-hop-02',
+          title: 'Hip Hop 02',
+          artist: 'Lily J',
           colorValue: 0xFF25D366,
           secondaryColorValue: 0xFFD9FBE8,
-          previewAssetPath: 'assets/audio/status_music/city_pulse.wav',
+          previewAssetPath: 'assets/audio/status_music/hip_hop_02.mp3',
           bannerStyleId: 'cover',
         ),
+      ),
+    ],
+  );
+  const drawnPhotoStory = StatusStory(
+    id: 'drawn-story',
+    name: 'Marco',
+    avatarLabel: 'MA',
+    previewText: 'Shared a new photo update',
+    timeLabel: 'Just now',
+    accentColor: AppPalette.green,
+    type: StatusStoryType.photo,
+    totalSegments: 1,
+    seenSegments: 0,
+    segments: <StatusStorySegment>[
+      StatusStorySegment(
+        id: 'drawn-segment',
+        type: StatusStoryType.photo,
+        previewText: 'Shared a new photo update',
+        localMediaPath: 'asset://assets/media/status_demo/launch_cafe.jpg',
+        drawingStrokes: <StatusDrawingStroke>[
+          StatusDrawingStroke(
+            points: <Offset>[Offset(0.1, 0.1), Offset(0.9, 0.9)],
+            colorValue: 0xFFFFD60A,
+            strokeWidth: 0.02,
+          ),
+        ],
       ),
     ],
   );
@@ -174,6 +200,26 @@ void main() {
     final mediaRect = tester
         .getRect(find.byKey(const Key('updates_story_viewer_media_surface')));
     expect(mediaRect.width, closeTo(iphoneSeProfile.size.width, 0.1));
+  });
+
+  testWidgets(
+      'a posted photo status still shows its drawing strokes in the viewer',
+      (tester) async {
+    await _pumpStoryViewerHarness(
+      tester,
+      story: drawnPhotoStory,
+      segmentDurationOverride: const Duration(seconds: 10),
+    );
+
+    await tester.tap(find.byKey(const Key('open_viewer_button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(
+      find.byKey(const Key('updates_story_drawing_layer')),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets(
@@ -391,7 +437,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
 
     expect(find.byKey(const Key('updates_story_viewer')), findsOneWidget);
-    expect(find.text('City Pulse'), findsOneWidget);
+    expect(find.text('Hip Hop 02'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 

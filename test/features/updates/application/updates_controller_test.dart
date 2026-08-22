@@ -235,6 +235,8 @@ class _FailingUpdatesRepository implements UpdatesRepository {
     List<String>? stickers,
     StatusMusicTrack? musicTrack,
     int? durationMillis,
+    int? trimStartMillis,
+    List<StatusDrawingStroke>? drawingStrokes,
   }) {
     throw UnimplementedError();
   }

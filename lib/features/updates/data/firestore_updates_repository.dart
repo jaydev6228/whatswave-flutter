@@ -199,6 +199,8 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
     List<String>? stickers,
     StatusMusicTrack? musicTrack,
     int? durationMillis,
+    int? trimStartMillis,
+    List<StatusDrawingStroke>? drawingStrokes,
   }) async {
     final uid = _requireCurrentUid;
 
@@ -261,6 +263,7 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
           localMediaPath: storedMediaPath,
           mediaTransform: mediaTransform ?? const StatusMediaTransform(),
           durationMillis: durationMillis,
+          trimStartMillis: trimStartMillis ?? 0,
           textStyle: type == StatusStoryType.text
               ? (textStyle ?? const StatusTextStyle())
               : textStyle,
@@ -268,6 +271,9 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
           stickers: normalizedStickers,
           musicTrack: musicTrack,
           overlayItems: normalizedOverlayItems,
+          drawingStrokes: List<StatusDrawingStroke>.unmodifiable(
+            drawingStrokes ?? const <StatusDrawingStroke>[],
+          ),
           postedAt: postedAt,
         ),
       ]);

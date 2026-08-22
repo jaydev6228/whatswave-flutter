@@ -32,6 +32,8 @@ class _FailingCreateStatusRepository implements UpdatesRepository {
     List<String>? stickers,
     StatusMusicTrack? musicTrack,
     int? durationMillis,
+    int? trimStartMillis,
+    List<StatusDrawingStroke>? drawingStrokes,
   }) {
     throw const UpdatesRepositoryException(
       'Storage is unreachable right now.',

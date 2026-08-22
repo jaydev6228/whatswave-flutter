@@ -11,6 +11,8 @@ import '../../chats/application/chats_controller.dart';
 import '../../chats/domain/story_reply_context.dart';
 import '../../shared/widgets/avatar_badge.dart';
 import '../../shared/widgets/error_dialog.dart';
+import '../application/status_media_prefetch.dart';
+import '../data/status_music_repository.dart';
 import 'widgets/status_media_decoration_overlay.dart';
 import 'widgets/status_media_source.dart';
 import 'widgets/status_story_media_surface.dart';
@@ -93,12 +95,20 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
   bool _isClosing = false;
   bool _isTransitioning = false;
   bool _isPausedByHold = false;
+
+  /// False while the current segment's photo is still decoding -- the
+  /// progress bar holds at 0 instead of ticking through a segment nobody
+  /// can see yet. Always true for video/text segments, which have their
+  /// own separate load-gating (video) or nothing to load (text).
+  bool _isCurrentSegmentMediaReady = true;
   int? _activePointer;
   DateTime? _activePointerDownAt;
   _StoryTapDirection? _pendingTapDirection;
   VideoPlayerController? _videoController;
   Future<void>? _videoInitialization;
   String? _activeVideoPath;
+  VoidCallback? _trimLoopListener;
+  VideoPlayerController? _trimLoopControllerRef;
   VideoPlayerController? _musicController;
   String? _activeMusicAssetPath;
   bool _isDeletingSegment = false;
@@ -439,8 +449,16 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
 
     await _disposeVideoController();
 
-    final controller = buildStatusMediaVideoController(mediaPath);
-    final initialization = controller.initialize();
+    final cached = StatusVideoPreloadCache.instance.take(mediaPath);
+    final VideoPlayerController controller;
+    final Future<void> initialization;
+    if (cached != null) {
+      controller = cached.controller;
+      initialization = cached.initialization;
+    } else {
+      controller = buildStatusMediaVideoController(mediaPath);
+      initialization = controller.initialize();
+    }
     _videoController = controller;
     _videoInitialization = initialization;
     _activeVideoPath = mediaPath;
@@ -455,7 +473,7 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
         return;
       }
 
-      await controller.setLooping(true);
+      _attachTrimLoop(controller, segment);
       final musicAssetPath = segment?.musicTrack?.previewAssetPath?.trim();
       final hasMusic = musicAssetPath != null && musicAssetPath.isNotEmpty;
       await controller.setVolume(!hasMusic && !_isMuted ? 1 : 0);
@@ -508,7 +526,7 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
 
     await _disposeMusicController();
 
-    final controller = VideoPlayerController.asset(assetPath);
+    final controller = videoPlayerControllerForAudioPath(assetPath);
     _musicController = controller;
     _activeMusicAssetPath = assetPath;
 
@@ -539,6 +557,16 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
         segment?.musicTrack?.previewAssetPath?.trim().isNotEmpty == true;
     final isLocalVideoSegment = _currentSegmentType == StatusStoryType.video &&
         segment?.hasLocalMedia == true;
+    final isPhotoSegment = _currentSegmentType == StatusStoryType.photo &&
+        segment?.hasLocalMedia == true;
+
+    // A fresh photo needs to actually be on screen before its time starts
+    // counting down -- _markCurrentSegmentMediaReady flips this back to
+    // true (and un-pauses the progress bar) once StatusStoryMediaSurface
+    // reports the photo has finished decoding (or failed -- either way,
+    // loading has settled). Video has its own separate gating inside
+    // _configureSegmentPlayback below; text has nothing to wait for.
+    _isCurrentSegmentMediaReady = !isPhotoSegment;
 
     if (!isLocalVideoSegment && !hasMusic) {
       unawaited(_disposeVideoController());
@@ -552,13 +580,31 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
     unawaited(_configureSegmentPlayback(restartProgress: true));
   }
 
+  /// Called once loading has settled for whichever photo segment was being
+  /// shown at the time -- resumes the progress bar that
+  /// [_startCurrentSegmentPlayback] paused for it. [forSegment] is the
+  /// segment captured at the point the callback was handed to the widget
+  /// tree; if the viewer has since moved to a different segment, this is a
+  /// stale signal from a card that's mid-exit-transition and is ignored.
+  void _markCurrentSegmentMediaReady(StatusStorySegment? forSegment) {
+    if (!mounted ||
+        _isCurrentSegmentMediaReady ||
+        forSegment != _currentSegment) {
+      return;
+    }
+    setState(() => _isCurrentSegmentMediaReady = true);
+    if (!_isPausedByHold) {
+      _segmentProgressController.forward(from: 0);
+    }
+  }
+
   void _restartSegmentPlayback({
     required StatusStoryType type,
     StatusStorySegment? segment,
   }) {
     _segmentProgressController.duration =
         _segmentDurationFor(type: type, segment: segment);
-    if (_isPausedByHold) {
+    if (_isPausedByHold || !_isCurrentSegmentMediaReady) {
       _segmentProgressController.value = 0;
     } else {
       _segmentProgressController.forward(from: 0);
@@ -585,7 +631,11 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
     }
 
     _isPausedByHold = false;
-    _segmentProgressController.forward();
+    // Still waiting on a photo to finish decoding -- stay paused at 0;
+    // _markCurrentSegmentMediaReady will start the bar once it settles.
+    if (_isCurrentSegmentMediaReady) {
+      _segmentProgressController.forward();
+    }
     if (_currentSegmentType == StatusStoryType.video &&
         _videoController != null &&
         _videoController!.value.isInitialized) {
@@ -1011,6 +1061,7 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
   }
 
   Future<void> _disposeVideoController() async {
+    _detachTrimLoop();
     final controller = _videoController;
     _videoController = null;
     _videoInitialization = null;
@@ -1018,6 +1069,48 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
     if (controller != null) {
       await controller.dispose();
     }
+  }
+
+  /// Applies WhatsApp's real trim behavior at playback time: seek to
+  /// [StatusStorySegment.trimStartMillis] and loop only within
+  /// `[trimStart, trimStart + durationMillis)` instead of the whole file --
+  /// mirrors the composer's own preview trim loop
+  /// (`_handleTrimLoopPosition` in media_status_composer_screen.dart).
+  void _attachTrimLoop(VideoPlayerController controller, StatusStorySegment? segment) {
+    _detachTrimLoop();
+    final trimStartMillis = segment?.trimStartMillis ?? 0;
+    final durationMillis = segment?.durationMillis;
+    if (trimStartMillis <= 0 && (durationMillis == null || durationMillis <= 0)) {
+      unawaited(controller.setLooping(true));
+      return;
+    }
+    unawaited(controller.setLooping(false));
+    final trimStart = Duration(milliseconds: trimStartMillis);
+    final trimEnd = durationMillis != null && durationMillis > 0
+        ? trimStart + Duration(milliseconds: durationMillis)
+        : controller.value.duration;
+    if (trimStartMillis > 0) {
+      unawaited(controller.seekTo(trimStart));
+    }
+    void listener() {
+      if (controller.value.position >= trimEnd) {
+        unawaited(controller.seekTo(trimStart));
+      }
+    }
+
+    controller.addListener(listener);
+    _trimLoopListener = listener;
+    _trimLoopControllerRef = controller;
+  }
+
+  void _detachTrimLoop() {
+    final listener = _trimLoopListener;
+    final controller = _trimLoopControllerRef;
+    if (listener != null && controller != null) {
+      controller.removeListener(listener);
+    }
+    _trimLoopListener = null;
+    _trimLoopControllerRef = null;
   }
 
   Future<void> _disposeMusicController() async {
@@ -1033,6 +1126,13 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
   Widget build(BuildContext context) {
     final story = _story;
     final theme = Theme.of(context);
+    // Captured once here, not read live from _currentSegment inside the
+    // onPhotoLoadSettled callback below -- that getter would otherwise
+    // return whatever segment is current by the time the callback actually
+    // fires, defeating _markCurrentSegmentMediaReady's own stale-signal
+    // check for a card that's mid-exit-transition after the viewer has
+    // already moved on to a different segment.
+    final segmentForThisBuild = _currentSegment;
 
     return Scaffold(
       key: const Key('updates_story_viewer'),
@@ -1063,11 +1163,14 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
                     '${story.id}-segment-$_currentSegmentIndex-${_currentSegment?.localMediaPath ?? _currentSegmentType.name}',
                   ),
                   story: story,
-                  segment: _currentSegment,
+                  segment: segmentForThisBuild,
                   currentSegmentIndex: _currentSegmentIndex,
                   totalSegments: _segmentCount,
                   videoController: _videoController,
                   videoInitialization: _videoInitialization,
+                  onPhotoLoadSettled: () => _markCurrentSegmentMediaReady(
+                    segmentForThisBuild,
+                  ),
                 ),
               ),
             ),
@@ -1248,6 +1351,7 @@ class _StoryViewerCard extends StatelessWidget {
     this.segment,
     this.videoController,
     this.videoInitialization,
+    this.onPhotoLoadSettled,
     super.key,
   });
 
@@ -1257,6 +1361,7 @@ class _StoryViewerCard extends StatelessWidget {
   final int totalSegments;
   final VideoPlayerController? videoController;
   final Future<void>? videoInitialization;
+  final VoidCallback? onPhotoLoadSettled;
 
   @override
   Widget build(BuildContext context) {
@@ -1275,6 +1380,7 @@ class _StoryViewerCard extends StatelessWidget {
         totalSegments: totalSegments,
         videoController: videoController,
         videoInitialization: videoInitialization,
+        onPhotoLoadSettled: onPhotoLoadSettled,
       );
     }
 
@@ -1298,12 +1404,35 @@ class _TextStoryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final activeSegment = segment;
-    return TextStatusCanvas(
-      key: const Key('updates_story_text_card'),
-      text: activeSegment?.previewText ?? story.previewText,
-      style: activeSegment?.textStyle ?? const StatusTextStyle(),
-      accentColor: story.accentColor,
-      borderRadius: BorderRadius.zero,
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        TextStatusCanvas(
+          key: const Key('updates_story_text_card'),
+          text: activeSegment?.previewText ?? story.previewText,
+          style: activeSegment?.textStyle ?? const StatusTextStyle(),
+          accentColor: story.accentColor,
+          borderRadius: BorderRadius.zero,
+        ),
+        // Emoji placed on a text status (round 3) travel with the segment
+        // the same way media-status overlays already do -- without this,
+        // they'd be silently dropped in the viewer despite showing fine in
+        // the composer.
+        if (activeSegment != null)
+          SafeArea(
+            child: StatusMediaDecorationOverlay(
+              segment: activeSegment,
+              accentColor: story.accentColor,
+              padding: kStatusMediaOverlayCanvasPadding,
+              showBackdrop: false,
+              // The segment's previewText is already the big canvas text
+              // above -- showing it again as a caption would just duplicate
+              // it. Only the overlay items (emoji) themselves are needed
+              // here.
+              showCaption: false,
+            ),
+          ),
+      ],
     );
   }
 }
@@ -1316,6 +1445,7 @@ class _LocalMediaStoryCard extends StatelessWidget {
     required this.totalSegments,
     this.videoController,
     this.videoInitialization,
+    this.onPhotoLoadSettled,
   });
 
   final StatusStory story;
@@ -1324,6 +1454,7 @@ class _LocalMediaStoryCard extends StatelessWidget {
   final int totalSegments;
   final VideoPlayerController? videoController;
   final Future<void>? videoInitialization;
+  final VoidCallback? onPhotoLoadSettled;
 
   @override
   Widget build(BuildContext context) {
@@ -1339,6 +1470,8 @@ class _LocalMediaStoryCard extends StatelessWidget {
             videoController: videoController,
             videoInitialization: videoInitialization,
             unavailableMessage: 'This local media is no longer available.',
+            drawingStrokes: segment.drawingStrokes,
+            onPhotoLoadSettled: onPhotoLoadSettled,
           ),
           SafeArea(
             child: StatusMediaDecorationOverlay(

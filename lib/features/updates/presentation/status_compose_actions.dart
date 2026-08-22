@@ -6,51 +6,48 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../../core/models/status_story.dart';
 import '../../shared/widgets/error_dialog.dart';
+import '../../shared/widgets/liquid_glass.dart';
 import '../application/updates_controller.dart';
 import 'media_status_composer_screen.dart';
 import 'text_status_composer_screen.dart';
 
 enum _StatusComposeChoice { text, media }
 
-/// A compact "Text status" / "Photo or video" choice sheet -- the shared
+/// A compact "Text status" / "Photo or video" choice bubble -- the shared
 /// entry point for starting a new status wherever there's only room for one
-/// "+" affordance (e.g. ChatsScreen's status strip).
+/// "+" affordance (e.g. ChatsScreen's status strip). [anchorContext] should
+/// be scoped to the tapped "+" button itself (e.g. via a [Builder] wrapping
+/// just that button) so the bubble opens right below it, matching the
+/// app's own liquid-glass bubble chrome instead of a generic modal sheet.
 Future<void> showStatusComposeChoice(
-  BuildContext context,
+  BuildContext anchorContext,
   UpdatesController controller,
   ImagePicker imagePicker,
 ) async {
-  final choice = await showModalBottomSheet<_StatusComposeChoice>(
-    context: context,
-    showDragHandle: true,
-    builder: (sheetContext) {
-      return SafeArea(
-        top: false,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              key: const Key('status_compose_choice_text'),
-              leading: const Icon(Icons.edit_outlined),
-              title: const Text('Text status'),
-              onTap: () =>
-                  Navigator.of(sheetContext).pop(_StatusComposeChoice.text),
-            ),
-            ListTile(
-              key: const Key('status_compose_choice_media'),
-              leading: const Icon(Icons.photo_camera_outlined),
-              title: const Text('Photo or video'),
-              onTap: () =>
-                  Navigator.of(sheetContext).pop(_StatusComposeChoice.media),
-            ),
-          ],
-        ),
-      );
-    },
+  final choice = await showLiquidGlassBubbleMenu<_StatusComposeChoice>(
+    anchorContext: anchorContext,
+    openBelow: true,
+    itemBuilder: (sheetContext) => [
+      LiquidGlassBubbleItem(
+        key: const Key('status_compose_choice_text'),
+        icon: Icons.edit_outlined,
+        label: 'Text status',
+        onTap: () =>
+            Navigator.of(sheetContext).pop(_StatusComposeChoice.text),
+      ),
+      LiquidGlassBubbleItem(
+        key: const Key('status_compose_choice_media'),
+        icon: Icons.photo_camera_outlined,
+        label: 'Photo or video',
+        onTap: () =>
+            Navigator.of(sheetContext).pop(_StatusComposeChoice.media),
+      ),
+    ],
   );
-  if (!context.mounted || choice == null) {
+  if (!anchorContext.mounted || choice == null) {
     return;
   }
+  final context = anchorContext;
 
   switch (choice) {
     case _StatusComposeChoice.text:
@@ -78,6 +75,7 @@ Future<void> openTextStatusComposer(
     type: StatusStoryType.text,
     caption: draft.caption,
     textStyle: draft.textStyle,
+    overlayItems: draft.overlayItems,
   );
   if (!context.mounted) {
     return;
@@ -128,6 +126,7 @@ Future<void> pickStatusMedia(
           type: statusType,
           localMediaPath: pickedMedia.path,
           initialSourceSizeHint: initialSourceSizeHint,
+          loadMusicTracks: controller.fetchMusicTracks,
         ),
         fullscreenDialog: true,
       ),
@@ -147,6 +146,8 @@ Future<void> pickStatusMedia(
       stickers: draft.stickers,
       musicTrack: draft.musicTrack,
       durationMillis: draft.durationMillis,
+      trimStartMillis: draft.trimStartMillis,
+      drawingStrokes: draft.drawingStrokes,
     );
     if (!context.mounted) {
       return;

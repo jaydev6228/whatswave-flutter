@@ -14,6 +14,7 @@ import '../../features/communities/data/fake_communities_repository.dart';
 import '../../features/communities/data/firestore_communities_repository.dart';
 import '../../features/updates/data/fake_updates_repository.dart';
 import '../../features/updates/data/firestore_updates_repository.dart';
+import '../../features/updates/data/status_music_repository.dart';
 import '../../features/updates/data/updates_repository.dart';
 
 enum RepositoryAdapterStatus {
@@ -343,6 +344,7 @@ class BackendRepositoryBundle {
     required this.chatRepository,
     required this.communitiesRepository,
     required this.updatesRepository,
+    required this.statusMusicRepository,
     required this.repositoryCatalog,
   });
 
@@ -351,6 +353,7 @@ class BackendRepositoryBundle {
   final ChatRepository chatRepository;
   final CommunitiesRepository communitiesRepository;
   final UpdatesRepository updatesRepository;
+  final StatusMusicRepository statusMusicRepository;
   final RepositoryAdapterCatalog repositoryCatalog;
 }
 
@@ -372,6 +375,7 @@ class BackendRepositoryBundleFactory {
           _buildCommunitiesRepository(runtimeConfig, enableDemoRestoreSession),
       updatesRepository:
           _buildUpdatesRepository(runtimeConfig, enableDemoRestoreSession),
+      statusMusicRepository: _buildStatusMusicRepository(runtimeConfig),
       repositoryCatalog: RuntimeAwareRepositoryAdapterCatalog(runtimeConfig),
     );
   }
@@ -448,5 +452,15 @@ class BackendRepositoryBundleFactory {
             persistStories: true,
           )
         : FakeUpdatesRepository(persistStories: true);
+  }
+
+  StatusMusicRepository _buildStatusMusicRepository(
+    BackendRuntimeConfig runtimeConfig,
+  ) {
+    if (runtimeConfig.backendMode == BackendMode.firebaseFirst) {
+      return FirestoreStatusMusicRepository();
+    }
+
+    return const FakeStatusMusicRepository();
   }
 }
