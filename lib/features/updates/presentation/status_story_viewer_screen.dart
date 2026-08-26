@@ -89,12 +89,23 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
     with SingleTickerProviderStateMixin {
   static const Duration _tapNavigationThreshold = Duration(milliseconds: 170);
 
+  /// How far a finger may travel and still count as a tap rather than a
+  /// drag. Without this a quick flick -- scrolling a long text overlay, or
+  /// just swiping -- also skipped the segment, because navigation keyed off
+  /// press *duration* alone.
+  static const double _tapNavigationSlop = 12;
+
   late final AnimationController _segmentProgressController;
   late int _currentSegmentIndex;
   late int _reportedSeenSegments;
   bool _isClosing = false;
   bool _isTransitioning = false;
   bool _isPausedByHold = false;
+
+  /// True while the caption is expanded over the story. Playback holds
+  /// there so the segment cannot advance out from under someone who is
+  /// still reading, the same way WhatsApp pauses.
+  bool _isCaptionExpanded = false;
 
   /// False while the current segment's photo is still decoding -- the
   /// progress bar holds at 0 instead of ticking through a segment nobody
@@ -103,6 +114,7 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
   bool _isCurrentSegmentMediaReady = true;
   int? _activePointer;
   DateTime? _activePointerDownAt;
+  Offset? _activePointerDownPosition;
   _StoryTapDirection? _pendingTapDirection;
   VideoPlayerController? _videoController;
   Future<void>? _videoInitialization;
@@ -147,6 +159,30 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
       _currentSegmentHasMusic ||
       (_currentSegmentType == StatusStoryType.video &&
           _currentSegment?.hasLocalMedia == true);
+
+  /// The plain caption line shown in the bottom chrome, right above the
+  /// reply bar -- WhatsApp shows a typed caption as bold text sitting
+  /// directly on the photo, not the boxed card the shared decoration
+  /// overlay widget uses elsewhere. Null for a text-type story (its
+  /// previewText is already the big canvas text, not a separate caption)
+  /// and for a caption that's already represented as its own rich text
+  /// overlay (legacy segments -- see meaningfulStatusCaption's own doc).
+  String? get _viewerCaptionText {
+    final segment = _currentSegment;
+    if (segment == null || segment.type == StatusStoryType.text) {
+      return null;
+    }
+    final caption = meaningfulStatusCaption(segment);
+    if (caption.isEmpty) {
+      return null;
+    }
+    final alreadyAnOverlay = segment.overlayItems.any(
+      (item) =>
+          item.type == StatusMediaOverlayType.text &&
+          item.label.trim() == caption,
+    );
+    return alreadyAnOverlay ? null : caption;
+  }
 
   String get _currentSegmentTimeLabel {
     final segment = _currentSegment;
@@ -614,6 +650,26 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
     }
   }
 
+  void _expandCaption() {
+    if (_isCaptionExpanded) {
+      return;
+    }
+    setState(() {
+      _isCaptionExpanded = true;
+    });
+    _pausePlaybackForHold();
+  }
+
+  void _collapseCaption() {
+    if (!_isCaptionExpanded) {
+      return;
+    }
+    setState(() {
+      _isCaptionExpanded = false;
+    });
+    _resumePlaybackFromHold();
+  }
+
   void _pausePlaybackForHold() {
     if (_isClosing) {
       return;
@@ -664,6 +720,7 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
 
     _activePointer = event.pointer;
     _activePointerDownAt = DateTime.now();
+    _activePointerDownPosition = event.position;
     _pendingTapDirection = direction;
     _pausePlaybackForHold();
   }
@@ -680,7 +737,12 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
     final pressDuration = pointerDownAt == null
         ? _tapNavigationThreshold
         : DateTime.now().difference(pointerDownAt);
+    final downPosition = _activePointerDownPosition;
+    final travelled = downPosition == null
+        ? 0.0
+        : (event.position - downPosition).distance;
     final shouldNavigate = pressDuration < _tapNavigationThreshold &&
+        travelled <= _tapNavigationSlop &&
         _pendingTapDirection == direction;
     _clearGestureTracking();
 
@@ -722,6 +784,7 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
   void _clearGestureTracking() {
     _activePointer = null;
     _activePointerDownAt = null;
+    _activePointerDownPosition = null;
     _pendingTapDirection = null;
   }
 
@@ -1007,6 +1070,8 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
         setState(() {
           _currentSegmentIndex += 1;
           _hasHearted = false;
+          // The expanded caption belonged to the segment we just left.
+          _isCaptionExpanded = false;
         });
         _reportCurrentSegmentViewed();
         unawaited(_loadLikedByMe());
@@ -1031,6 +1096,7 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
         setState(() {
           _currentSegmentIndex -= 1;
           _hasHearted = false;
+          _isCaptionExpanded = false;
         });
         unawaited(_loadLikedByMe());
         _startCurrentSegmentPlayback();
@@ -1208,6 +1274,21 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
                 ],
               ),
             ),
+            // Scrim behind the bottom chrome while the caption is
+            // expanded: dims the story enough to read long text over it
+            // without hiding it, and swallows taps meant to dismiss --
+            // they collapse the caption instead of skipping the segment.
+            if (_isCaptionExpanded)
+              Positioned.fill(
+                child: GestureDetector(
+                  key: const Key('updates_story_viewer_caption_scrim'),
+                  behavior: HitTestBehavior.opaque,
+                  onTap: _collapseCaption,
+                  child: ColoredBox(
+                    color: Colors.black.withValues(alpha: 0.55),
+                  ),
+                ),
+              ),
             SafeArea(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
@@ -1321,6 +1402,23 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
                       ],
                     ),
                     const Spacer(),
+                    if (_viewerCaptionText case final caption?)
+                      _StoryCaptionText(
+                        caption: caption,
+                        isExpanded: _isCaptionExpanded,
+                        onShowMore: _expandCaption,
+                        onCollapse: _collapseCaption,
+                      ),
+                    if (_viewerCaptionText != null &&
+                        !story.isMine &&
+                        widget.chatsController != null)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        child: Container(
+                          height: 1,
+                          color: Colors.white.withValues(alpha: 0.22),
+                        ),
+                      ),
                     if (!story.isMine && widget.chatsController != null)
                       _StoryReplyBar(
                         recipientName: story.name,
@@ -1426,10 +1524,11 @@ class _TextStoryCard extends StatelessWidget {
               padding: kStatusMediaOverlayCanvasPadding,
               showBackdrop: false,
               // The segment's previewText is already the big canvas text
-              // above -- showing it again as a caption would just duplicate
-              // it. Only the overlay items (emoji) themselves are needed
-              // here.
+              // above -- showing it again as a caption, or as a redundant
+              // placed text overlay, would just duplicate it. Only the
+              // other overlay items (emoji) are needed here.
               showCaption: false,
+              showTextOverlays: false,
             ),
           ),
       ],
@@ -1479,6 +1578,11 @@ class _LocalMediaStoryCard extends StatelessWidget {
               accentColor: story.accentColor,
               padding: kStatusMediaOverlayCanvasPadding,
               showBackdrop: false,
+              // The caption now lives in the viewer's own bottom chrome
+              // (see _StatusStoryViewerScreenState's Column, right above the
+              // reply bar) as plain text, matching WhatsApp's real look --
+              // showing it again here as a boxed card would duplicate it.
+              showCaption: false,
             ),
           ),
         ],
@@ -1611,6 +1715,117 @@ class _FallbackStoryCard extends StatelessWidget {
       StatusStoryType.video => 'Video clip',
     };
   }
+}
+
+/// The typed caption, shown as plain bold text sitting directly on the
+/// photo/video -- matching WhatsApp's own status viewer exactly, not the
+/// boxed/bordered card [StatusMediaDecorationOverlay] uses for the
+/// composer's live preview and other surfaces.
+/// The number of caption lines shown before the "Show more" affordance
+/// takes over, matching WhatsApp's own collapsed caption.
+const int kStoryCaptionCollapsedLines = 3;
+
+class _StoryCaptionText extends StatelessWidget {
+  const _StoryCaptionText({
+    required this.caption,
+    required this.isExpanded,
+    required this.onShowMore,
+    required this.onCollapse,
+  });
+
+  final String caption;
+  final bool isExpanded;
+  final VoidCallback onShowMore;
+  final VoidCallback onCollapse;
+
+  @override
+  Widget build(BuildContext context) {
+    final style = storyCaptionTextStyle(context);
+
+    // Expanded: this same caption grows in place to the full text -- not a
+    // second copy layered over the collapsed one, which would leave the
+    // three-line version visible behind it.
+    if (isExpanded) {
+      return GestureDetector(
+        key: const Key('updates_story_viewer_caption_expanded'),
+        behavior: HitTestBehavior.opaque,
+        onTap: onCollapse,
+        child: ConstrainedBox(
+          // Bounded so the header and reply bar keep their room; scrolls
+          // past that, so no length is ever unreachable.
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(context).height * 0.6,
+          ),
+          child: SingleChildScrollView(
+            child: Text(
+              key: const Key('updates_story_viewer_caption_text'),
+              caption,
+              style: style,
+            ),
+          ),
+        ),
+      );
+    }
+
+    // Measure at the width the text will actually get, so the affordance
+    // appears exactly when the caption really needs more than the
+    // collapsed line budget -- at any font scale, on any screen width.
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final painter = TextPainter(
+          text: TextSpan(text: caption, style: style),
+          maxLines: kStoryCaptionCollapsedLines,
+          textDirection: Directionality.of(context),
+          textScaler: MediaQuery.textScalerOf(context),
+        )..layout(maxWidth: constraints.maxWidth);
+        final isOverflowing = painter.didExceedMaxLines;
+        painter.dispose();
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              key: const Key('updates_story_viewer_caption_text'),
+              caption,
+              maxLines: kStoryCaptionCollapsedLines,
+              overflow: TextOverflow.ellipsis,
+              style: style,
+            ),
+            if (isOverflowing)
+              GestureDetector(
+                key: const Key('updates_story_viewer_caption_show_more'),
+                behavior: HitTestBehavior.opaque,
+                onTap: onShowMore,
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 2, bottom: 2),
+                  child: Text(
+                    'Show more',
+                    style: (style ?? const TextStyle()).copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// The caption's shared text style -- the same base the composer's own
+/// caption field resolves to (titleMedium, tinted white), so the posted
+/// story reads as literally the text that was typed.
+TextStyle? storyCaptionTextStyle(BuildContext context) {
+  final baseStyle = Theme.of(context).textTheme.titleMedium;
+  return (baseStyle ?? const TextStyle()).copyWith(
+    color: Colors.white,
+    shadows: const [
+      Shadow(color: Colors.black54, blurRadius: 8),
+    ],
+  );
 }
 
 /// A WhatsApp-style bottom reply bar for someone else's story -- a text

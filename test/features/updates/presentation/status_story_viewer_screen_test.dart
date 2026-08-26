@@ -95,6 +95,39 @@ void main() {
       ),
     ],
   );
+  const overlayAndCaptionStory = StatusStory(
+    id: 'overlay-and-caption-story',
+    name: 'Jay',
+    avatarLabel: 'JD',
+    previewText: 'Caption text',
+    timeLabel: 'Just now',
+    accentColor: AppPalette.green,
+    type: StatusStoryType.photo,
+    isMine: true,
+    totalSegments: 1,
+    seenSegments: 0,
+    segments: <StatusStorySegment>[
+      StatusStorySegment(
+        id: 'overlay-and-caption-segment',
+        type: StatusStoryType.photo,
+        previewText: 'Caption text',
+        localMediaPath: '/missing/media/overlay-and-caption.jpg',
+        overlayItems: <StatusMediaOverlayItem>[
+          StatusMediaOverlayItem(
+            id: 'overlay-1',
+            type: StatusMediaOverlayType.text,
+            label: 'overlay text one',
+          ),
+          StatusMediaOverlayItem(
+            id: 'overlay-2',
+            type: StatusMediaOverlayType.text,
+            label: 'overlay text two',
+            positionDy: 0.3,
+          ),
+        ],
+      ),
+    ],
+  );
   const musicBackedStory = StatusStory(
     id: 'music-story',
     name: 'Noah',
@@ -387,8 +420,17 @@ void main() {
     expect(find.text('Earlier note'), findsNothing);
   });
 
-  testWidgets('long media captions can expand without triggering navigation',
-      (tester) async {
+  testWidgets(
+      'a long media caption collapses to three lines with a Show more '
+      'affordance, and Show more expands that same caption in place -- over '
+      'a translucent scrim, with no second copy left behind it -- until a '
+      'tap anywhere collapses it again', (tester) async {
+    // A real phone width -- the default 800px test surface is wide enough
+    // to fit this caption in three lines, which would hide the very
+    // affordance under test.
+    await tester.binding.setSurfaceSize(iphoneProProfile.size);
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
     await _pumpStoryViewerHarness(
       tester,
       story: longCaptionStory,
@@ -399,29 +441,233 @@ void main() {
     await tester.pump();
 
     final captionTextFinder =
-        find.byKey(const Key('updates_media_caption_text'));
+        find.byKey(const Key('updates_story_viewer_caption_text'));
     expect(captionTextFinder, findsOneWidget);
+
+    // Collapsed: three lines, ellipsised, with the affordance beneath.
+    final collapsed = tester.widget<Text>(captionTextFinder);
+    expect(collapsed.maxLines, kStoryCaptionCollapsedLines);
+    expect(collapsed.overflow, TextOverflow.ellipsis);
+    final showMore =
+        find.byKey(const Key('updates_story_viewer_caption_show_more'));
+    expect(showMore, findsOneWidget);
     expect(
-      tester.widget<Text>(captionTextFinder).maxLines,
-      4,
+      find.byKey(const Key('updates_story_viewer_caption_scrim')),
+      findsNothing,
     );
+
+    // No boxed-card chrome from the shared decoration overlay.
+    expect(find.byKey(const Key('updates_media_caption_card')), findsNothing);
     expect(
       find.byKey(const Key('updates_media_caption_expand_button')),
+      findsNothing,
+    );
+
+    // Still the caption's own base face, not the segment's 'journal'
+    // rich-overlay look (italic serif -- see resolveTextStatusFontLook).
+    final style = collapsed.style;
+    final expectedBaseStyle = Theme.of(
+      tester.element(captionTextFinder),
+    ).textTheme.titleMedium;
+    expect(style?.fontStyle, isNot(FontStyle.italic));
+    expect(style?.fontFamily, isNot('serif'));
+    expect(style?.fontWeight, expectedBaseStyle?.fontWeight);
+    expect(style?.fontSize, expectedBaseStyle?.fontSize);
+
+    await tester.tap(showMore);
+    await tester.pumpAndSettle();
+
+    // Expanded: still exactly ONE caption on screen -- the same one, grown
+    // in place. A second, full-text copy layered over the collapsed one
+    // would leave the three-line version visible behind it.
+    expect(captionTextFinder, findsOneWidget);
+    final expanded = tester.widget<Text>(captionTextFinder);
+    expect(expanded.data, longCaptionStory.segments.single.previewText);
+    expect(expanded.maxLines, isNull);
+    expect(expanded.overflow, isNot(TextOverflow.ellipsis));
+    expect(showMore, findsNothing);
+
+    // Scrolls when the caption outgrows its share of the screen.
+    expect(
+      find.ancestor(
+        of: captionTextFinder,
+        matching: find.byType(SingleChildScrollView),
+      ),
       findsOneWidget,
     );
 
-    await tester.tap(
-      find.byKey(const Key('updates_media_caption_expand_button')),
+    // Translucent, not opaque -- the story still reads through it.
+    final scrimFinder =
+        find.byKey(const Key('updates_story_viewer_caption_scrim'));
+    expect(scrimFinder, findsOneWidget);
+    final scrim = tester.widget<ColoredBox>(
+      find.descendant(of: scrimFinder, matching: find.byType(ColoredBox)),
     );
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 260));
+    expect(scrim.color.a, greaterThan(0));
+    expect(scrim.color.a, lessThan(1));
 
-    expect(find.byKey(const Key('updates_story_viewer')), findsOneWidget);
-    expect(find.text('Show less'), findsOneWidget);
+    // A tap anywhere collapses it back -- and does not skip the segment.
+    // Single pump, not pumpAndSettle: collapsing resumes playback, and
+    // settling would run the whole segment out and close the viewer.
+    await tester.tapAt(const Offset(30, 300));
+    await tester.pump();
+
+    expect(scrimFinder, findsNothing);
+    expect(showMore, findsOneWidget);
     expect(
       tester.widget<Text>(captionTextFinder).maxLines,
-      isNull,
+      kStoryCaptionCollapsedLines,
     );
+    expect(find.byKey(const Key('updates_story_viewer')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'a quick swipe does not skip the segment -- only a real tap navigates, '
+      'so scrolling a long text overlay cannot advance the story underneath',
+      (tester) async {
+    await _pumpStoryViewerHarness(
+      tester,
+      story: story,
+      segmentDurationOverride: const Duration(seconds: 10),
+    );
+
+    await tester.tap(find.byKey(const Key('open_viewer_button')));
+    await tester.pump();
+
+    expect(_fillWidthFactor(tester, 0), lessThan(1));
+    expect(_fillWidthFactor(tester, 1), 0);
+
+    // A fast flick on the right zone: no elapsed time at all, so it beats
+    // the tap *duration* threshold -- only the travel distance can tell it
+    // apart from a tap.
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.byKey(const Key('updates_story_viewer_right_zone'))),
+    );
+    await gesture.moveBy(const Offset(0, -160));
+    await gesture.up();
+    await tester.pump();
+
+    // Still on the first segment: advancing would have filled bar 0
+    // completely, the same signal the genuine tap below produces.
+    expect(
+      _fillWidthFactor(tester, 0),
+      lessThan(1),
+      reason: 'a swipe must not advance the story',
+    );
+    expect(find.byKey(const Key('updates_story_viewer')), findsOneWidget);
+
+    // A genuine tap still advances, so the guard did not break navigation.
+    await tester.tap(find.byKey(const Key('updates_story_viewer_right_zone')));
+    await tester.pump();
+    expect(_fillWidthFactor(tester, 0), 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'a caption short enough to fit shows no Show more affordance',
+      (tester) async {
+    await _pumpStoryViewerHarness(
+      tester,
+      story: overlayAndCaptionStory,
+      segmentDurationOverride: const Duration(seconds: 10),
+    );
+
+    await tester.tap(find.byKey(const Key('open_viewer_button')));
+    await tester.pump();
+
+    expect(
+      find.byKey(const Key('updates_story_viewer_caption_text')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('updates_story_viewer_caption_show_more')),
+      findsNothing,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  for (final device in compactDeviceMatrix) {
+    testWidgets(
+        'a very long caption stays readable and overflow-free on '
+        '${device.name} at the largest accessibility text scale',
+        (tester) async {
+      await tester.binding.setSurfaceSize(device.size);
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      // No length cap exists any more, so prove the layout copes with a
+      // caption far longer than any previous limit.
+      final maxedCaption = 'wandering words ' * 60;
+      final story = StatusStory(
+        id: 'max-caption-story',
+        name: 'Luna',
+        avatarLabel: 'LU',
+        previewText: maxedCaption,
+        timeLabel: 'Just now',
+        accentColor: AppPalette.green,
+        type: StatusStoryType.photo,
+        totalSegments: 1,
+        seenSegments: 0,
+        segments: <StatusStorySegment>[
+          StatusStorySegment(
+            id: 'max-caption-segment',
+            type: StatusStoryType.photo,
+            previewText: maxedCaption,
+            localMediaPath: '/missing/media/max-caption.jpg',
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.lightTheme(),
+          darkTheme: AppTheme.darkTheme(),
+          home: MediaQuery(
+            // 200% -- Android 14's ceiling, the floor this project tests
+            // against (see docs/ui_layout_guidelines.md).
+            data: const MediaQueryData(textScaler: TextScaler.linear(2)),
+            child: StatusStoryViewerScreen(
+              story: story,
+              onStoryViewed: (_) {},
+              segmentDurationOverride: const Duration(seconds: 10),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        find.byKey(const Key('updates_story_viewer_caption_text')),
+        findsOneWidget,
+      );
+      // The whole point: the biggest caption we accept, at the biggest
+      // text size the OS offers, on the smallest screen we support, still
+      // lays out without a single overflow.
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets(
+      'placed rich text overlays still render in the viewer alongside a '
+      "separately typed caption -- moving the caption into the viewer's "
+      "own bottom chrome must not also hide the media layer's overlay "
+      'items', (tester) async {
+    await _pumpStoryViewerHarness(
+      tester,
+      story: overlayAndCaptionStory,
+      segmentDurationOverride: const Duration(seconds: 10),
+    );
+
+    await tester.tap(find.byKey(const Key('open_viewer_button')));
+    await tester.pump();
+
+    expect(find.text('overlay text one'), findsOneWidget);
+    expect(find.text('overlay text two'), findsOneWidget);
+    expect(find.byKey(const Key('updates_story_viewer_caption_text')),
+        findsOneWidget);
+    expect(find.text('Caption text'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('music-backed statuses stay stable and keep progressing',

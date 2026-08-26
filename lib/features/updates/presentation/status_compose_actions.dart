@@ -10,6 +10,7 @@ import '../../shared/widgets/liquid_glass.dart';
 import '../application/updates_controller.dart';
 import 'media_status_composer_screen.dart';
 import 'text_status_composer_screen.dart';
+import 'status_motion.dart';
 
 enum _StatusComposeChoice { text, media }
 
@@ -62,9 +63,9 @@ Future<void> openTextStatusComposer(
   UpdatesController controller,
 ) async {
   final draft = await Navigator.of(context).push<TextStatusComposerDraft>(
-    MaterialPageRoute<TextStatusComposerDraft>(
+    statusSheetRoute<TextStatusComposerDraft>(
+      name: 'status/compose/text',
       builder: (_) => const TextStatusComposerScreen(),
-      fullscreenDialog: true,
     ),
   );
   if (!context.mounted || draft == null) {
@@ -121,14 +122,14 @@ Future<void> pickStatusMedia(
     }
 
     final draft = await Navigator.of(context).push<MediaStatusComposerDraft>(
-      MaterialPageRoute<MediaStatusComposerDraft>(
+      statusSheetRoute<MediaStatusComposerDraft>(
+        name: 'status/compose/media',
         builder: (_) => MediaStatusComposerScreen(
           type: statusType,
           localMediaPath: pickedMedia.path,
           initialSourceSizeHint: initialSourceSizeHint,
           loadMusicTracks: controller.fetchMusicTracks,
         ),
-        fullscreenDialog: true,
       ),
     );
     if (!context.mounted || draft == null) {

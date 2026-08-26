@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../app/theme/app_palette.dart';
 import '../../../../core/models/status_story.dart';
+import '../status_motion.dart';
 
 class TextStatusFontLook {
   const TextStatusFontLook({
@@ -516,6 +517,7 @@ class TextStatusCanvas extends StatelessWidget {
     this.placeholder = 'Write something worth pausing for',
     this.padding,
     this.showFrame = true,
+    this.showText = true,
     this.textChild,
     super.key,
   });
@@ -527,6 +529,14 @@ class TextStatusCanvas extends StatelessWidget {
   final String placeholder;
   final EdgeInsets? padding;
   final bool showFrame;
+
+  /// Whether the text block renders at all.
+  ///
+  /// The text status composer turns this off while the editor card is open
+  /// over the canvas: passing an empty child instead still drew the
+  /// panel's own capsule, leaving a stray empty pill floating in the
+  /// middle of the preview.
+  final bool showText;
   final Widget? textChild;
 
   @override
@@ -564,7 +574,13 @@ class TextStatusCanvas extends StatelessWidget {
               style: textStyle,
             );
 
-        return DecoratedBox(
+        // Animated rather than a plain DecoratedBox: cycling the
+        // background used to repaint the whole canvas in one frame, which
+        // read as a flash. AnimatedContainer tweens the colour/gradient on
+        // the feature's shared timing instead.
+        return AnimatedContainer(
+          duration: kStatusMotionDuration,
+          curve: kStatusMotionCurve,
           decoration: BoxDecoration(
             borderRadius: borderRadius,
             color: background.isSolid ? background.colors.first : null,
@@ -597,6 +613,7 @@ class TextStatusCanvas extends StatelessWidget {
                   layout: style.layout,
                   background: background,
                 ),
+                if (showText)
                 Padding(
                   padding: contentPadding,
                   child: Align(

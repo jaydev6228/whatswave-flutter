@@ -7,6 +7,7 @@ import 'package:video_player/video_player.dart';
 import '../../../../app/theme/app_palette.dart';
 import '../../../../core/models/status_story.dart';
 import 'status_media_source.dart';
+import '../status_motion.dart';
 
 Size statusStoryFrameSizeFor(Size canvasSize, double? aspectRatio) {
   if (aspectRatio == null || !aspectRatio.isFinite || aspectRatio <= 0) {
@@ -24,6 +25,100 @@ Size statusStoryFrameSizeFor(Size canvasSize, double? aspectRatio) {
   return Size(width, height);
 }
 
+/// The aspect ratio the crop window actually takes for a given
+/// [StatusMediaTransform.frameAspectRatio].
+///
+/// A null frame ratio ("Fit to screen", and "Original" while the source
+/// size is still unresolved) is not "no crop" -- the final, posted render
+/// cover-fits the media into the whole canvas, so it crops to the
+/// *canvas's* own shape. Resolving null to the canvas ratio here is what
+/// lets crop mode preview exactly what gets posted.
+double statusCropRatioFor(Size canvasSize, double? frameAspectRatio) {
+  if (frameAspectRatio != null &&
+      frameAspectRatio.isFinite &&
+      frameAspectRatio > 0) {
+    return frameAspectRatio;
+  }
+  if (canvasSize.height <= 0 || !canvasSize.height.isFinite) {
+    return 1;
+  }
+  return canvasSize.width / canvasSize.height;
+}
+
+/// Where the media actually paints inside [canvasSize] during crop mode --
+/// the media is contain-fit there (see the isCropPreview branch), so it
+/// occupies the largest box of its own [mediaAspectRatio] that fits, with
+/// letterbox bars on the remaining two sides. The crop window is confined
+/// to this rect rather than the whole canvas, since dragging the window
+/// out over a letterbox bar would select empty space, not media.
+Rect statusMediaBoundsFor(Size canvasSize, double? mediaAspectRatio) {
+  final size = statusStoryFrameSizeFor(canvasSize, mediaAspectRatio);
+  return Rect.fromCenter(
+    center: Offset(canvasSize.width / 2, canvasSize.height / 2),
+    width: size.width,
+    height: size.height,
+  );
+}
+
+/// The crop selection window's position and size within the media's own
+/// painted bounds (see [statusMediaBoundsFor]) -- the free-form box the
+/// crop tool lets you drag and resize (via corner handles) around a fully
+/// visible, never-moving photo/video, matching WhatsApp's own crop tool
+/// (the media itself never pans or scales on screen; only this window
+/// does, to choose which part of the media ends up in the final crop).
+///
+/// With no [ratio] picked, the window is exactly the media's bounds --
+/// nothing is cropped until the user shrinks or moves it, matching
+/// WhatsApp's crop tool opening on the full, uncropped frame.
+///
+/// [scale] is [StatusMediaTransform.scale] -- it shrinks the window below
+/// the largest box of [ratio] that fits [mediaBounds] (a smaller window
+/// means "zoomed in more" in the final crop, exactly mirroring how the
+/// same field zooms the media in the final, non-crop-mode rendering).
+///
+/// [offsetDx]/[offsetDy] follow the same sign convention as
+/// [StatusMediaTransform.offsetDx]/[offsetDy] -- the offset that, applied
+/// to the media itself in the *final* (non-crop-mode) clipped rendering,
+/// lands on exactly the same region this window shows. Shifting the media
+/// right by X is equivalent to shifting this window left by X, hence the
+/// negation below.
+Rect cropWindowRectFor(
+  Rect mediaBounds,
+  double? ratio,
+  double scale,
+  double offsetDx,
+  double offsetDy,
+) {
+  if (ratio == null || !ratio.isFinite || ratio <= 0) {
+    return mediaBounds;
+  }
+  final fitSize = statusStoryFrameSizeFor(mediaBounds.size, ratio);
+  final effectiveScale = (scale.isFinite && scale > 0) ? scale : 1.0;
+  final windowSize = Size(
+    fitSize.width / effectiveScale,
+    fitSize.height / effectiveScale,
+  );
+  final rawCenter = Offset(
+    mediaBounds.center.dx - offsetDx * windowSize.width,
+    mediaBounds.center.dy - offsetDy * windowSize.height,
+  );
+  final minCenterX = mediaBounds.left + windowSize.width / 2;
+  final maxCenterX =
+      math.max(mediaBounds.right - windowSize.width / 2, minCenterX);
+  final minCenterY = mediaBounds.top + windowSize.height / 2;
+  final maxCenterY =
+      math.max(mediaBounds.bottom - windowSize.height / 2, minCenterY);
+  final center = Offset(
+    rawCenter.dx.clamp(minCenterX, maxCenterX),
+    rawCenter.dy.clamp(minCenterY, maxCenterY),
+  );
+  return Rect.fromCenter(
+    center: center,
+    width: windowSize.width,
+    height: windowSize.height,
+  );
+}
+
 class StatusStoryMediaSurface extends StatefulWidget {
   const StatusStoryMediaSurface({
     required this.type,
@@ -35,7 +130,6 @@ class StatusStoryMediaSurface extends StatefulWidget {
     this.showFrameOutline = false,
     this.unavailableMessage,
     this.drawingStrokes = const <StatusDrawingStroke>[],
-    this.frameSizeOverride,
     this.onSourceSizeResolved,
     this.onPhotoLoadSettled,
     this.onTap,
@@ -53,14 +147,6 @@ class StatusStoryMediaSurface extends StatefulWidget {
   final Color backgroundColor;
   final bool showFrameOutline;
   final String? unavailableMessage;
-
-  /// Renders at this exact size instead of the largest rectangle of
-  /// [StatusMediaTransform.frameAspectRatio] that fits the canvas -- used
-  /// only by the composer's free-form crop grid, which needs the frame to
-  /// track a corner drag 1:1 rather than snapping to a re-maximized fit on
-  /// every update. Null (the default) keeps the normal ratio-driven sizing
-  /// every other caller (the story viewer, thumbnails) relies on.
-  final Size? frameSizeOverride;
 
   /// Freehand doodle strokes, painted on top of the media and clipped to
   /// the same frame -- shared by composer, viewer, and thumbnails since
@@ -213,19 +299,52 @@ class _StatusStoryMediaSurfaceState extends State<StatusStoryMediaSurface> {
   Widget build(BuildContext context) {
     final mediaPath = widget.localMediaPath.trim();
     final hasMediaSource = statusMediaSourceExists(mediaPath);
+    // Crop mode shows the whole media, fixed and unclipped -- a movable
+    // window (see cropWindowRectFor) is what selects the crop region, not
+    // the media itself, matching WhatsApp's own crop tool. Everywhere else
+    // (normal preview, the posted story) keeps rendering exactly as before:
+    // the media clipped and translated/scaled to fill the ratio'd frame.
+    final isCropPreview = widget.showFrameOutline;
 
     final surface = LayoutBuilder(
       builder: (context, constraints) {
         final canvasSize = constraints.biggest;
-        final frameSize = widget.frameSizeOverride ??
-            statusStoryFrameSizeFor(
-              canvasSize,
-              widget.mediaTransform.frameAspectRatio,
-            );
+        final ratio = widget.mediaTransform.frameAspectRatio;
+        final frameSize = statusStoryFrameSizeFor(canvasSize, ratio);
+        final displaySize = isCropPreview ? canvasSize : frameSize;
+        final effectiveTransform = isCropPreview
+            ? widget.mediaTransform.copyWith(
+                offsetDx: 0,
+                offsetDy: 0,
+                scale: 1,
+              )
+            : widget.mediaTransform;
 
-        if (frameSize.width <= 0 || frameSize.height <= 0) {
+        if (displaySize.width <= 0 || displaySize.height <= 0) {
           return const SizedBox.expand();
         }
+
+        // Where the media actually paints inside `displaySize`. Outside
+        // crop mode the media fills that box, so the two are the same. In
+        // crop mode the media is contain-fit into the full canvas, leaving
+        // letterbox bars the crop window has to stay inside.
+        final mediaBounds = isCropPreview
+            ? statusMediaBoundsFor(canvasSize, _resolvedMediaAspectRatio)
+            : Offset.zero & displaySize;
+        // The crop window shows exactly the region the ratio'd frame shows
+        // outside crop mode, so it is the rect that drawing strokes --
+        // stored normalised to that frame -- belong in while cropping.
+        // Painting them over the whole canvas instead is what smeared them
+        // across the letterbox bars.
+        final cropWindow = isCropPreview
+            ? cropWindowRectFor(
+                mediaBounds,
+                statusCropRatioFor(canvasSize, ratio),
+                widget.mediaTransform.scale,
+                widget.mediaTransform.offsetDx,
+                widget.mediaTransform.offsetDy,
+              )
+            : Offset.zero & displaySize;
 
         return Stack(
           fit: StackFit.expand,
@@ -234,17 +353,9 @@ class _StatusStoryMediaSurfaceState extends State<StatusStoryMediaSurface> {
             Center(
               child: SizedBox(
                 key: const Key('updates_media_story_frame'),
-                width: frameSize.width,
-                height: frameSize.height,
-                // Rounded to match the frame outline's own corner radius
-                // when it's shown (crop mode) -- a plain ClipRect left the
-                // media's sharp corners poking out past the rounded border,
-                // most visible on taller ratios like 4:5 where more corner
-                // area is exposed.
-                child: ClipRRect(
-                  borderRadius: widget.showFrameOutline
-                      ? BorderRadius.circular(26)
-                      : BorderRadius.zero,
+                width: displaySize.width,
+                height: displaySize.height,
+                child: ClipRect(
                   child: ColoredBox(
                     color: widget.backgroundColor,
                     child: hasMediaSource
@@ -261,21 +372,42 @@ class _StatusStoryMediaSurfaceState extends State<StatusStoryMediaSurface> {
                                       ),
                                       child: _buildTransformedMedia(
                                         mediaPath: mediaPath,
-                                        frameSize: frameSize,
+                                        frameSize: displaySize,
+                                        transform: effectiveTransform,
+                                        fit: isCropPreview
+                                            ? BoxFit.contain
+                                            : BoxFit.cover,
                                       ),
                                     )
                                   : _buildTransformedMedia(
                                       mediaPath: mediaPath,
-                                      frameSize: frameSize,
+                                      frameSize: displaySize,
+                                      transform: effectiveTransform,
+                                      fit: isCropPreview
+                                          ? BoxFit.contain
+                                          : BoxFit.cover,
                                     ),
                               if (widget.drawingStrokes.isNotEmpty)
-                                IgnorePointer(
-                                  child: CustomPaint(
-                                    key: const Key(
-                                        'updates_story_drawing_layer'),
-                                    painter: _StatusDrawingPainter(
-                                      strokes: widget.drawingStrokes,
-                                      frameSize: frameSize,
+                                // Pinned to the media's own rect, not the
+                                // whole box: strokes are stored normalised
+                                // to the media frame, so painting them over
+                                // a larger canvas would stretch them across
+                                // the letterbox bars in crop mode.
+                                Positioned.fromRect(
+                                  rect: cropWindow,
+                                  child: IgnorePointer(
+                                    // Clipped as well as positioned -- a
+                                    // stroke whose points stray outside the
+                                    // frame must not paint over the bars.
+                                    child: ClipRect(
+                                      child: CustomPaint(
+                                        key: const Key(
+                                            'updates_story_drawing_layer'),
+                                        painter: _StatusDrawingPainter(
+                                          strokes: widget.drawingStrokes,
+                                          frameSize: cropWindow.size,
+                                        ),
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -336,30 +468,21 @@ class _StatusStoryMediaSurfaceState extends State<StatusStoryMediaSurface> {
                 ),
               ),
             ),
-            if (widget.showFrameOutline &&
-                widget.mediaTransform.frameAspectRatio != null)
-              IgnorePointer(
-                child: Center(
-                  child: Container(
-                    width: frameSize.width,
-                    height: frameSize.height,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(26),
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.78),
-                        width: 1.2,
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.22),
-                          blurRadius: 22,
-                          offset: const Offset(0, 10),
-                        ),
-                      ],
-                    ),
-                  ),
+            // Faded rather than snapped in: entering crop mode already
+            // re-lays the media out, and having the dimming and grid pop
+            // on in the same frame is what made the switch feel abrupt.
+            AnimatedOpacity(
+              opacity: isCropPreview ? 1 : 0,
+              duration: kStatusMotionDuration,
+              curve: kStatusMotionCurve,
+              child: IgnorePointer(
+                child: _CropSelectionOverlay(
+                  key: const Key('updates_media_crop_selection_overlay'),
+                  canvasSize: canvasSize,
+                  window: cropWindow,
                 ),
               ),
+            ),
           ],
         );
       },
@@ -385,9 +508,11 @@ class _StatusStoryMediaSurfaceState extends State<StatusStoryMediaSurface> {
   Widget _buildTransformedMedia({
     required String mediaPath,
     required Size frameSize,
+    required StatusMediaTransform transform,
+    BoxFit fit = BoxFit.cover,
   }) {
     final quarterTurns = _normalizedQuarterTurns(
-      widget.mediaTransform.rotationQuarterTurns,
+      transform.rotationQuarterTurns,
     );
     final sourceSize = switch (widget.type) {
       StatusStoryType.photo => _photoIntrinsicSize ??
@@ -402,12 +527,12 @@ class _StatusStoryMediaSurfaceState extends State<StatusStoryMediaSurface> {
         ? Size(sourceSize.height, sourceSize.width)
         : sourceSize;
     final translation = Offset(
-      widget.mediaTransform.offsetDx * frameSize.width,
-      widget.mediaTransform.offsetDy * frameSize.height,
+      transform.offsetDx * frameSize.width,
+      transform.offsetDy * frameSize.height,
     );
 
     final media = FittedBox(
-      fit: BoxFit.cover,
+      fit: fit,
       child: SizedBox(
         width: renderedSourceSize.width,
         height: renderedSourceSize.height,
@@ -443,10 +568,35 @@ class _StatusStoryMediaSurfaceState extends State<StatusStoryMediaSurface> {
     return Transform.translate(
       offset: translation,
       child: Transform.scale(
-        scale: widget.mediaTransform.scale,
+        scale: transform.scale,
         child: media,
       ),
     );
+  }
+
+  /// The aspect ratio the media actually paints at on screen, with any
+  /// rotation already applied -- null while the real source size is still
+  /// unresolved (a photo mid-load, or a video before initialization), in
+  /// which case callers fall back to the full canvas.
+  double? get _resolvedMediaAspectRatio {
+    final sourceSize = switch (widget.type) {
+      StatusStoryType.photo => _photoIntrinsicSize,
+      StatusStoryType.video => widget.videoController?.value.isInitialized ==
+              true
+          ? widget.videoController!.value.size
+          : null,
+      StatusStoryType.text => null,
+    };
+    if (sourceSize == null ||
+        sourceSize.width <= 0 ||
+        sourceSize.height <= 0) {
+      return null;
+    }
+    final quarterTurns =
+        _normalizedQuarterTurns(widget.mediaTransform.rotationQuarterTurns);
+    return quarterTurns.isOdd
+        ? sourceSize.height / sourceSize.width
+        : sourceSize.width / sourceSize.height;
   }
 
   Size _videoSourceSize(Size fallbackSize) {
@@ -649,4 +799,114 @@ class _StatusDrawingPainter extends CustomPainter {
   bool shouldRepaint(covariant _StatusDrawingPainter oldDelegate) {
     return oldDelegate.strokes != strokes || oldDelegate.frameSize != frameSize;
   }
+}
+
+/// Crop mode's own overlay -- dims everything outside the crop selection
+/// window (see [cropWindowRectFor]) and draws a rule-of-thirds grid and
+/// border around it, exactly like WhatsApp's own crop tool. With no ratio
+/// selected (Original/Fit to screen), the window is exactly the media's
+/// own bounds, so nothing inside the media is dimmed.
+class _CropSelectionOverlay extends StatelessWidget {
+  const _CropSelectionOverlay({
+    required this.canvasSize,
+    required this.window,
+    super.key,
+  });
+
+  final Size canvasSize;
+
+  /// The crop selection rect, already resolved by the caller so the
+  /// overlay, the corner handles and the drawing layer cannot drift apart
+  /// by each computing it slightly differently.
+  final Rect window;
+
+  @override
+  Widget build(BuildContext context) {
+    final dimColor = Colors.black.withValues(alpha: 0.82);
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        // Four strips around the window rather than one shape with a
+        // hole -- simpler and just as correct, since the strips are
+        // axis-aligned rectangles that exactly tile the "outside" region.
+        // When the window is the full canvas (untouched/no ratio) every
+        // strip has zero size, so nothing is dimmed -- exactly right for
+        // an unmodified crop.
+        Positioned(
+          left: 0,
+          right: 0,
+          top: 0,
+          height: window.top,
+          child: ColoredBox(color: dimColor),
+        ),
+        Positioned(
+          left: 0,
+          right: 0,
+          top: window.bottom,
+          bottom: 0,
+          child: ColoredBox(color: dimColor),
+        ),
+        Positioned(
+          left: 0,
+          top: window.top,
+          width: window.left,
+          height: window.height,
+          child: ColoredBox(color: dimColor),
+        ),
+        Positioned(
+          right: 0,
+          top: window.top,
+          left: window.right,
+          height: window.height,
+          child: ColoredBox(color: dimColor),
+        ),
+        Positioned.fromRect(
+          rect: window,
+          child: CustomPaint(
+            painter: const _CropGridPainter(),
+          ),
+        ),
+        Positioned.fromRect(
+          rect: window,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.78),
+                width: 1.2,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.22),
+                  blurRadius: 22,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// The crop window's rule-of-thirds grid lines.
+class _CropGridPainter extends CustomPainter {
+  const _CropGridPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.56)
+      ..strokeWidth = 1;
+    for (var i = 1; i < 3; i++) {
+      final x = size.width * i / 3;
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
+      final y = size.height * i / 3;
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _CropGridPainter oldDelegate) => false;
 }

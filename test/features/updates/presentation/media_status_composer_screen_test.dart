@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:whatswave/app/theme/app_theme.dart';
 import 'package:whatswave/core/models/status_story.dart';
 import 'package:whatswave/features/updates/presentation/media_status_composer_screen.dart';
+import 'package:whatswave/features/updates/presentation/status_motion.dart';
 import 'package:whatswave/features/updates/presentation/widgets/status_story_media_surface.dart';
 
 import '../../../support/device_matrix.dart';
@@ -51,8 +52,146 @@ void main() {
 
     expect(find.byKey(const Key('updates_media_inline_text_field')),
         findsOneWidget);
-    expect(find.byKey(const Key('updates_media_text_editing_tray')),
+    expect(
+        find.byKey(const Key('updates_media_text_font_row')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'the media frame stays put when the keyboard opens for text editing, '
+      'like WhatsApp -- it never shrinks or shifts up', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.lightTheme(),
+        darkTheme: AppTheme.darkTheme(),
+        home: const MediaStatusComposerScreen(
+          type: StatusStoryType.photo,
+          localMediaPath: '/missing/photo.jpg',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final frameRectBeforeKeyboard =
+        tester.getRect(find.byKey(const Key('updates_media_story_frame')));
+
+    await tester.tap(find.byKey(const Key('updates_media_panel_fonts')));
+    await tester.pumpAndSettle();
+
+    // Simulate the system keyboard opening for the inline text field, the
+    // same way real text entry would raise it.
+    tester.view.viewInsets = const FakeViewPadding(bottom: 320);
+    addTearDown(tester.view.resetViewInsets);
+    await tester.pumpAndSettle();
+
+    final frameRectWithKeyboard =
+        tester.getRect(find.byKey(const Key('updates_media_story_frame')));
+    expect(frameRectWithKeyboard, frameRectBeforeKeyboard);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'the caption field and share button step aside while editing text, '
+      'like WhatsApp -- only the text tray and keyboard show', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.lightTheme(),
+        darkTheme: AppTheme.darkTheme(),
+        home: const MediaStatusComposerScreen(
+          type: StatusStoryType.photo,
+          localMediaPath: '/missing/photo.jpg',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+        find.byKey(const Key('updates_media_caption_field')), findsOneWidget);
+    expect(find.byKey(const Key('updates_share_media_status_button')),
         findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('updates_media_panel_fonts')));
+    await tester.pumpAndSettle();
+
+    expect(
+        find.byKey(const Key('updates_media_text_font_row')), findsOneWidget);
+    expect(find.byKey(const Key('updates_media_caption_field')), findsNothing);
+    expect(find.byKey(const Key('updates_share_media_status_button')),
+        findsNothing);
+
+    await tester.tap(find.byKey(const Key('updates_media_text_done_button')));
+    await tester.pumpAndSettle();
+
+    expect(
+        find.byKey(const Key('updates_media_caption_field')), findsOneWidget);
+    expect(find.byKey(const Key('updates_share_media_status_button')),
+        findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'the text tool matches WhatsApp: font row and color rail while '
+      'typing, alignment/decoration icons in the top bar, and the card '
+      'stays centered above the keyboard rather than wherever it was '
+      'dragged', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.lightTheme(),
+        darkTheme: AppTheme.darkTheme(),
+        home: const MediaStatusComposerScreen(
+          type: StatusStoryType.photo,
+          localMediaPath: '/missing/photo.jpg',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('updates_media_panel_fonts')));
+    await tester.pumpAndSettle();
+
+    // Simulate the keyboard, the same way real text entry would raise it.
+    tester.view.viewInsets = const FakeViewPadding(bottom: 320);
+    addTearDown(tester.view.resetViewInsets);
+    await tester.pumpAndSettle();
+
+    expect(
+        find.byKey(const Key('updates_media_text_font_row')), findsOneWidget);
+    expect(
+        find.byKey(const Key('updates_media_text_color_rail')), findsOneWidget);
+    expect(find.byKey(const Key('updates_media_text_align_button')),
+        findsOneWidget);
+    expect(find.byKey(const Key('updates_media_text_decoration_button')),
+        findsOneWidget);
+
+    // The editing card is horizontally centered on screen, and sits above
+    // the font row -- not wherever the overlay's own stored position is,
+    // and not overlapped by the keyboard chrome below it.
+    final screenCenterX = tester
+        .getCenter(find.byKey(const Key('updates_media_composer_screen')))
+        .dx;
+    final cardCenter = tester
+        .getCenter(find.byKey(const Key('updates_media_inline_text_editor')));
+    expect(cardCenter.dx, closeTo(screenCenterX, 1));
+    final fontRowTop = tester
+        .getRect(find.byKey(const Key('updates_media_text_font_row')))
+        .top;
+    expect(cardCenter.dy, lessThan(fontRowTop));
+
+    // Tapping a different font swatch and dragging the color rail don't
+    // throw -- direct tap-to-select, not the old single-tap cycle button.
+    await tester.tap(
+      find.byKey(const Key('updates_media_text_font_option_serif')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tapAt(
+      tester.getTopLeft(find.byKey(const Key('updates_media_text_color_bar'))) +
+          const Offset(4, 40),
+    );
+    await tester.pumpAndSettle();
+
     expect(tester.takeException(), isNull);
   });
 
@@ -96,7 +235,8 @@ void main() {
     // The plain caption field is a separate input from the rich "Add
     // text" overlay tool -- it's visible on the default toolbar without
     // needing to enter any tool first.
-    expect(find.byKey(const Key('updates_media_caption_field')), findsOneWidget);
+    expect(
+        find.byKey(const Key('updates_media_caption_field')), findsOneWidget);
     await tester.enterText(
       find.byKey(const Key('updates_media_caption_field')),
       'Golden hour vibes',
@@ -113,8 +253,9 @@ void main() {
   });
 
   testWidgets(
-      'text editing tray mirrors the text-status composer: single-tap-cycle '
-      'font/color icons, no chip strips or size buttons',
+      'once text editing ends, it fully reverts to the plain default '
+      'toolbar -- no lingering quick-tools tray, matching WhatsApp -- and '
+      'tapping the placed text reopens the redesigned editing view',
       (tester) async {
     await tester.binding.setSurfaceSize(iphoneSeProfile.size);
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -135,33 +276,42 @@ void main() {
     await tester.tap(find.byKey(const Key('updates_media_panel_fonts')));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('updates_media_cycle_font_button')),
-        findsOneWidget);
-    expect(find.byKey(const Key('updates_media_cycle_tone_button')),
-        findsOneWidget);
+    // An empty text overlay is discarded on commit, so type something first
+    // -- otherwise "Done" would remove it entirely rather than leaving it
+    // placed on the canvas.
+    await tester.enterText(
+      find.byKey(const Key('updates_media_inline_text_field')),
+      'Hello',
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('updates_media_text_done_button')));
+    await tester.pumpAndSettle();
+
+    // No special chrome survives Done -- the plain default toolbar (add
+    // text/emoji/music/draw/blur/crop) is back, exactly as if nothing were
+    // selected, not a leftover tray hovering above the caption row.
+    expect(find.byKey(const Key('updates_media_panel_fonts')), findsOneWidget);
     expect(
-        find.byKey(const Key('updates_media_toggle_text_background_button')),
+        find.byKey(const Key('updates_media_text_align_button')), findsNothing);
+    expect(find.byKey(const Key('updates_media_text_decoration_button')),
+        findsNothing);
+    expect(find.byKey(const Key('updates_media_text_font_row')), findsNothing);
+    expect(
+        find.byKey(const Key('updates_media_text_color_rail')), findsNothing);
+    expect(find.text('Hello'), findsOneWidget);
+
+    // Tapping the placed text goes straight back into the redesigned
+    // editing view -- one tap, not a select-then-edit two-step.
+    await tester.tap(find.text('Hello'));
+    await tester.pumpAndSettle();
+
+    expect(
+        find.byKey(const Key('updates_media_text_font_row')), findsOneWidget);
+    expect(
+        find.byKey(const Key('updates_media_text_color_rail')), findsOneWidget);
+    expect(find.byKey(const Key('updates_media_inline_text_field')),
         findsOneWidget);
-    expect(find.byKey(const Key('updates_media_cycle_alignment_button')),
-        findsOneWidget);
-
-    // The old chip-strip/S-M-L size buttons are gone -- size is now a pinch
-    // gesture on the placed overlay, same as every other overlay type.
-    expect(find.text('S'), findsNothing);
-    expect(find.text('M'), findsNothing);
-    expect(find.text('L'), findsNothing);
-
-    await tester.tap(find.byKey(const Key('updates_media_cycle_font_button')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('updates_media_cycle_tone_button')));
-    await tester.pumpAndSettle();
-    await tester.tap(
-        find.byKey(const Key('updates_media_toggle_text_background_button')));
-    await tester.pumpAndSettle();
-    await tester
-        .tap(find.byKey(const Key('updates_media_cycle_alignment_button')));
-    await tester.pumpAndSettle();
-
     expect(tester.takeException(), isNull);
   });
 
@@ -240,7 +390,8 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('emoji picker offers far more than a dozen glyphs, grouped by '
+  testWidgets(
+      'emoji picker offers far more than a dozen glyphs, grouped by '
       'category', (tester) async {
     await tester.binding.setSurfaceSize(iphoneSeProfile.size);
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -274,8 +425,9 @@ void main() {
         scrollable: scrollable);
     expect(find.text('Smileys'), findsOneWidget);
     // Far beyond the old 12-emoji cap -- option indices run well past it.
-    expect(find.byKey(const Key('updates_media_emoji_option_100')),
-        findsNothing, reason: 'not yet scrolled into view');
+    expect(
+        find.byKey(const Key('updates_media_emoji_option_100')), findsNothing,
+        reason: 'not yet scrolled into view');
     await tester.scrollUntilVisible(
       find.byKey(const Key('updates_media_emoji_option_100')),
       300,
@@ -287,8 +439,7 @@ void main() {
 
   testWidgets(
       'sticker search in the combined sticker+emoji sheet narrows the '
-      'flowing chip list',
-      (tester) async {
+      'flowing chip list', (tester) async {
     await tester.binding.setSurfaceSize(iphoneSeProfile.size);
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
@@ -305,8 +456,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester
-        .tap(find.byKey(const Key('updates_media_add_emoji_button')));
+    await tester.tap(find.byKey(const Key('updates_media_add_emoji_button')));
     await tester.pumpAndSettle();
 
     expect(find.text('Weekend'), findsOneWidget);
@@ -461,9 +611,6 @@ void main() {
       find.byType(StatusStoryMediaSurface),
     );
     final initialTransform = mediaSurface.mediaTransform;
-    expect(mediaSurface.onScaleStart, isNull);
-    expect(mediaSurface.onScaleUpdate, isNull);
-    expect(mediaSurface.onScaleEnd, isNull);
 
     final emojiFinder = find.text('😀').last;
     await tester.drag(emojiFinder, const Offset(72, -48));
@@ -472,7 +619,8 @@ void main() {
     mediaSurface = tester.widget<StatusStoryMediaSurface>(
       find.byType(StatusStoryMediaSurface),
     );
-    expect(mediaSurface.mediaTransform.scale, closeTo(initialTransform.scale, 0.0001));
+    expect(mediaSurface.mediaTransform.scale,
+        closeTo(initialTransform.scale, 0.0001));
     expect(mediaSurface.mediaTransform.offsetDx,
         closeTo(initialTransform.offsetDx, 0.0001));
     expect(mediaSurface.mediaTransform.offsetDy,
@@ -485,16 +633,6 @@ void main() {
     await tester.tapAt(const Offset(10, 10));
     await tester.pumpAndSettle();
 
-    // Deselecting the emoji does NOT re-enable panning/zooming the media --
-    // that's only ever available inside the crop tool now, matching
-    // WhatsApp, where you can't drift the photo around during ordinary
-    // editing at all.
-    mediaSurface = tester.widget<StatusStoryMediaSurface>(
-      find.byType(StatusStoryMediaSurface),
-    );
-    expect(mediaSurface.onScaleStart, isNull);
-    expect(mediaSurface.onScaleUpdate, isNull);
-    expect(mediaSurface.onScaleEnd, isNull);
     expect(tester.takeException(), isNull);
   });
 
@@ -542,8 +680,7 @@ void main() {
   testWidgets(
       'rotate lives in the crop-or-rotate tray, matching WhatsApp\'s real '
       'explicit crop step, and inverts the auto-fitted frame to match the '
-      'rotated content',
-      (tester) async {
+      'rotated content', (tester) async {
     await tester.binding.setSurfaceSize(iphoneSeProfile.size);
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
@@ -576,12 +713,11 @@ void main() {
     await tester.ensureVisible(
       find.byKey(const Key('updates_media_crop_rotate_button')),
     );
-    await tester
-        .tap(find.byKey(const Key('updates_media_crop_rotate_button')));
+    await tester.tap(find.byKey(const Key('updates_media_crop_rotate_button')));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('updates_media_rotate_button')),
-        findsOneWidget);
+    expect(
+        find.byKey(const Key('updates_media_rotate_button')), findsOneWidget);
     expect(find.byKey(const Key('updates_media_crop_aspect_ratio_button')),
         findsOneWidget);
     expect(find.byKey(const Key('updates_media_crop_done_button')),
@@ -636,8 +772,7 @@ void main() {
     await tester.ensureVisible(
       find.byKey(const Key('updates_media_crop_rotate_button')),
     );
-    await tester
-        .tap(find.byKey(const Key('updates_media_crop_rotate_button')));
+    await tester.tap(find.byKey(const Key('updates_media_crop_rotate_button')));
     await tester.pumpAndSettle();
 
     await tester.tap(
@@ -681,8 +816,7 @@ void main() {
     await tester.ensureVisible(
       find.byKey(const Key('updates_media_crop_rotate_button')),
     );
-    await tester
-        .tap(find.byKey(const Key('updates_media_crop_rotate_button')));
+    await tester.tap(find.byKey(const Key('updates_media_crop_rotate_button')));
     await tester.pumpAndSettle();
 
     // First pick Square so there's a real constraint to clear.
@@ -720,7 +854,9 @@ void main() {
   });
 
   testWidgets(
-      'dragging a free-form crop corner reshapes the frame to a custom ratio',
+      'crop mode opens on the full, unmodified frame with draggable corner '
+      'handles -- dragging a corner resizes the crop window (never the '
+      'media itself), dragging inside repositions it, and Reset undoes it',
       (tester) async {
     await tester.binding.setSurfaceSize(iphoneProProfile.size);
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -741,102 +877,67 @@ void main() {
     await tester.ensureVisible(
       find.byKey(const Key('updates_media_crop_rotate_button')),
     );
-    await tester
-        .tap(find.byKey(const Key('updates_media_crop_rotate_button')));
+    await tester.tap(find.byKey(const Key('updates_media_crop_rotate_button')));
     await tester.pumpAndSettle();
 
-    final beforeSurface = tester.widget<StatusStoryMediaSurface>(
-      find.byType(StatusStoryMediaSurface),
-    );
-    final ratioBefore = beforeSurface.mediaTransform.frameAspectRatio;
-    final frameSizeBefore =
-        tester.getSize(find.byKey(const Key('updates_media_story_frame')));
+    // Crop mode opens on the full, uncropped frame -- matches WhatsApp's
+    // own crop tool, which starts with nothing cropped away yet.
+    final opened = tester
+        .widget<StatusStoryMediaSurface>(find.byType(StatusStoryMediaSurface))
+        .mediaTransform;
+    expect(opened.frameAspectRatio, isNull);
+    expect(opened.scale, 1);
 
-    final bottomRightHandle = find.byKey(
-      const Key('updates_media_crop_corner_bottomRight'),
-    );
-    expect(bottomRightHandle, findsOneWidget);
-    // Drag the bottom-right corner inward -- shrinks both width and height
-    // symmetrically (the frame stays centered), producing a new ratio.
-    await tester.drag(bottomRightHandle, const Offset(-60, 0));
-    await tester.pumpAndSettle();
+    // All four corner handles exist and are draggable -- this is how you
+    // resize the crop window (unlike the earlier plain-grid-only design).
+    for (final corner in ['topLeft', 'topRight', 'bottomLeft', 'bottomRight']) {
+      expect(
+          find.byKey(Key('updates_media_crop_corner_$corner')), findsOneWidget);
+    }
 
-    final afterSurface = tester.widget<StatusStoryMediaSurface>(
-      find.byType(StatusStoryMediaSurface),
-    );
-    final ratioAfter = afterSurface.mediaTransform.frameAspectRatio;
-    expect(ratioAfter, isNotNull);
-    expect(ratioAfter, isNot(ratioBefore));
+    // No Reset button yet -- nothing to reset before any drag has happened.
+    expect(
+        find.byKey(const Key('updates_media_crop_reset_button')), findsNothing);
 
-    // Regression guard: an inward drag must shrink the frame the user
-    // actually sees, not snap it back up to the largest rectangle of the
-    // new ratio -- that mismatch is what made a small corner drag look
-    // like it grew the media instead of cropping it.
-    final frameSizeAfter =
-        tester.getSize(find.byKey(const Key('updates_media_story_frame')));
-    expect(frameSizeAfter.width, lessThan(frameSizeBefore.width));
-    expect(tester.takeException(), isNull);
-  });
-
-  testWidgets(
-      'media pan/zoom gestures are only available inside the crop tool, '
-      'and Reset undoes them without touching rotation or aspect ratio',
-      (tester) async {
-    await tester.binding.setSurfaceSize(iphoneProProfile.size);
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-
-    await tester.pumpWidget(
-      MaterialApp(
-        debugShowCheckedModeBanner: false,
-        theme: AppTheme.lightTheme(),
-        darkTheme: AppTheme.darkTheme(),
-        home: const MediaStatusComposerScreen(
-          type: StatusStoryType.photo,
-          localMediaPath: '/missing/photo.jpg',
-        ),
-      ),
+    // Dragging the bottom-right corner handle inward shrinks the crop
+    // window -- this crops in on the (never-moving) media, which shows up
+    // as a real aspect ratio and a zoomed-in scale on the final transform.
+    await tester.drag(
+      find.byKey(const Key('updates_media_crop_corner_bottomRight')),
+      const Offset(-120, -100),
     );
     await tester.pumpAndSettle();
 
-    var mediaSurface = tester.widget<StatusStoryMediaSurface>(
-      find.byType(StatusStoryMediaSurface),
+    final resized = tester
+        .widget<StatusStoryMediaSurface>(find.byType(StatusStoryMediaSurface))
+        .mediaTransform;
+    expect(resized.frameAspectRatio, isNotNull);
+    expect(
+      resized.scale,
+      greaterThan(1),
+      reason: 'shrinking the window should zoom the final crop in',
     );
-    expect(mediaSurface.onScaleStart, isNull,
-        reason: 'no crop mode active yet -- the media must not be '
-            'draggable during ordinary editing');
 
-    await tester.ensureVisible(
-      find.byKey(const Key('updates_media_crop_rotate_button')),
-    );
-    await tester
-        .tap(find.byKey(const Key('updates_media_crop_rotate_button')));
-    await tester.pumpAndSettle();
-
-    mediaSurface = tester.widget<StatusStoryMediaSurface>(
-      find.byType(StatusStoryMediaSurface),
-    );
-    expect(mediaSurface.onScaleStart, isNotNull,
-        reason: 'crop mode is the one place panning/zooming is allowed');
-    expect(find.byKey(const Key('updates_media_crop_reset_button')),
-        findsNothing,
-        reason: 'nothing to reset before any pan/zoom has happened');
-
+    // Dragging inside the (now smaller-than-canvas) window repositions it
+    // -- this is how you pick which part of the never-moving media the
+    // resized window selects.
     await tester.drag(
       find.byType(StatusStoryMediaSurface),
       const Offset(40, 30),
     );
     await tester.pumpAndSettle();
 
-    mediaSurface = tester.widget<StatusStoryMediaSurface>(
-      find.byType(StatusStoryMediaSurface),
-    );
-    final panned = mediaSurface.mediaTransform;
+    final panned = tester
+        .widget<StatusStoryMediaSurface>(find.byType(StatusStoryMediaSurface))
+        .mediaTransform;
     expect(
-      panned.offsetDx != 0 || panned.offsetDy != 0,
+      panned.offsetDx != resized.offsetDx ||
+          panned.offsetDy != resized.offsetDy,
       isTrue,
-      reason: 'the drag should have actually moved the media',
+      reason: 'the drag should have moved the crop window',
     );
-    final rotationAfterPan = panned.rotationQuarterTurns;
+    // The move-only gesture never changes the zoom the corner drag set.
+    expect(panned.scale, resized.scale);
 
     final resetButton =
         find.byKey(const Key('updates_media_crop_reset_button'));
@@ -844,18 +945,290 @@ void main() {
     await tester.tap(resetButton);
     await tester.pumpAndSettle();
 
-    mediaSurface = tester.widget<StatusStoryMediaSurface>(
-      find.byType(StatusStoryMediaSurface),
+    final reset = tester
+        .widget<StatusStoryMediaSurface>(find.byType(StatusStoryMediaSurface))
+        .mediaTransform;
+    expect(reset.scale, 1);
+    expect(reset.offsetDx, 0);
+    expect(reset.offsetDy, 0);
+    expect(
+        find.byKey(const Key('updates_media_crop_reset_button')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'the crop window stays inside the media it is cropping -- it can '
+      'never be dragged out onto a letterbox bar -- and Reset restores the '
+      "media's own original frame, not just the offsets", (tester) async {
+    await tester.binding.setSurfaceSize(iphoneProProfile.size);
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    // A wide source on a tall screen letterboxes top and bottom, so there
+    // is real empty space the window must refuse to enter.
+    await tester.pumpWidget(
+      MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.lightTheme(),
+        darkTheme: AppTheme.darkTheme(),
+        home: const MediaStatusComposerScreen(
+          type: StatusStoryType.photo,
+          localMediaPath: '/missing/photo.jpg',
+          initialSourceSizeHint: Size(400, 200),
+        ),
+      ),
     );
-    expect(mediaSurface.mediaTransform.scale, 1);
-    expect(mediaSurface.mediaTransform.offsetDx, 0);
-    expect(mediaSurface.mediaTransform.offsetDy, 0);
-    // Reset only undoes pan/zoom -- rotation (a deliberate, separate
-    // choice made via its own button) is left alone.
-    expect(mediaSurface.mediaTransform.rotationQuarterTurns,
-        rotationAfterPan);
-    expect(find.byKey(const Key('updates_media_crop_reset_button')),
-        findsNothing);
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(
+      find.byKey(const Key('updates_media_crop_rotate_button')),
+    );
+    await tester.tap(find.byKey(const Key('updates_media_crop_rotate_button')));
+    await tester.pumpAndSettle();
+
+    final original = tester
+        .widget<StatusStoryMediaSurface>(find.byType(StatusStoryMediaSurface))
+        .mediaTransform;
+    expect(original.frameAspectRatio, closeTo(2, 0.0001));
+
+    // Shrink the window so there is room to drag it around at all.
+    await tester.drag(
+      find.byKey(const Key('updates_media_crop_corner_bottomRight')),
+      const Offset(-90, -40),
+    );
+    await tester.pumpAndSettle();
+
+    // Now shove it far past the media's bottom edge, into the letterbox.
+    await tester.drag(
+      find.byType(StatusStoryMediaSurface),
+      const Offset(0, 600),
+    );
+    await tester.pumpAndSettle();
+
+    final shoved = tester
+        .widget<StatusStoryMediaSurface>(find.byType(StatusStoryMediaSurface))
+        .mediaTransform;
+
+    // Assert on the *stored* offset, not on a rect re-derived through
+    // cropWindowRectFor -- that function re-clamps, so it would mask an
+    // out-of-bounds value the composer had actually committed.
+    final canvasSize =
+        tester.getSize(find.byKey(const Key('updates_media_story_frame')));
+    final mediaBounds =
+        statusMediaBoundsFor(canvasSize, original.frameAspectRatio);
+    final windowHeight =
+        statusStoryFrameSizeFor(mediaBounds.size, shoved.frameAspectRatio)
+                .height /
+            shoved.scale;
+    final maxOffsetDy =
+        ((mediaBounds.height - windowHeight) / 2) / windowHeight;
+
+    expect(
+      shoved.offsetDy.abs(),
+      lessThanOrEqualTo(maxOffsetDy + 0.001),
+      reason: 'the crop window must never leave the media it is cropping',
+    );
+
+    // Reset puts the frame back on the media's own original ratio, not
+    // merely zeroing the offsets while leaving a resized frame behind.
+    await tester.tap(find.byKey(const Key('updates_media_crop_reset_button')));
+    await tester.pumpAndSettle();
+
+    final reset = tester
+        .widget<StatusStoryMediaSurface>(find.byType(StatusStoryMediaSurface))
+        .mediaTransform;
+    expect(reset.scale, 1);
+    expect(reset.offsetDx, 0);
+    expect(reset.offsetDy, 0);
+    expect(reset.frameAspectRatio, closeTo(2, 0.0001));
+    expect(
+        find.byKey(const Key('updates_media_crop_reset_button')), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      '"Fit to screen" previews the real posted frame -- the crop window '
+      'takes the full screen\'s shape, so a wide video shows the strip that '
+      'will actually survive rather than pretending nothing is cropped',
+      (tester) async {
+    await tester.binding.setSurfaceSize(iphoneProProfile.size);
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.lightTheme(),
+        darkTheme: AppTheme.darkTheme(),
+        home: const MediaStatusComposerScreen(
+          type: StatusStoryType.photo,
+          localMediaPath: '/missing/photo.jpg',
+          initialSourceSizeHint: Size(400, 200),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(
+      find.byKey(const Key('updates_media_crop_rotate_button')),
+    );
+    await tester.tap(find.byKey(const Key('updates_media_crop_rotate_button')));
+    await tester.pumpAndSettle();
+
+    // The composer's media canvas is full-bleed, exactly like the viewer
+    // renders a posted segment -- otherwise "fit to screen" would fit to a
+    // shorter box than the screen it actually fills once posted.
+    final canvasSize = tester.getSize(find.byType(StatusStoryMediaSurface));
+    expect(canvasSize.height, closeTo(iphoneProProfile.size.height, 0.5));
+
+    await tester.tap(
+      find.byKey(const Key('updates_media_crop_aspect_ratio_button')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const Key('updates_media_crop_aspect_Fit to screen')),
+    );
+    await tester.pumpAndSettle();
+
+    final fitted = tester
+        .widget<StatusStoryMediaSurface>(find.byType(StatusStoryMediaSurface))
+        .mediaTransform;
+    expect(fitted.frameAspectRatio, isNull);
+
+    // A null frame ratio means "cover the whole canvas" in the posted
+    // render, so the crop window must take the canvas's own shape -- not
+    // fall back to the media's bounds and claim nothing gets cropped.
+    final mediaBounds = statusMediaBoundsFor(canvasSize, 2);
+    final window = cropWindowRectFor(
+      mediaBounds,
+      statusCropRatioFor(canvasSize, fitted.frameAspectRatio),
+      fitted.scale,
+      fitted.offsetDx,
+      fitted.offsetDy,
+    );
+
+    expect(
+      window.width / window.height,
+      closeTo(canvasSize.width / canvasSize.height, 0.001),
+      reason: 'fit to screen must preview the screen\'s own shape',
+    );
+    expect(
+      window.width,
+      lessThan(mediaBounds.width - 1),
+      reason: 'a wide source really does lose its sides when it fills a '
+          'tall screen -- the preview has to show that',
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'neither the caption nor a placed text overlay is length-capped -- '
+      'WhatsApp imposes no limit, so long text is handled by layout '
+      '(wrapping, scrolling, show-more) rather than by refusing input',
+      (tester) async {
+    await tester.binding.setSurfaceSize(iphoneProProfile.size);
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.lightTheme(),
+        darkTheme: AppTheme.darkTheme(),
+        home: const MediaStatusComposerScreen(
+          type: StatusStoryType.photo,
+          localMediaPath: '/missing/photo.jpg',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final captionField = find.byKey(const Key('updates_media_caption_field'));
+    expect(captionField, findsOneWidget);
+    expect(tester.widget<TextField>(captionField).maxLength, isNull);
+
+    // A caption far past any previous cap is accepted verbatim.
+    final longCaption = 'a very long caption. ' * 40;
+    await tester.enterText(captionField, longCaption);
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<TextField>(captionField).controller?.text,
+      longCaption,
+    );
+
+    // Same for the overlay's own text input.
+    await tester.tap(find.byKey(const Key('updates_media_panel_fonts')));
+    await tester.pumpAndSettle();
+
+    final overlayField =
+        find.byKey(const Key('updates_media_inline_text_field'));
+    expect(overlayField, findsOneWidget);
+    expect(tester.widget<TextField>(overlayField).maxLength, isNull);
+
+    final longOverlayText = 'overlay words that keep going ' * 20;
+    await tester.enterText(overlayField, longOverlayText);
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<TextField>(overlayField).controller?.text,
+      longOverlayText,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'entering crop mode eases in rather than snapping -- the crop chrome '
+      'and the toolbar cross-fade on the shared status timing', (tester) async {
+    await tester.binding.setSurfaceSize(iphoneProProfile.size);
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.lightTheme(),
+        darkTheme: AppTheme.darkTheme(),
+        home: const MediaStatusComposerScreen(
+          type: StatusStoryType.photo,
+          localMediaPath: '/missing/photo.jpg',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final cropOverlay =
+        find.byKey(const Key('updates_media_crop_selection_overlay'));
+    double overlayOpacity() => tester
+        .widget<AnimatedOpacity>(
+          find.ancestor(
+              of: cropOverlay, matching: find.byType(AnimatedOpacity)),
+        )
+        .opacity;
+
+    // Hidden, but present -- so it has something to animate from.
+    expect(overlayOpacity(), 0);
+
+    await tester.ensureVisible(
+      find.byKey(const Key('updates_media_crop_rotate_button')),
+    );
+    await tester.tap(find.byKey(const Key('updates_media_crop_rotate_button')));
+
+    // One frame in, the crop chrome is on its way in but not yet arrived:
+    // the whole point of the change, versus popping to full opacity.
+    await tester.pump();
+    await tester.pump(kStatusMotionDuration ~/ 2);
+    final midFade = tester
+        .widget<FadeTransition>(
+          find
+              .ancestor(
+                of: find.byKey(const Key('updates_media_crop_done_button')),
+                matching: find.byType(FadeTransition),
+              )
+              .first,
+        )
+        .opacity
+        .value;
+    expect(midFade, greaterThan(0));
+    expect(midFade, lessThan(1));
+
+    // And it settles fully within the shared duration.
+    await tester.pumpAndSettle();
+    expect(overlayOpacity(), 1);
     expect(tester.takeException(), isNull);
   });
 
@@ -903,8 +1276,8 @@ void main() {
     await tester.tap(find.byKey(const Key('updates_media_blur_done_button')));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('updates_media_blur_editing_tray')),
-        findsNothing);
+    expect(
+        find.byKey(const Key('updates_media_blur_editing_tray')), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -987,6 +1360,45 @@ void main() {
     );
   }
 
+  testWidgets(
+      'the redesigned text tool (font row, color rail, top-bar icons, '
+      'keyboard) renders without overflow on a compact iPhone SE screen',
+      (tester) async {
+    await tester.binding.setSurfaceSize(iphoneSeProfile.size);
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.lightTheme(),
+        darkTheme: AppTheme.darkTheme(),
+        home: const MediaStatusComposerScreen(
+          type: StatusStoryType.photo,
+          localMediaPath: '/missing/photo.jpg',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('updates_media_panel_fonts')));
+    await tester.pumpAndSettle();
+
+    tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+    addTearDown(tester.view.resetViewInsets);
+    await tester.pumpAndSettle();
+
+    expect(
+        find.byKey(const Key('updates_media_text_font_row')), findsOneWidget);
+    expect(
+        find.byKey(const Key('updates_media_text_color_rail')), findsOneWidget);
+    expect(
+      tester.takeException(),
+      isNull,
+      reason: 'iPhone SE should render the text tool without overflow or '
+          'layout exceptions while the keyboard is up.',
+    );
+  });
+
   testWidgets('draw button replaces the toolbar with the draw tray',
       (tester) async {
     await tester.binding.setSurfaceSize(iphoneSeProfile.size);
@@ -1005,8 +1417,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('updates_media_draw_editing_tray')),
-        findsNothing);
+    expect(
+        find.byKey(const Key('updates_media_draw_editing_tray')), findsNothing);
 
     await tester.tap(find.byKey(const Key('updates_media_draw_button')));
     await tester.pumpAndSettle();
@@ -1053,7 +1465,8 @@ void main() {
       find.byType(StatusStoryMediaSurface),
     );
     expect(surfaceAfterDraw.drawingStrokes, isNotEmpty);
-    expect(surfaceAfterDraw.drawingStrokes.single.points.length, greaterThan(1));
+    expect(
+        surfaceAfterDraw.drawingStrokes.single.points.length, greaterThan(1));
 
     await tester.tap(find.byKey(const Key('updates_media_draw_undo_button')));
     await tester.pumpAndSettle();
@@ -1096,8 +1509,7 @@ void main() {
     await tester.tapAt(barTopLeft + Offset(10, barHeight / 2));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('updates_media_draw_surface')),
-        findsOneWidget,
+    expect(find.byKey(const Key('updates_media_draw_surface')), findsOneWidget,
         reason: 'draw mode should still be active after picking a color');
 
     final drawSurface = find.byKey(const Key('updates_media_draw_surface'));
@@ -1173,8 +1585,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets(
-      'dragging along the draw color bar picks a color partway down it',
+  testWidgets('dragging along the draw color bar picks a color partway down it',
       (tester) async {
     await tester.binding.setSurfaceSize(iphoneProProfile.size);
     addTearDown(() => tester.binding.setSurfaceSize(null));

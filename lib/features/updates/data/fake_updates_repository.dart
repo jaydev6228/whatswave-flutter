@@ -192,19 +192,14 @@ class FakeUpdatesRepository implements UpdatesRepository {
     required StatusMusicTrack? musicTrack,
   }) {
     final items = <StatusMediaOverlayItem>[];
-    if (caption.isNotEmpty) {
-      items.add(
-        StatusMediaOverlayItem(
-          id: 'overlay-caption',
-          type: StatusMediaOverlayType.text,
-          label: caption,
-          positionDx: 0.5,
-          positionDy: 0.82,
-          scale: 1,
-          textStyle: textStyle,
-        ),
-      );
-    }
+    // The typed caption is deliberately NOT turned into a text overlay.
+    // Overlay text is laid out big and centred over the media and is
+    // clipped once it outgrows its box, which silently swallowed the tail
+    // of any long caption. The caption already travels in the segment's
+    // own caption/previewText and renders through the viewer's bottom
+    // chrome, which wraps and scrolls it -- one path, always fully
+    // readable. Emoji/sticker/music below still need synthesising for
+    // callers that never adopted the rich overlay list.
     if (emoji?.isNotEmpty == true) {
       items.add(
         StatusMediaOverlayItem(
