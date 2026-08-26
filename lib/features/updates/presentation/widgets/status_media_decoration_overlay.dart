@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_twemoji/flutter_twemoji.dart';
 
@@ -94,6 +96,27 @@ String meaningfulStatusCaption(StatusStorySegment segment) {
   return caption;
 }
 
+/// The region a placed text overlay may occupy on a story.
+///
+/// Deliberately smaller than the raw canvas: the story chrome (progress
+/// bar and author row up top, caption and reply bar at the bottom) is
+/// drawn over the media on both the composer and the viewer, so text
+/// allowed to use the full height runs underneath the close/delete/volume
+/// buttons and the "Just now - 0 views" line.
+///
+/// Both the composer preview and the posted story size text against this
+/// same box, which is what keeps the two identical -- the whole point of
+/// a preview is that it shows what gets posted.
+Size statusOverlayTextBoundsFor(Size canvasSize) {
+  const reservedTop = 104.0;
+  const reservedBottom = 136.0;
+  const reservedSide = 16.0;
+  return Size(
+    math.max(canvasSize.width - (reservedSide * 2), 120),
+    math.max(canvasSize.height - reservedTop - reservedBottom, 160),
+  );
+}
+
 Offset statusStoryOverlayOffsetFor(
   Size canvasSize,
   StatusMediaOverlayItem item,
@@ -113,6 +136,7 @@ class StatusMediaDecorationOverlay extends StatelessWidget {
     this.showBackdrop = true,
     this.showTopDecorations = true,
     this.showCaption = true,
+    this.showTextOverlays = true,
     super.key,
   });
 
@@ -123,6 +147,14 @@ class StatusMediaDecorationOverlay extends StatelessWidget {
   final bool showBackdrop;
   final bool showTopDecorations;
   final bool showCaption;
+
+  /// Whether placed rich text overlays (e.g. a draggable "Add text" item)
+  /// render -- independent of [showCaption], which only controls the
+  /// separate typed-caption card. A caller that wants the caption shown
+  /// elsewhere (see the story viewer's own bottom-chrome caption text)
+  /// still needs this true, or its placed text overlays would silently
+  /// disappear along with the caption card.
+  final bool showTextOverlays;
 
   @override
   Widget build(BuildContext context) {
@@ -135,6 +167,7 @@ class StatusMediaDecorationOverlay extends StatelessWidget {
         showBackdrop: showBackdrop,
         showTopDecorations: showTopDecorations,
         showCaption: showCaption,
+        showTextOverlays: showTextOverlays,
       );
     }
 
@@ -382,6 +415,7 @@ class _RichStatusMediaDecorationOverlay extends StatelessWidget {
     required this.showBackdrop,
     required this.showTopDecorations,
     required this.showCaption,
+    required this.showTextOverlays,
   });
 
   final StatusStorySegment segment;
@@ -391,6 +425,7 @@ class _RichStatusMediaDecorationOverlay extends StatelessWidget {
   final bool showBackdrop;
   final bool showTopDecorations;
   final bool showCaption;
+  final bool showTextOverlays;
 
   @override
   Widget build(BuildContext context) {
@@ -402,7 +437,7 @@ class _RichStatusMediaDecorationOverlay extends StatelessWidget {
         .toList(growable: false);
     final visibleItems = <StatusMediaOverlayItem>[
       if (showTopDecorations) ...decorationItems,
-      if (showCaption) ...textItems,
+      if (showTextOverlays) ...textItems,
     ];
 
     // WhatsApp shows the plain typed caption *and* any placed overlays
@@ -464,22 +499,46 @@ class _RichStatusMediaDecorationOverlay extends StatelessWidget {
                     width: frameSize.width,
                     height: frameSize.height,
                     child: Stack(
+                      // Text overlays are allowed to run past the media
+                      // frame onto the letterbox bars: shrinking a long one
+                      // to fit inside the frame made it unreadable, and the
+                      // bars are dead space the story can happily use.
+                      clipBehavior: Clip.none,
                       fit: StackFit.expand,
                       children: [
                         if (visibleItems.isNotEmpty)
-                          IgnorePointer(
-                            child: Stack(
-                              fit: StackFit.expand,
-                              children: [
-                                for (final item in visibleItems)
+                          // Only the non-text decorations ignore pointers.
+                          // A long text overlay has to stay scrollable, and
+                          // an IgnorePointer around it would make that
+                          // scroll silently dead (see how the same mistake
+                          // clipped overlay text before).
+                          Stack(
+                            clipBehavior: Clip.none,
+                            fit: StackFit.expand,
+                            children: [
+                              for (final item in visibleItems)
+                                if (item.type == StatusMediaOverlayType.text &&
+                                    !compact)
                                   _StaticStatusOverlayPosition(
                                     item: item,
                                     canvasSize: frameSize,
+                                    // Long text sizes itself against the
+                                    // whole screen, not the media frame.
+                                    boundsSize: availableSize,
                                     compact: compact,
                                     accentColor: accentColor,
+                                  )
+                                else
+                                  IgnorePointer(
+                                    child: _StaticStatusOverlayPosition(
+                                      item: item,
+                                      canvasSize: frameSize,
+                                      boundsSize: availableSize,
+                                      compact: compact,
+                                      accentColor: accentColor,
+                                    ),
                                   ),
-                              ],
-                            ),
+                            ],
                           ),
                         if (hasCaption)
                           Positioned(
@@ -501,8 +560,17 @@ class _RichStatusMediaDecorationOverlay extends StatelessWidget {
                                   overlayColor: overlayColor,
                                   borderColor: borderColor,
                                   accentColor: accentColor,
-                                  textStyleModel: segment.textStyle ??
-                                      _defaultMediaCaptionStyle,
+                                  // Always the plain default look here, never
+                                  // segment.textStyle -- once there are rich
+                                  // overlay items, that field describes the
+                                  // *primary text overlay's* own font/color
+                                  // (e.g. a bold custom look for a placed
+                                  // "Gg" overlay), not this genuinely
+                                  // separate typed caption. Applying it here
+                                  // made the caption pick up the overlay's
+                                  // styling instead of showing as plain text,
+                                  // like WhatsApp's own caption.
+                                  textStyleModel: _defaultMediaCaptionStyle,
                                   collapsedMaxLines: captionMaxLines,
                                   collapsedFontSize: captionFontSize,
                                 ),
@@ -527,16 +595,45 @@ class _StaticStatusOverlayPosition extends StatelessWidget {
     required this.canvasSize,
     required this.compact,
     required this.accentColor,
+    this.boundsSize,
   });
 
   final StatusMediaOverlayItem item;
+
+  /// The media frame the item's normalised position is anchored to.
   final Size canvasSize;
+
+  /// How much room the item may actually occupy -- the whole screen, not
+  /// just the media frame, so long text stays readable instead of being
+  /// shrunk to fit between the letterbox bars. Falls back to [canvasSize].
+  final Size? boundsSize;
+
   final bool compact;
   final Color accentColor;
 
   @override
   Widget build(BuildContext context) {
     final offset = statusStoryOverlayOffsetFor(canvasSize, item);
+    final bounds = boundsSize;
+    Widget content = StatusOverlayContent(
+      item: item,
+      compact: compact,
+      accentColor: accentColor,
+      canvasSize: bounds ?? canvasSize,
+    );
+
+    // The media frame's own SizedBox still *constrains* children to the
+    // frame even with the Stack's clip off, so a text overlay allowed to
+    // use the whole screen has to be handed looser constraints as well --
+    // otherwise it silently lays out at the frame's height again.
+    if (bounds != null && item.type == StatusMediaOverlayType.text) {
+      content = OverflowBox(
+        alignment: Alignment.center,
+        maxWidth: bounds.width,
+        maxHeight: bounds.height,
+        child: content,
+      );
+    }
 
     return Center(
       child: Transform.translate(
@@ -545,11 +642,7 @@ class _StaticStatusOverlayPosition extends StatelessWidget {
           angle: item.rotation,
           child: Transform.scale(
             scale: item.scale,
-            child: StatusOverlayContent(
-              item: item,
-              compact: compact,
-              accentColor: accentColor,
-            ),
+            child: content,
           ),
         ),
       ),
@@ -562,6 +655,7 @@ class StatusOverlayContent extends StatelessWidget {
     required this.item,
     required this.compact,
     required this.accentColor,
+    this.canvasSize,
     super.key,
   });
 
@@ -569,13 +663,18 @@ class StatusOverlayContent extends StatelessWidget {
   final bool compact;
   final Color accentColor;
 
+  /// The frame the overlay is placed on, when the caller knows it. Text
+  /// overlays size themselves against this so they always fit the frame
+  /// they will actually be seen in; without it they fall back to the
+  /// screen, which is right for full-bleed callers and merely generous
+  /// for smaller ones.
+  final Size? canvasSize;
+
   @override
   Widget build(BuildContext context) {
     return switch (item.type) {
-      StatusMediaOverlayType.text => ConstrainedBox(
-          constraints: BoxConstraints(
-            maxWidth: compact ? 210 : 320,
-          ),
+      StatusMediaOverlayType.text => _overlayTextConstraints(
+          context,
           child: _StatusOverlayTextCard(
             item: item,
             compact: compact,
@@ -595,6 +694,54 @@ class StatusOverlayContent extends StatelessWidget {
           accentColor: accentColor,
         ),
     };
+  }
+
+  /// Keeps a placed text overlay readable, however long its text is.
+  ///
+  /// Width is a share of the available bounds rather than a fixed pixel
+  /// count, so the text wraps instead of running past the screen edge.
+  /// Height is bounded by those same bounds and *scrolls* past that --
+  /// deliberately not shrink-to-fit, which turned a long overlay into
+  /// unreadably small type. Compact (thumbnail) renderings keep their
+  /// small fixed budget and shrink instead, since nothing can scroll a
+  /// list thumbnail.
+  Widget _overlayTextConstraints(
+    BuildContext context, {
+    required Widget child,
+  }) {
+    final bounds = canvasSize ?? MediaQuery.sizeOf(context);
+    if (compact) {
+      final maxWidth = math.min(210.0, bounds.width * 0.9);
+      return ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: maxWidth,
+          maxHeight: math.min(140.0, bounds.height * 0.9),
+        ),
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: maxWidth),
+            child: child,
+          ),
+        ),
+      );
+    }
+
+    final textBounds = statusOverlayTextBoundsFor(bounds);
+    final maxWidth = textBounds.width;
+    final maxHeight = textBounds.height;
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxWidth: maxWidth, maxHeight: maxHeight),
+      child: SingleChildScrollView(
+        // Only scrolls once the text genuinely outgrows the screen;
+        // shorter overlays still size to their own content.
+        physics: const ClampingScrollPhysics(),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: maxWidth),
+          child: child,
+        ),
+      ),
+    );
   }
 }
 

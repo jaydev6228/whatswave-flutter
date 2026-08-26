@@ -4,6 +4,7 @@ import '../../../core/models/status_story.dart';
 import '../../chats/application/chats_controller.dart';
 import '../application/updates_controller.dart';
 import 'status_story_viewer_screen.dart';
+import 'status_motion.dart';
 
 Future<void> openStatusStoryViewer(
   BuildContext context, {
@@ -13,7 +14,8 @@ Future<void> openStatusStoryViewer(
   ChatsController? chatsController,
 }) {
   return Navigator.of(context).push(
-    MaterialPageRoute<void>(
+    statusSheetRoute<void>(
+      name: 'status/viewer',
       builder: (_) => StatusStoryViewerScreen(
         story: story,
         initialSegmentIndex: initialSegmentIndex,

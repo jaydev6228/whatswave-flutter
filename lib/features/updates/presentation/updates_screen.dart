@@ -17,6 +17,7 @@ import 'widgets/status_media_source.dart';
 import 'widgets/status_ring_avatar.dart';
 import 'widgets/status_story_media_surface.dart';
 import 'widgets/text_status_canvas.dart';
+import 'status_motion.dart';
 
 const double _kUpdatesScreenHorizontalPadding = 16;
 const double _kUpdatesRowHorizontalPadding = 18;
@@ -204,9 +205,9 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
 
   Future<void> _openTextStatusComposer() async {
     final draft = await Navigator.of(context).push<TextStatusComposerDraft>(
-      MaterialPageRoute<TextStatusComposerDraft>(
+      statusSheetRoute<TextStatusComposerDraft>(
+        name: 'status/compose/text',
         builder: (_) => const TextStatusComposerScreen(),
-        fullscreenDialog: true,
       ),
     );
     if (!mounted || draft == null) {
@@ -259,13 +260,13 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
       }
 
       final draft = await Navigator.of(context).push<MediaStatusComposerDraft>(
-        MaterialPageRoute<MediaStatusComposerDraft>(
+        statusSheetRoute<MediaStatusComposerDraft>(
+          name: 'status/compose/media',
           builder: (_) => MediaStatusComposerScreen(
             type: statusType,
             localMediaPath: pickedMedia.path,
             initialSourceSizeHint: initialSourceSizeHint,
           ),
-          fullscreenDialog: true,
         ),
       );
       if (!mounted || draft == null) {

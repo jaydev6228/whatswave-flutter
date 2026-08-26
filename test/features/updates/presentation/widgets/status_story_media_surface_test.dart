@@ -138,4 +138,66 @@ void main() {
 
     expect(find.byKey(const Key('updates_story_drawing_layer')), findsNothing);
   });
+
+  testWidgets(
+      'in crop mode the drawing layer stays pinned to the crop window over '
+      'the media, not smeared across the full canvas and its letterbox bars',
+      (tester) async {
+    // A wide source in a tall box letterboxes top and bottom, so there are
+    // real bars the strokes must not spill onto.
+    const boxSize = Size(300, 600);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: boxSize.width,
+              height: boxSize.height,
+              child: const StatusStoryMediaSurface(
+                type: StatusStoryType.photo,
+                localMediaPath:
+                    'asset://assets/media/status_demo/launch_cafe.jpg',
+                showFrameOutline: true,
+                mediaTransform: StatusMediaTransform(frameAspectRatio: 2),
+                drawingStrokes: <StatusDrawingStroke>[
+                  StatusDrawingStroke(
+                    points: <Offset>[Offset(0.05, 0.05), Offset(0.95, 0.95)],
+                    colorValue: 0xFF00E5FF,
+                    strokeWidth: 0.02,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await _pumpUntilRealImageDecodes(tester);
+
+    final drawingFinder = find.byKey(const Key('updates_story_drawing_layer'));
+    expect(drawingFinder, findsOneWidget);
+
+    final surfaceRect = tester.getRect(find.byType(StatusStoryMediaSurface));
+    final drawingRect = tester.getRect(drawingFinder);
+
+    // The give-away symptom of the bug: the drawing layer taking the whole
+    // canvas, so strokes ran the full height of the screen over the bars.
+    expect(
+      drawingRect.height,
+      lessThan(surfaceRect.height - 1),
+      reason: 'the drawing layer must not span the letterboxed canvas',
+    );
+    // And it sits within the media, not hanging off it.
+    expect(drawingRect.top, greaterThanOrEqualTo(surfaceRect.top - 0.5));
+    expect(drawingRect.bottom, lessThanOrEqualTo(surfaceRect.bottom + 0.5));
+    expect(drawingRect.left, greaterThanOrEqualTo(surfaceRect.left - 0.5));
+    expect(drawingRect.right, lessThanOrEqualTo(surfaceRect.right + 0.5));
+
+    // It lines up with the crop selection the user is actually adjusting.
+    expect(
+      find.byKey(const Key('updates_media_crop_selection_overlay')),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
 }

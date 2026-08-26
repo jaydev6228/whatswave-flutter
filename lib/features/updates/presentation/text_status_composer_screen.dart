@@ -7,6 +7,7 @@ import '../../../core/models/status_story.dart';
 import 'widgets/emoji_picker_sheet.dart';
 import 'widgets/status_media_decoration_overlay.dart';
 import 'widgets/text_status_canvas.dart';
+import 'widgets/status_text_editing_tools.dart';
 
 class TextStatusComposerDraft {
   const TextStatusComposerDraft({
@@ -33,6 +34,11 @@ class TextStatusComposerScreen extends StatefulWidget {
       _TextStatusComposerScreenState();
 }
 
+/// The font swatch row's height and the colour rail's width -- the editor
+/// card reserves exactly these so the three controls never overlap.
+const double _kTextFontRowHeight = 56;
+const double _kTextRailWidth = 34;
+
 class _TextStatusComposerScreenState extends State<TextStatusComposerScreen> {
   static const StatusTextStyle _defaultStyle = StatusTextStyle(
     fontId: 'banner',
@@ -50,6 +56,13 @@ class _TextStatusComposerScreenState extends State<TextStatusComposerScreen> {
   int _nextOverlaySeed = 0;
   double? _pinchStartSizeScale;
 
+  /// Whether the text is being typed right now. Drives the editor card
+  /// rather than [FocusNode.hasFocus] does: the card autofocuses itself,
+  /// so keying off focus alone would mean it could never appear in the
+  /// first place. Starts true because a text status opens ready to type,
+  /// the way WhatsApp does.
+  bool _isEditing = true;
+
   bool get _canShare => _captionController.text.trim().isNotEmpty;
 
   @override
@@ -61,7 +74,14 @@ class _TextStatusComposerScreenState extends State<TextStatusComposerScreen> {
     )..addListener(() {
         setState(() {});
       });
-    _focusNode = FocusNode();
+    _focusNode = FocusNode()
+      ..addListener(() {
+        // Covers the keyboard being dismissed by the system rather than by
+        // a tap -- the preview should reveal itself either way.
+        if (!_focusNode.hasFocus && _isEditing) {
+          setState(() => _isEditing = false);
+        }
+      });
     _style = initialDraft?.textStyle ?? _defaultStyle;
     _overlayItems.addAll(initialDraft?.overlayItems ?? const []);
   }
@@ -77,44 +97,135 @@ class _TextStatusComposerScreenState extends State<TextStatusComposerScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       key: const Key('updates_composer_sheet'),
-      resizeToAvoidBottomInset: true,
+      // The canvas is a live preview of the posted story, so it must keep
+      // its full size when the keyboard opens. Letting Scaffold shrink the
+      // body turned the preview into a small box that showed nothing like
+      // the result -- the font row below reacts to viewInsets instead.
+      resizeToAvoidBottomInset: false,
       appBar: AppBar(
         actions: [
-          IconButton(
-            key: const Key('updates_cycle_font_button'),
-            tooltip: 'Change font',
-            onPressed: _cycleFont,
-            icon: const Icon(Icons.font_download_outlined),
-          ),
-          IconButton(
-            key: const Key('updates_cycle_background_button'),
-            tooltip: 'Change background color',
-            onPressed: _cycleBackground,
-            icon: const Icon(Icons.palette_outlined),
-          ),
-          IconButton(
-            key: const Key('updates_add_text_emoji_button'),
-            tooltip: 'Add emoji',
-            onPressed: _openEmojiPicker,
-            icon: const Icon(Icons.emoji_emotions_outlined),
-          ),
-          IconButton(
-            key: const Key('updates_randomize_text_style_button'),
-            tooltip: 'Shuffle style',
-            onPressed: _shuffleLook,
-            icon: const Icon(Icons.auto_awesome_rounded),
-          ),
-          TextButton(
-            key: const Key('updates_share_status_button'),
-            onPressed: _canShare ? _share : null,
-            child: const Text('Share'),
+          // Styling controls exist only while typing. Once the keyboard is
+          // down the screen is a preview of the posted story, and a story
+          // carries no toolbars -- only Close and Share survive, which are
+          // navigation rather than part of the status itself.
+          if (_isEditing) ...[
+            IconButton(
+              key: const Key('updates_cycle_font_button'),
+              tooltip: 'Text alignment',
+              onPressed: _cycleAlignment,
+              icon: Icon(statusTextAlignmentIcon(_style.alignment)),
+            ),
+            IconButton(
+              key: const Key('updates_text_decoration_button'),
+              tooltip: 'Text background',
+              onPressed: _toggleTextBackground,
+              icon: Icon(
+                _style.useSolidBackground
+                    ? Icons.format_color_reset_rounded
+                    : Icons.format_color_fill_rounded,
+              ),
+            ),
+            IconButton(
+              key: const Key('updates_cycle_background_button'),
+              tooltip: 'Change background color',
+              onPressed: _cycleBackground,
+              icon: const Icon(Icons.palette_outlined),
+            ),
+            IconButton(
+              key: const Key('updates_add_text_emoji_button'),
+              tooltip: 'Add emoji',
+              onPressed: _openEmojiPicker,
+              icon: const Icon(Icons.emoji_emotions_outlined),
+            ),
+            IconButton(
+              key: const Key('updates_randomize_text_style_button'),
+              tooltip: 'Shuffle style',
+              onPressed: _shuffleLook,
+              icon: const Icon(Icons.auto_awesome_rounded),
+            ),
+          ],
+          // Fixed chrome: the action row has a hard width budget, so its
+          // label is clamped rather than allowed to scale to 200% and push
+          // the icons off the edge (docs/ui_layout_guidelines.md rule 4).
+          MediaQuery.withClampedTextScaling(
+            maxScaleFactor: 1.2,
+            child: TextButton(
+              key: const Key('updates_share_status_button'),
+              onPressed: _canShare ? _share : null,
+              child: const Text('Share'),
+            ),
           ),
         ],
       ),
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
-          child: _buildComposerStage(Theme.of(context)),
+        child: Stack(
+          children: [
+            // The preview fills the screen and never resizes -- it is the
+            // posted story, so anything that shrank it would be showing a
+            // layout the viewer will never see.
+            Positioned.fill(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(child: _buildComposerStage(Theme.of(context))),
+                    if (_isEditing) const SizedBox(width: 10),
+                    // Same continuous colour rail as the media composer's
+                    // text tool, so picking a text colour works identically
+                    // on both kinds of status.
+                    if (_isEditing)
+                      StatusTextColorRail(
+                        railKey: const Key('updates_text_color_rail'),
+                        barKey: const Key('updates_text_color_bar'),
+                        thumbKey: const Key('updates_text_color_thumb'),
+                        selectedColor: _style.textColor ?? Colors.white,
+                        onSelectColor: _selectTextColor,
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            // The editor card, confined to what is actually visible:
+            // below the app bar, clear of the colour rail, and above both
+            // the font row and the keyboard.
+            if (_isEditing)
+              Positioned(
+                top: 10,
+                left: 16,
+                right: 16 + (_isEditing ? _kTextRailWidth + 10 : 0),
+                bottom: 16 +
+                    MediaQuery.viewInsetsOf(context).bottom +
+                    _kTextFontRowHeight +
+                    12,
+                child: Center(
+                  child: StatusTextEditorCard(
+                    fieldKey: const Key('updates_composer_field'),
+                    cardKey: const Key('updates_composer_text_card'),
+                    controller: _captionController,
+                    focusNode: _focusNode,
+                    textStyleModel: _style,
+                    hintText: 'Type your status',
+                  ),
+                ),
+              ),
+            // Fonts are picked directly from the shared swatch row, and it
+            // floats over the preview riding above the keyboard rather than
+            // pushing the preview up.
+            if (_isEditing)
+              Positioned(
+                left: 16,
+                right: 16,
+                bottom: 16 + MediaQuery.viewInsetsOf(context).bottom,
+                child: StatusTextFontStyleRow(
+                  rowKey: const Key('updates_text_font_row'),
+                  optionKeyBuilder: (fontId) =>
+                      Key('updates_text_font_option_$fontId'),
+                  selectedFontId: _style.fontId,
+                  onFontSelected: _selectFont,
+                ),
+              ),
+          ],
         ),
       ),
     );
@@ -124,15 +235,6 @@ class _TextStatusComposerScreenState extends State<TextStatusComposerScreen> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final canvasSize = constraints.biggest;
-        final shortestSide = math.min(canvasSize.width, canvasSize.height);
-        final textStyle = buildTextStatusTextStyle(
-          theme: theme,
-          style: _style,
-          accentColor: AppPalette.emerald,
-          shortestSide: shortestSide,
-          textLength: math.max(_captionController.text.trim().length, 24),
-        );
-        const hintText = 'Type your status';
 
         return GestureDetector(
           key: const Key('updates_composer_canvas'),
@@ -140,8 +242,17 @@ class _TextStatusComposerScreenState extends State<TextStatusComposerScreen> {
           onTap: () {
             if (_selectedOverlayId != null) {
               setState(() => _selectedOverlayId = null);
+              return;
+            }
+            // Tapping away from the text puts the keyboard down and shows
+            // the story exactly as it will be posted, which is also when
+            // colour/alignment/position are worth adjusting. Tapping again
+            // goes back to typing -- the WhatsApp round trip.
+            if (_isEditing) {
+              _focusNode.unfocus();
+              setState(() => _isEditing = false);
             } else {
-              _focusNode.requestFocus();
+              setState(() => _isEditing = true);
             }
           },
           // Pinch-to-scale the text itself -- matches WhatsApp's real text
@@ -165,8 +276,9 @@ class _TextStatusComposerScreenState extends State<TextStatusComposerScreen> {
                     );
                   });
                 },
-          onScaleEnd:
-              _selectedOverlayId != null ? null : (_) => _pinchStartSizeScale = null,
+          onScaleEnd: _selectedOverlayId != null
+              ? null
+              : (_) => _pinchStartSizeScale = null,
           child: Stack(
             fit: StackFit.expand,
             clipBehavior: Clip.none,
@@ -175,31 +287,18 @@ class _TextStatusComposerScreenState extends State<TextStatusComposerScreen> {
                 text: _captionController.text,
                 style: _style,
                 accentColor: AppPalette.emerald,
-                textChild: TextField(
-                  key: const Key('updates_composer_field'),
-                  focusNode: _focusNode,
-                  controller: _captionController,
-                  keyboardType: TextInputType.multiline,
-                  textInputAction: TextInputAction.newline,
-                  maxLines: null,
-                  maxLength: 240,
-                  buildCounter: (
-                    _, {
-                    required int currentLength,
-                    required bool isFocused,
-                    required int? maxLength,
-                  }) =>
-                      null,
-                  textAlign: textStatusTextAlign(_style.alignment),
-                  style: textStyle,
-                  cursorColor: textStyle.color ?? theme.colorScheme.onPrimary,
-                  decoration: InputDecoration.collapsed(
-                    hintText: hintText,
-                    hintStyle: textStyle.copyWith(
-                      color: textStyle.color?.withValues(alpha: 0.42),
-                    ),
-                  ),
-                ),
+                // The very same editor the media composer's "Add text"
+                // overlay uses, so the two tools behave identically rather
+                // than drifting as two parallel implementations.
+                // While typing the canvas holds the text back and the
+                // editor card is laid out above the keyboard instead (see
+                // the body Stack) -- centring it in the full-height preview
+                // would drop it behind the keyboard and under the font row.
+                // With the keyboard down the canvas renders its own text:
+                // no card chrome, no border, precisely what gets posted.
+                // Hidden outright while typing -- an empty child still
+                // left the panel's own capsule painted on the preview.
+                showText: !_isEditing,
               ),
               for (final item in _overlayItems)
                 _TextStatusOverlayItem(
@@ -229,12 +328,34 @@ class _TextStatusComposerScreenState extends State<TextStatusComposerScreen> {
     );
   }
 
-  void _cycleFont() {
-    final currentIndex =
-        kTextStatusFontLooks.indexWhere((look) => look.id == _style.fontId);
-    final nextIndex = (currentIndex + 1) % kTextStatusFontLooks.length;
+  void _selectFont(String fontId) {
     setState(() {
-      _style = _style.copyWith(fontId: kTextStatusFontLooks[nextIndex].id);
+      _style = _style.copyWith(fontId: fontId);
+    });
+  }
+
+  void _cycleAlignment() {
+    setState(() {
+      _style = _style.copyWith(
+        alignment: nextStatusTextAlignment(_style.alignment),
+      );
+    });
+  }
+
+  /// Same "decoration" affordance the media composer's text tool has --
+  /// toggles a solid plate behind the text for legibility over a busy
+  /// background.
+  void _toggleTextBackground() {
+    setState(() {
+      _style = _style.copyWith(
+        useSolidBackground: !_style.useSolidBackground,
+      );
+    });
+  }
+
+  void _selectTextColor(Color color) {
+    setState(() {
+      _style = _style.copyWith(textColorValue: color.toARGB32());
     });
   }
 
@@ -297,10 +418,10 @@ class _TextStatusComposerScreenState extends State<TextStatusComposerScreen> {
         fontId: font.id,
         backgroundId: background.id,
         layout: layout,
-        alignment: layout == StatusTextLayout.poster ||
-                layout == StatusTextLayout.note
-            ? StatusTextAlignment.left
-            : StatusTextAlignment.center,
+        alignment:
+            layout == StatusTextLayout.poster || layout == StatusTextLayout.note
+                ? StatusTextAlignment.left
+                : StatusTextAlignment.center,
         sizeScale: 0.88 + (random.nextDouble() * 0.4),
       );
     });
@@ -345,8 +466,7 @@ class _TextStatusOverlayItem extends StatefulWidget {
   final ValueChanged<StatusMediaOverlayItem> onChanged;
 
   @override
-  State<_TextStatusOverlayItem> createState() =>
-      _TextStatusOverlayItemState();
+  State<_TextStatusOverlayItem> createState() => _TextStatusOverlayItemState();
 }
 
 class _TextStatusOverlayItemState extends State<_TextStatusOverlayItem> {
