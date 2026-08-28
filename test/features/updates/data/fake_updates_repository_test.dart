@@ -215,7 +215,8 @@ void main() {
     expect(emojiOverlay.label, '☕️');
   });
 
-  test('tracks story likes per segment instead of for the whole ring', () async {
+  test('tracks story likes per segment instead of for the whole ring',
+      () async {
     final repository = FakeUpdatesRepository(latency: Duration.zero);
 
     await repository.setStoryLiked(

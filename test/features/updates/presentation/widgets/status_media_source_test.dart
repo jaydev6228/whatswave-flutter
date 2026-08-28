@@ -45,7 +45,8 @@ void main() {
         'https://firebasestorage.example/x.jpg',
       );
       expect(provider, isA<NetworkImage>());
-      expect((provider as NetworkImage).url, 'https://firebasestorage.example/x.jpg');
+      expect((provider as NetworkImage).url,
+          'https://firebasestorage.example/x.jpg');
     });
 
     test('a bundled asset:// path resolves to an AssetImage', () {

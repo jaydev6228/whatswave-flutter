@@ -167,7 +167,8 @@ class FirebaseStatusMediaStore implements StatusMediaStore {
       normalizedSourcePath,
       fallback: type == StatusStoryType.video ? '.mp4' : '.jpg',
     );
-    final filename = 'status_${DateTime.now().microsecondsSinceEpoch}$extension';
+    final filename =
+        'status_${DateTime.now().microsecondsSinceEpoch}$extension';
 
     try {
       return await _uploader.uploadFile(

@@ -17,6 +17,7 @@ import 'widgets/status_media_decoration_overlay.dart';
 import 'widgets/status_media_source.dart';
 import 'widgets/status_story_media_surface.dart';
 import 'widgets/text_status_canvas.dart';
+import 'status_system_chrome.dart';
 
 class StatusStoryDeleteResult {
   const StatusStoryDeleteResult({
@@ -738,9 +739,8 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
         ? _tapNavigationThreshold
         : DateTime.now().difference(pointerDownAt);
     final downPosition = _activePointerDownPosition;
-    final travelled = downPosition == null
-        ? 0.0
-        : (event.position - downPosition).distance;
+    final travelled =
+        downPosition == null ? 0.0 : (event.position - downPosition).distance;
     final shouldNavigate = pressDuration < _tapNavigationThreshold &&
         travelled <= _tapNavigationSlop &&
         _pendingTapDirection == direction;
@@ -1142,11 +1142,13 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
   /// `[trimStart, trimStart + durationMillis)` instead of the whole file --
   /// mirrors the composer's own preview trim loop
   /// (`_handleTrimLoopPosition` in media_status_composer_screen.dart).
-  void _attachTrimLoop(VideoPlayerController controller, StatusStorySegment? segment) {
+  void _attachTrimLoop(
+      VideoPlayerController controller, StatusStorySegment? segment) {
     _detachTrimLoop();
     final trimStartMillis = segment?.trimStartMillis ?? 0;
     final durationMillis = segment?.durationMillis;
-    if (trimStartMillis <= 0 && (durationMillis == null || durationMillis <= 0)) {
+    if (trimStartMillis <= 0 &&
+        (durationMillis == null || durationMillis <= 0)) {
       unawaited(controller.setLooping(true));
       return;
     }
@@ -1200,241 +1202,256 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
     // already moved on to a different segment.
     final segmentForThisBuild = _currentSegment;
 
-    return Scaffold(
-      key: const Key('updates_story_viewer'),
-      backgroundColor: AppPalette.deepOcean,
-      body: AnimatedContainer(
-        duration: const Duration(milliseconds: 220),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              story.accentColor.withValues(alpha: 0.86),
-              AppPalette.deepOcean,
-              AppPalette.deepOcean.withValues(alpha: 0.94),
-            ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
+    return StatusStorySystemChrome(
+      child: Scaffold(
+        key: const Key('updates_story_viewer'),
+        backgroundColor: AppPalette.deepOcean,
+        body: AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                story.accentColor.withValues(alpha: 0.86),
+                AppPalette.deepOcean,
+                AppPalette.deepOcean.withValues(alpha: 0.94),
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
           ),
-        ),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            Positioned.fill(
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 220),
-                switchInCurve: Curves.easeOutCubic,
-                switchOutCurve: Curves.easeInCubic,
-                child: _StoryViewerCard(
-                  key: ValueKey(
-                    '${story.id}-segment-$_currentSegmentIndex-${_currentSegment?.localMediaPath ?? _currentSegmentType.name}',
-                  ),
-                  story: story,
-                  segment: segmentForThisBuild,
-                  currentSegmentIndex: _currentSegmentIndex,
-                  totalSegments: _segmentCount,
-                  videoController: _videoController,
-                  videoInitialization: _videoInitialization,
-                  onPhotoLoadSettled: () => _markCurrentSegmentMediaReady(
-                    segmentForThisBuild,
-                  ),
-                ),
-              ),
-            ),
-            Positioned.fill(
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Listener(
-                      key: const Key(
-                        'updates_story_viewer_left_zone',
-                      ),
-                      behavior: HitTestBehavior.translucent,
-                      onPointerDown: (event) => _handleZonePointerDown(
-                          _StoryTapDirection.left, event),
-                      onPointerUp: (event) =>
-                          _handleZonePointerUp(_StoryTapDirection.left, event),
-                      onPointerCancel: _handleZonePointerCancel,
-                    ),
-                  ),
-                  Expanded(
-                    child: Listener(
-                      key: const Key(
-                        'updates_story_viewer_right_zone',
-                      ),
-                      behavior: HitTestBehavior.translucent,
-                      onPointerDown: (event) => _handleZonePointerDown(
-                        _StoryTapDirection.right,
-                        event,
-                      ),
-                      onPointerUp: (event) =>
-                          _handleZonePointerUp(_StoryTapDirection.right, event),
-                      onPointerCancel: _handleZonePointerCancel,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            // Scrim behind the bottom chrome while the caption is
-            // expanded: dims the story enough to read long text over it
-            // without hiding it, and swallows taps meant to dismiss --
-            // they collapse the caption instead of skipping the segment.
-            if (_isCaptionExpanded)
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
               Positioned.fill(
-                child: GestureDetector(
-                  key: const Key('updates_story_viewer_caption_scrim'),
-                  behavior: HitTestBehavior.opaque,
-                  onTap: _collapseCaption,
-                  child: ColoredBox(
-                    color: Colors.black.withValues(alpha: 0.55),
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 220),
+                  switchInCurve: Curves.easeOutCubic,
+                  switchOutCurve: Curves.easeInCubic,
+                  child: _StoryViewerCard(
+                    key: ValueKey(
+                      '${story.id}-segment-$_currentSegmentIndex-${_currentSegment?.localMediaPath ?? _currentSegmentType.name}',
+                    ),
+                    story: story,
+                    segment: segmentForThisBuild,
+                    currentSegmentIndex: _currentSegmentIndex,
+                    totalSegments: _segmentCount,
+                    videoController: _videoController,
+                    videoInitialization: _videoInitialization,
+                    onPhotoLoadSettled: () => _markCurrentSegmentMediaReady(
+                      segmentForThisBuild,
+                    ),
                   ),
                 ),
               ),
-            SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
-                child: Column(
+              Positioned.fill(
+                child: Row(
                   children: [
-                    _StoryProgressBar(
-                      totalSegments: _segmentCount,
-                      currentSegmentIndex: _currentSegmentIndex,
-                      activeProgress: _segmentProgress,
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        AvatarBadge(
-                          label: story.avatarLabel,
-                          color: story.accentColor,
-                          avatarUrl: story.avatarUrl,
-                          size: 38,
+                    Expanded(
+                      child: Listener(
+                        key: const Key(
+                          'updates_story_viewer_left_zone',
                         ),
-                        const SizedBox(width: 9),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                story.name,
-                                style: theme.textTheme.titleSmall?.copyWith(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w800,
-                                  height: 1,
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              GestureDetector(
-                                behavior: HitTestBehavior.opaque,
-                                onTap: story.isMine &&
-                                        widget.onFetchViewers != null
-                                    ? _showViewersSheet
-                                    : null,
-                                child: Text(
-                                  story.isMine
-                                      ? '$_currentSegmentTimeLabel • $_currentSegmentViewerCount '
-                                          '${_currentSegmentViewerCount == 1 ? 'view' : 'views'}'
-                                      : _currentSegmentTimeLabel,
-                                  key: story.isMine
-                                      ? const Key('updates_story_viewer_count')
-                                      : null,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: Colors.white.withValues(alpha: 0.72),
-                                    decoration: story.isMine &&
-                                            widget.onFetchViewers != null
-                                        ? TextDecoration.underline
-                                        : null,
-                                    decorationColor:
-                                        Colors.white.withValues(alpha: 0.5),
+                        behavior: HitTestBehavior.translucent,
+                        onPointerDown: (event) => _handleZonePointerDown(
+                            _StoryTapDirection.left, event),
+                        onPointerUp: (event) => _handleZonePointerUp(
+                            _StoryTapDirection.left, event),
+                        onPointerCancel: _handleZonePointerCancel,
+                      ),
+                    ),
+                    Expanded(
+                      child: Listener(
+                        key: const Key(
+                          'updates_story_viewer_right_zone',
+                        ),
+                        behavior: HitTestBehavior.translucent,
+                        onPointerDown: (event) => _handleZonePointerDown(
+                          _StoryTapDirection.right,
+                          event,
+                        ),
+                        onPointerUp: (event) => _handleZonePointerUp(
+                            _StoryTapDirection.right, event),
+                        onPointerCancel: _handleZonePointerCancel,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              // Scrim behind the bottom chrome while the caption is
+              // expanded: dims the story enough to read long text over it
+              // without hiding it, and swallows taps meant to dismiss --
+              // they collapse the caption instead of skipping the segment.
+              if (_isCaptionExpanded)
+                Positioned.fill(
+                  child: GestureDetector(
+                    key: const Key('updates_story_viewer_caption_scrim'),
+                    behavior: HitTestBehavior.opaque,
+                    onTap: _collapseCaption,
+                    child: ColoredBox(
+                      color: Colors.black.withValues(alpha: 0.55),
+                    ),
+                  ),
+                ),
+              // Same status-bar scrim as the composers, so a posted story
+              // keeps the OS clock/battery readable over a bright photo or a
+              // pale text background -- and so what the composer previews is
+              // what the viewer actually draws.
+              const Positioned(
+                key: Key('updates_story_viewer_status_bar_scrim'),
+                top: 0,
+                left: 0,
+                right: 0,
+                child: StatusStoryEdgeScrim(),
+              ),
+              SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+                  child: Column(
+                    children: [
+                      _StoryProgressBar(
+                        totalSegments: _segmentCount,
+                        currentSegmentIndex: _currentSegmentIndex,
+                        activeProgress: _segmentProgress,
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          AvatarBadge(
+                            label: story.avatarLabel,
+                            color: story.accentColor,
+                            avatarUrl: story.avatarUrl,
+                            size: 38,
+                          ),
+                          const SizedBox(width: 9),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  story.name,
+                                  style: theme.textTheme.titleSmall?.copyWith(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w800,
+                                    height: 1,
                                   ),
                                 ),
-                              ),
-                            ],
+                                const SizedBox(height: 2),
+                                GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onTap: story.isMine &&
+                                          widget.onFetchViewers != null
+                                      ? _showViewersSheet
+                                      : null,
+                                  child: Text(
+                                    story.isMine
+                                        ? '$_currentSegmentTimeLabel • $_currentSegmentViewerCount '
+                                            '${_currentSegmentViewerCount == 1 ? 'view' : 'views'}'
+                                        : _currentSegmentTimeLabel,
+                                    key: story.isMine
+                                        ? const Key(
+                                            'updates_story_viewer_count')
+                                        : null,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color:
+                                          Colors.white.withValues(alpha: 0.72),
+                                      decoration: story.isMine &&
+                                              widget.onFetchViewers != null
+                                          ? TextDecoration.underline
+                                          : null,
+                                      decorationColor:
+                                          Colors.white.withValues(alpha: 0.5),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-                        if (_hasAudibleAudio) ...[
+                          if (_hasAudibleAudio) ...[
+                            _StoryIconButton(
+                              key: const Key('updates_story_mute_button'),
+                              tooltip: _isMuted ? 'Unmute' : 'Mute',
+                              onPressed: _toggleMute,
+                              child: Icon(
+                                _isMuted
+                                    ? Icons.volume_off_rounded
+                                    : Icons.volume_up_rounded,
+                                color: Colors.white,
+                                size: 20,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                          ],
+                          if (story.isMine && widget.onDeleteSegment != null)
+                            _StoryIconButton(
+                              key: const Key('updates_story_delete_button'),
+                              tooltip: 'Delete current status',
+                              onPressed: _isDeletingSegment
+                                  ? null
+                                  : _deleteCurrentSegmentWithConfirmation,
+                              child: _isDeletingSegment
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white,
+                                      ),
+                                    )
+                                  : const Icon(
+                                      Icons.delete_outline_rounded,
+                                      color: Colors.white,
+                                      size: 20,
+                                    ),
+                            ),
+                          const SizedBox(width: 6),
                           _StoryIconButton(
-                            key: const Key('updates_story_mute_button'),
-                            tooltip: _isMuted ? 'Unmute' : 'Mute',
-                            onPressed: _toggleMute,
-                            child: Icon(
-                              _isMuted
-                                  ? Icons.volume_off_rounded
-                                  : Icons.volume_up_rounded,
+                            tooltip: 'Close',
+                            onPressed: _closeViewer,
+                            child: const Icon(
+                              Icons.close_rounded,
                               color: Colors.white,
                               size: 20,
                             ),
                           ),
-                          const SizedBox(width: 6),
                         ],
-                        if (story.isMine && widget.onDeleteSegment != null)
-                          _StoryIconButton(
-                            key: const Key('updates_story_delete_button'),
-                            tooltip: 'Delete current status',
-                            onPressed: _isDeletingSegment
-                                ? null
-                                : _deleteCurrentSegmentWithConfirmation,
-                            child: _isDeletingSegment
-                                ? const SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
-                                    ),
-                                  )
-                                : const Icon(
-                                    Icons.delete_outline_rounded,
-                                    color: Colors.white,
-                                    size: 20,
-                                  ),
-                          ),
-                        const SizedBox(width: 6),
-                        _StoryIconButton(
-                          tooltip: 'Close',
-                          onPressed: _closeViewer,
-                          child: const Icon(
-                            Icons.close_rounded,
-                            color: Colors.white,
-                            size: 20,
+                      ),
+                      const Spacer(),
+                      if (_viewerCaptionText case final caption?)
+                        _StoryCaptionText(
+                          caption: caption,
+                          isExpanded: _isCaptionExpanded,
+                          onShowMore: _expandCaption,
+                          onCollapse: _collapseCaption,
+                        ),
+                      if (_viewerCaptionText != null &&
+                          !story.isMine &&
+                          widget.chatsController != null)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          child: Container(
+                            height: 1,
+                            color: Colors.white.withValues(alpha: 0.22),
                           ),
                         ),
-                      ],
-                    ),
-                    const Spacer(),
-                    if (_viewerCaptionText case final caption?)
-                      _StoryCaptionText(
-                        caption: caption,
-                        isExpanded: _isCaptionExpanded,
-                        onShowMore: _expandCaption,
-                        onCollapse: _collapseCaption,
-                      ),
-                    if (_viewerCaptionText != null &&
-                        !story.isMine &&
-                        widget.chatsController != null)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 10),
-                        child: Container(
-                          height: 1,
-                          color: Colors.white.withValues(alpha: 0.22),
+                      if (!story.isMine && widget.chatsController != null)
+                        _StoryReplyBar(
+                          recipientName: story.name,
+                          accentColor: story.accentColor,
+                          controller: _replyController,
+                          focusNode: _replyFocusNode,
+                          isSending: _isSendingReply,
+                          hasHearted: _hasHearted,
+                          onSendText: _sendReply,
+                          onHeartTap: _toggleHeart,
                         ),
-                      ),
-                    if (!story.isMine && widget.chatsController != null)
-                      _StoryReplyBar(
-                        recipientName: story.name,
-                        accentColor: story.accentColor,
-                        controller: _replyController,
-                        focusNode: _replyFocusNode,
-                        isSending: _isSendingReply,
-                        hasHearted: _hasHearted,
-                        onSendText: _sendReply,
-                        onHeartTap: _toggleHeart,
-                      ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

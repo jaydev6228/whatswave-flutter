@@ -86,6 +86,34 @@ enum StatusTextLayout {
 
 enum StatusTextAlignment { left, center, right }
 
+/// The weights a status text can be set to, lightest first.
+const List<FontWeight> kStatusTextFontWeights = <FontWeight>[
+  FontWeight.w400,
+  FontWeight.w600,
+  FontWeight.w800,
+  FontWeight.w900,
+];
+
+/// The weight statuses have always rendered at, so existing content and
+/// anything that does not choose keeps looking exactly as it did.
+const int kStatusTextDefaultWeightIndex = 2;
+
+/// The size-scale range the slider offers, and the floor the resulting
+/// font size is held to.
+///
+/// One range shared by the model, both render paths and the control, so
+/// the slider cannot offer a size the renderer then clamps away -- which
+/// is what made the smallest third of the track do nothing.
+///
+/// The two composers start from different base sizes (a text status scales
+/// with the canvas, a media overlay uses a fixed base), so a single scale
+/// floor would bottom out at a different size in each. Clamping the
+/// *resulting* size instead means both reach exactly
+/// [kStatusTextMinFontSize] and neither goes below legibility.
+const double kStatusTextMinSizeScale = 0.2;
+const double kStatusTextMaxSizeScale = 1.6;
+const double kStatusTextMinFontSize = 10;
+
 class StatusTextStyle {
   const StatusTextStyle({
     this.fontId = 'clean',
@@ -96,6 +124,7 @@ class StatusTextStyle {
     this.backgroundColorValue,
     this.useSolidBackground = false,
     this.sizeScale = 1,
+    this.fontWeightIndex = kStatusTextDefaultWeightIndex,
   });
 
   final String fontId;
@@ -106,6 +135,16 @@ class StatusTextStyle {
   final int? backgroundColorValue;
   final bool useSolidBackground;
   final double sizeScale;
+
+  /// Index into [kStatusTextFontWeights] -- stored as an index rather than
+  /// a raw weight so the stored value stays valid if the offered set is
+  /// ever re-tuned, and so it round-trips through JSON as a plain int.
+  final int fontWeightIndex;
+
+  FontWeight get fontWeight => kStatusTextFontWeights[fontWeightIndex.clamp(
+        0,
+        kStatusTextFontWeights.length - 1,
+      )];
 
   Color? get textColor =>
       textColorValue == null ? null : Color(textColorValue!);
@@ -123,6 +162,7 @@ class StatusTextStyle {
     bool clearBackgroundColor = false,
     bool? useSolidBackground,
     double? sizeScale,
+    int? fontWeightIndex,
   }) {
     return StatusTextStyle(
       fontId: fontId ?? this.fontId,
@@ -136,6 +176,7 @@ class StatusTextStyle {
           : (backgroundColorValue ?? this.backgroundColorValue),
       useSolidBackground: useSolidBackground ?? this.useSolidBackground,
       sizeScale: sizeScale ?? this.sizeScale,
+      fontWeightIndex: fontWeightIndex ?? this.fontWeightIndex,
     );
   }
 
@@ -149,6 +190,7 @@ class StatusTextStyle {
       'backgroundColorValue': backgroundColorValue,
       'useSolidBackground': useSolidBackground,
       'sizeScale': sizeScale,
+      'fontWeightIndex': fontWeightIndex,
     };
   }
 
@@ -177,7 +219,12 @@ class StatusTextStyle {
       textColorValue: _intValueFromRaw(raw['textColorValue']),
       backgroundColorValue: _intValueFromRaw(raw['backgroundColorValue']),
       useSolidBackground: raw['useSolidBackground'] == true,
-      sizeScale: sizeScale.clamp(0.72, 1.45),
+      sizeScale:
+          sizeScale.clamp(kStatusTextMinSizeScale, kStatusTextMaxSizeScale),
+      // Older stored segments have no weight -- they keep the default.
+      fontWeightIndex: (_intValueFromRaw(raw['fontWeightIndex']) ??
+              kStatusTextDefaultWeightIndex)
+          .clamp(0, kStatusTextFontWeights.length - 1),
     );
   }
 }
@@ -457,7 +504,8 @@ class StatusDrawingStroke {
         if (entry is Map<String, dynamic> &&
             entry['dx'] is num &&
             entry['dy'] is num)
-          Offset((entry['dx'] as num).toDouble(), (entry['dy'] as num).toDouble()),
+          Offset(
+              (entry['dx'] as num).toDouble(), (entry['dy'] as num).toDouble()),
     ];
     final colorValue = raw['colorValue'];
     if (points.isEmpty || colorValue is! int) {

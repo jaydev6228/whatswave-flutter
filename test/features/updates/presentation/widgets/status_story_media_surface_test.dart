@@ -35,7 +35,8 @@ void main() {
             height: 300,
             child: StatusStoryMediaSurface(
               type: StatusStoryType.photo,
-              localMediaPath: 'asset://assets/media/status_demo/launch_cafe.jpg',
+              localMediaPath:
+                  'asset://assets/media/status_demo/launch_cafe.jpg',
               mediaTransform: StatusMediaTransform(
                 rotationQuarterTurns: 1,
                 frameAspectRatio: sourceSize.height / sourceSize.width,
@@ -68,7 +69,8 @@ void main() {
             height: 300,
             child: StatusStoryMediaSurface(
               type: StatusStoryType.photo,
-              localMediaPath: 'asset://assets/media/status_demo/launch_cafe.jpg',
+              localMediaPath:
+                  'asset://assets/media/status_demo/launch_cafe.jpg',
               mediaTransform: StatusMediaTransform(
                 frameAspectRatio: sourceSize.width / sourceSize.height,
               ),
@@ -98,7 +100,8 @@ void main() {
             height: 300,
             child: StatusStoryMediaSurface(
               type: StatusStoryType.photo,
-              localMediaPath: 'asset://assets/media/status_demo/launch_cafe.jpg',
+              localMediaPath:
+                  'asset://assets/media/status_demo/launch_cafe.jpg',
               drawingStrokes: const <StatusDrawingStroke>[
                 StatusDrawingStroke(
                   points: <Offset>[Offset(0.1, 0.1), Offset(0.9, 0.9)],
@@ -113,8 +116,8 @@ void main() {
     );
     await _pumpUntilRealImageDecodes(tester);
 
-    expect(find.byKey(const Key('updates_story_drawing_layer')),
-        findsOneWidget);
+    expect(
+        find.byKey(const Key('updates_story_drawing_layer')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -128,7 +131,8 @@ void main() {
             height: 300,
             child: StatusStoryMediaSurface(
               type: StatusStoryType.photo,
-              localMediaPath: 'asset://assets/media/status_demo/launch_cafe.jpg',
+              localMediaPath:
+                  'asset://assets/media/status_demo/launch_cafe.jpg',
             ),
           ),
         ),

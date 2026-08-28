@@ -542,7 +542,8 @@ void main() {
     // the tap *duration* threshold -- only the travel distance can tell it
     // apart from a tap.
     final gesture = await tester.startGesture(
-      tester.getCenter(find.byKey(const Key('updates_story_viewer_right_zone'))),
+      tester
+          .getCenter(find.byKey(const Key('updates_story_viewer_right_zone'))),
     );
     await gesture.moveBy(const Offset(0, -160));
     await gesture.up();
@@ -564,8 +565,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets(
-      'a caption short enough to fit shows no Show more affordance',
+  testWidgets('a caption short enough to fit shows no Show more affordance',
       (tester) async {
     await _pumpStoryViewerHarness(
       tester,

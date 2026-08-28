@@ -215,7 +215,8 @@ class _StatusStoryMediaSurfaceState extends State<StatusStoryMediaSurface> {
       return;
     }
 
-    final imageProvider = imageProviderForStatusMediaPath(widget.localMediaPath);
+    final imageProvider =
+        imageProviderForStatusMediaPath(widget.localMediaPath);
     if (imageProvider == null) {
       setState(() {
         _photoIntrinsicSize = null;
@@ -364,8 +365,8 @@ class _StatusStoryMediaSurfaceState extends State<StatusStoryMediaSurface> {
                             children: [
                               widget.mediaTransform.blurSigma > 0
                                   ? ImageFiltered(
-                                      key: const Key(
-                                          'updates_story_blur_layer'),
+                                      key:
+                                          const Key('updates_story_blur_layer'),
                                       imageFilter: ImageFilter.blur(
                                         sigmaX: widget.mediaTransform.blurSigma,
                                         sigmaY: widget.mediaTransform.blurSigma,
@@ -581,15 +582,13 @@ class _StatusStoryMediaSurfaceState extends State<StatusStoryMediaSurface> {
   double? get _resolvedMediaAspectRatio {
     final sourceSize = switch (widget.type) {
       StatusStoryType.photo => _photoIntrinsicSize,
-      StatusStoryType.video => widget.videoController?.value.isInitialized ==
-              true
-          ? widget.videoController!.value.size
-          : null,
+      StatusStoryType.video =>
+        widget.videoController?.value.isInitialized == true
+            ? widget.videoController!.value.size
+            : null,
       StatusStoryType.text => null,
     };
-    if (sourceSize == null ||
-        sourceSize.width <= 0 ||
-        sourceSize.height <= 0) {
+    if (sourceSize == null || sourceSize.width <= 0 || sourceSize.height <= 0) {
       return null;
     }
     final quarterTurns =
