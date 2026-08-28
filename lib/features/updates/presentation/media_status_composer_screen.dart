@@ -16,6 +16,8 @@ import 'widgets/status_story_media_surface.dart';
 import 'widgets/video_trim_scrubber.dart';
 import 'status_motion.dart';
 import 'widgets/status_text_editing_tools.dart';
+import 'status_system_chrome.dart';
+import 'widgets/status_composer_glass_button.dart';
 
 class MediaStatusComposerDraft {
   const MediaStatusComposerDraft({
@@ -825,7 +827,8 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
             .split('\n')
             .fold<int>(0, (current, line) => math.max(current, line.length));
         final style = item.textStyle ?? _defaultTextOverlayStyle;
-        final fontScale = style.sizeScale.clamp(0.72, 1.28);
+        final fontScale = style.sizeScale
+            .clamp(kStatusTextMinSizeScale, kStatusTextMaxSizeScale);
         final estimatedWidth =
             (math.max(longestLine, 6) * 12.5 * fontScale + 58)
                 .clamp(136.0, 300.0);
@@ -1961,7 +1964,7 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
     if (_isCropMode) {
       return Row(
         children: [
-          _GlassCircleButton(
+          StatusComposerGlassButton(
             key: const Key('updates_media_crop_cancel_button'),
             tooltip: 'Cancel',
             icon: Icons.close_rounded,
@@ -1969,7 +1972,7 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
             showBorder: false,
           ),
           const Spacer(),
-          _GlassCircleButton(
+          StatusComposerGlassButton(
             key: const Key('updates_media_crop_done_button'),
             tooltip: 'Done',
             icon: Icons.check_rounded,
@@ -1981,7 +1984,7 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
     if (_isDrawMode) {
       return Row(
         children: [
-          _GlassCircleButton(
+          StatusComposerGlassButton(
             key: const Key('updates_media_draw_cancel_button'),
             tooltip: 'Cancel',
             icon: Icons.close_rounded,
@@ -2000,7 +2003,7 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
                   : Colors.white.withValues(alpha: 0.32),
             ),
           ),
-          _GlassCircleButton(
+          StatusComposerGlassButton(
             key: const Key('updates_media_draw_done_button'),
             tooltip: 'Done',
             icon: Icons.check_rounded,
@@ -2012,7 +2015,7 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
     if (_isBlurMode) {
       return Row(
         children: [
-          _GlassCircleButton(
+          StatusComposerGlassButton(
             key: const Key('updates_media_blur_cancel_button'),
             tooltip: 'Cancel',
             icon: Icons.close_rounded,
@@ -2020,7 +2023,7 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
             showBorder: false,
           ),
           const Spacer(),
-          _GlassCircleButton(
+          StatusComposerGlassButton(
             key: const Key('updates_media_blur_done_button'),
             tooltip: 'Done',
             icon: Icons.check_rounded,
@@ -2051,7 +2054,7 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
     }
     return Row(
       children: [
-        _GlassCircleButton(
+        StatusComposerGlassButton(
           key: const Key('updates_media_close_composer_button'),
           tooltip: 'Close',
           icon: Icons.close_rounded,
@@ -2107,16 +2110,34 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
     // deselects (see onDoneEditing) and this returns null like any other
     // unselected state -- no lingering quick-tools tray.
     if (isTextSelected && _isEditingTextOverlay) {
-      return StatusTextFontStyleRow(
-        rowKey: const Key('updates_media_text_font_row'),
-        optionKeyBuilder: (fontId) =>
-            Key('updates_media_text_font_option_$fontId'),
-        selectedFontId: _activeTextStyle.fontId,
-        onFontSelected: (fontId) {
-          _updateSelectedTextStyle(
-            (style) => style.copyWith(fontId: fontId),
-          );
-        },
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Same size/weight controls the text status gets -- one shared
+          // widget, so the two tools cannot drift apart.
+          StatusTextSizeWeightControls(
+            sliderKey: const Key('updates_media_text_size_slider'),
+            weightButtonKey: const Key('updates_media_text_weight_button'),
+            style: _activeTextStyle,
+            onSizeChanged: (scale) => _updateSelectedTextStyle(
+              (style) => style.copyWith(sizeScale: scale),
+            ),
+            onWeightChanged: (index) => _updateSelectedTextStyle(
+              (style) => style.copyWith(fontWeightIndex: index),
+            ),
+          ),
+          StatusTextFontStyleRow(
+            rowKey: const Key('updates_media_text_font_row'),
+            optionKeyBuilder: (fontId) =>
+                Key('updates_media_text_font_option_$fontId'),
+            selectedFontId: _activeTextStyle.fontId,
+            onFontSelected: (fontId) {
+              _updateSelectedTextStyle(
+                (style) => style.copyWith(fontId: fontId),
+              );
+            },
+          ),
+        ],
       );
     }
     if (_selectedOverlay?.type == StatusMediaOverlayType.music) {
@@ -2188,577 +2209,590 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
     // needs to react to the keyboard now, via MediaQuery.viewInsetsOf.
     final keyboardInset = MediaQuery.viewInsetsOf(context).bottom;
 
-    return Scaffold(
-      key: const Key('updates_media_composer_screen'),
-      backgroundColor: Colors.black,
-      resizeToAvoidBottomInset: false,
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          // Full-bleed, exactly like the story viewer renders a posted
-          // segment (SizedBox.expand around the same surface) -- so what
-          // the composer previews *is* what gets posted, with the toolbar,
-          // trim strip and caption row floating over it the way WhatsApp
-          // does. Inset-ing the media here instead made every "Fit to
-          // screen" preview a lie: it fit the media to a shorter box than
-          // the screen it would actually fill once posted.
-          Positioned.fill(
-            child: _ComposerMediaLayer(
-              type: widget.type,
-              localMediaPath: widget.localMediaPath,
-              mediaTransform: _mediaTransform,
-              videoController: _videoController,
-              videoInitialization: _videoInitialization,
-              allowTransformGestures: _allowMediaTransformGestures,
-              showFrameOutline: showPlacementGuide,
-              drawingStrokes: _displayedDrawingStrokes,
-              onSourceSizeResolved: _adoptOriginalMediaFrameIfNeeded,
-              onScaleStart: _onMediaScaleStart,
-              onScaleUpdate: _onMediaScaleUpdate,
-              onScaleEnd: _onMediaScaleEnd,
-            ),
-          ),
-          // Crop window corner handles -- a separate layer, in the exact
-          // same canvas coordinate space as _ComposerMediaLayer above (both
-          // full-bleed), so the handles land precisely on the crop window
-          // StatusStoryMediaSurface draws inside that layer. Sits on top so
-          // a drag starting on a handle's small hit target wins over the
-          // whole-surface move gesture underneath; drags anywhere else fall
-          // through to that layer untouched.
-          if (_isCropMode)
+    // The media composer already lays a dark gradient across its top edge
+    // for its own toolbar, so it needs the overlay style but no extra
+    // status-bar scrim -- a second one would double-darken the photo.
+    return StatusStorySystemChrome(
+      child: Scaffold(
+        key: const Key('updates_media_composer_screen'),
+        backgroundColor: Colors.black,
+        resizeToAvoidBottomInset: false,
+        body: Stack(
+          fit: StackFit.expand,
+          children: [
+            // Full-bleed, exactly like the story viewer renders a posted
+            // segment (SizedBox.expand around the same surface) -- so what
+            // the composer previews *is* what gets posted, with the toolbar,
+            // trim strip and caption row floating over it the way WhatsApp
+            // does. Inset-ing the media here instead made every "Fit to
+            // screen" preview a lie: it fit the media to a shorter box than
+            // the screen it would actually fill once posted.
             Positioned.fill(
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final canvasSize = constraints.biggest;
-                  final window = cropWindowRectFor(
-                    _cropMediaBoundsFor(canvasSize),
-                    statusCropRatioFor(
-                      canvasSize,
-                      _mediaTransform.frameAspectRatio,
-                    ),
-                    _mediaTransform.scale,
-                    _mediaTransform.offsetDx,
-                    _mediaTransform.offsetDy,
-                  );
-                  return Stack(
-                    clipBehavior: Clip.none,
-                    children: [
-                      for (final corner in _CropCorner.values)
-                        _CropCornerHandle(
-                          key: Key(
-                            'updates_media_crop_corner_${corner.name}',
-                          ),
-                          corner: corner,
-                          // The true window corner -- _CropCornerHandle's
-                          // own hit target is what stays reachable near the
-                          // canvas edge, not this point, so the bracket
-                          // always sits exactly on the window's border.
-                          point: _cropWindowCornerPoint(corner, window),
-                          onPanStart: () => _onCropCornerPanStart(
-                            corner,
-                            canvasSize,
-                            _cropWindowCornerPoint(corner, window),
-                          ),
-                          onPanUpdate: (details) =>
-                              _onCropCornerPanUpdate(details, canvasSize),
-                          onPanEnd: _onCropCornerPanEnd,
-                        ),
-                    ],
-                  );
-                },
+              child: _ComposerMediaLayer(
+                type: widget.type,
+                localMediaPath: widget.localMediaPath,
+                mediaTransform: _mediaTransform,
+                videoController: _videoController,
+                videoInitialization: _videoInitialization,
+                allowTransformGestures: _allowMediaTransformGestures,
+                showFrameOutline: showPlacementGuide,
+                drawingStrokes: _displayedDrawingStrokes,
+                onSourceSizeResolved: _adoptOriginalMediaFrameIfNeeded,
+                onScaleStart: _onMediaScaleStart,
+                onScaleUpdate: _onMediaScaleUpdate,
+                onScaleEnd: _onMediaScaleEnd,
               ),
             ),
-          if (_isDrawMode)
-            Positioned.fill(
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  final canvasSize = constraints.biggest;
-                  return GestureDetector(
-                    key: const Key('updates_media_draw_surface'),
-                    behavior: HitTestBehavior.opaque,
-                    onPanStart: (details) =>
-                        _handleDrawPanStart(details, canvasSize),
-                    onPanUpdate: (details) =>
-                        _handleDrawPanUpdate(details, canvasSize),
-                    onPanEnd: _handleDrawPanEnd,
-                  );
-                },
-              ),
-            ),
-          const IgnorePointer(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: <Color>[
-                    Color(0x8A000000),
-                    Colors.transparent,
-                    Color(0xAA000000),
-                  ],
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  stops: <double>[0, 0.46, 1],
+            // Crop window corner handles -- a separate layer, in the exact
+            // same canvas coordinate space as _ComposerMediaLayer above (both
+            // full-bleed), so the handles land precisely on the crop window
+            // StatusStoryMediaSurface draws inside that layer. Sits on top so
+            // a drag starting on a handle's small hit target wins over the
+            // whole-surface move gesture underneath; drags anywhere else fall
+            // through to that layer untouched.
+            if (_isCropMode)
+              Positioned.fill(
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final canvasSize = constraints.biggest;
+                    final window = cropWindowRectFor(
+                      _cropMediaBoundsFor(canvasSize),
+                      statusCropRatioFor(
+                        canvasSize,
+                        _mediaTransform.frameAspectRatio,
+                      ),
+                      _mediaTransform.scale,
+                      _mediaTransform.offsetDx,
+                      _mediaTransform.offsetDy,
+                    );
+                    return Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        for (final corner in _CropCorner.values)
+                          _CropCornerHandle(
+                            key: Key(
+                              'updates_media_crop_corner_${corner.name}',
+                            ),
+                            corner: corner,
+                            // The true window corner -- _CropCornerHandle's
+                            // own hit target is what stays reachable near the
+                            // canvas edge, not this point, so the bracket
+                            // always sits exactly on the window's border.
+                            point: _cropWindowCornerPoint(corner, window),
+                            onPanStart: () => _onCropCornerPanStart(
+                              corner,
+                              canvasSize,
+                              _cropWindowCornerPoint(corner, window),
+                            ),
+                            onPanUpdate: (details) =>
+                                _onCropCornerPanUpdate(details, canvasSize),
+                            onPanEnd: _onCropCornerPanEnd,
+                          ),
+                      ],
+                    );
+                  },
                 ),
               ),
-            ),
-          ),
-          Positioned.fill(
-            child: GestureDetector(
-              onTap: _handleCanvasTap,
-              behavior: HitTestBehavior.translucent,
-            ),
-          ),
-          SafeArea(
-            child: Stack(
-              children: [
-                Positioned.fill(
-                  child: Stack(
-                    children: [
-                      Positioned.fill(
-                        child: LayoutBuilder(
-                          builder: (context, constraints) {
-                            final availableSize = Size(
-                              constraints.maxWidth,
-                              constraints.maxHeight,
-                            );
-                            final frameSize = statusStoryFrameSizeFor(
-                              availableSize,
-                              _mediaTransform.frameAspectRatio,
-                            );
-                            return Center(
-                              child: SizedBox(
-                                width: frameSize.width,
-                                height: frameSize.height,
-                                child: Stack(
-                                  fit: StackFit.expand,
-                                  // Lets a dragged overlay keep tracking the
-                                  // finger past the frame edge, all the way
-                                  // down to the delete target below the
-                                  // canvas -- Stack clips overflow by
-                                  // default, which would otherwise make the
-                                  // overlay vanish the moment it left the
-                                  // photo instead of following the drag.
-                                  clipBehavior: Clip.none,
-                                  children: [
-                                    for (final item in _overlayItems)
-                                      _InteractiveMediaOverlay(
-                                        key: Key(
-                                          'updates_overlay_item_${item.id}',
-                                        ),
-                                        item: item,
-                                        canvasSize: frameSize,
-                                        // No selection border while actively
-                                        // typing -- matches WhatsApp, whose
-                                        // text tool never shows a bounding
-                                        // box that reads like a crop frame
-                                        // around the text being edited.
-                                        isSelected: _selectedOverlayId ==
-                                                item.id &&
-                                            _editingTextOverlayId != item.id,
-                                        allowTransformGestures:
-                                            _editingTextOverlayId != item.id,
-                                        // No onDoubleTap any more -- a
-                                        // single tap on text now reopens
-                                        // editing directly (see
-                                        // _handleOverlayTap), so keeping a
-                                        // double-tap handler around would
-                                        // only make Flutter wait out the
-                                        // double-tap window before firing
-                                        // the single tap, adding a laggy
-                                        // delay to something that should
-                                        // feel instant.
-                                        onTap: _editingTextOverlayId == item.id
-                                            ? null
-                                            : () => _handleOverlayTap(item),
-                                        onScaleStart: (details) =>
-                                            _onOverlayScaleStart(
-                                          item,
-                                          details,
-                                        ),
-                                        onScaleUpdate: (details) =>
-                                            _onOverlayScaleUpdate(
-                                          details,
-                                          frameSize,
-                                        ),
-                                        onScaleEnd: _onOverlayScaleEnd,
-                                        // The item being actively edited is
-                                        // rendered by a dedicated, centered
-                                        // widget below instead (see
-                                        // _isEditingTextOverlay), decoupled
-                                        // from its dragged position -- so it
-                                        // stays put and legible above the
-                                        // keyboard like WhatsApp's own text
-                                        // tool, not wherever it was last
-                                        // placed on the canvas.
-                                        child: _editingTextOverlayId == item.id
-                                            ? const SizedBox.shrink()
-                                            : OverflowBox(
-                                                // The frame's own SizedBox
-                                                // would otherwise clamp
-                                                // text to the frame, while
-                                                // the posted story lets it
-                                                // use the whole screen --
-                                                // the preview has to be
-                                                // handed the same room or
-                                                // it lies about the result.
-                                                alignment: Alignment.center,
-                                                maxWidth: availableSize.width,
-                                                maxHeight: availableSize.height,
-                                                child: StatusOverlayContent(
-                                                  item: item,
-                                                  compact: false,
-                                                  accentColor:
-                                                      AppPalette.emerald,
-                                                  canvasSize: availableSize,
-                                                ),
-                                              ),
-                                      ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
+            if (_isDrawMode)
+              Positioned.fill(
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final canvasSize = constraints.biggest;
+                    return GestureDetector(
+                      key: const Key('updates_media_draw_surface'),
+                      behavior: HitTestBehavior.opaque,
+                      onPanStart: (details) =>
+                          _handleDrawPanStart(details, canvasSize),
+                      onPanUpdate: (details) =>
+                          _handleDrawPanUpdate(details, canvasSize),
+                      onPanEnd: _handleDrawPanEnd,
+                    );
+                  },
+                ),
+              ),
+            const IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: <Color>[
+                      Color(0x8A000000),
+                      Colors.transparent,
+                      Color(0xAA000000),
                     ],
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    stops: <double>[0, 0.46, 1],
                   ),
                 ),
-                // WhatsApp's own top chrome: close/tool icons always live
-                // here, with the video trim filmstrip and a mute toggle
-                // directly beneath -- never swapped out for a tool's own
-                // tray the way the bottom controls used to be, so the
-                // media's framing never has to jump when a tool opens.
-                Positioned(
-                  top: 14,
-                  left: 14,
-                  right: 14,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      StatusModeSwitcher(
-                        alignment: Alignment.topCenter,
-                        child: KeyedSubtree(
-                          key: ValueKey('top-row-$_activeToolModeKey'),
-                          child: _buildTopRow(),
-                        ),
-                      ),
-                      // Hidden while editing text or cropping, like
-                      // WhatsApp -- the mute toggle and trim filmstrip
-                      // aren't related to either tool, so they get out of
-                      // the way instead of cluttering a focused editing view.
-                      if (_isVideo &&
-                          _videoFullDurationSeconds > 0 &&
-                          !_isEditingTextOverlay &&
-                          !_isCropMode)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 14),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              _GlassCircleButton(
-                                key: const Key('updates_media_mute_button'),
-                                tooltip: _isMuted ? 'Unmute' : 'Mute',
-                                icon: _isMuted
-                                    ? Icons.volume_off_rounded
-                                    : Icons.volume_up_rounded,
-                                onTap: _toggleMute,
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: VideoTrimScrubber(
-                                  key: const Key('updates_media_trim_scrubber'),
-                                  videoPath: widget.localMediaPath,
-                                  fullDurationSeconds:
-                                      _videoFullDurationSeconds,
-                                  trimStartSeconds: _trimStartSeconds,
-                                  trimEndSeconds:
-                                      _trimStartSeconds + _durationSeconds,
-                                  minTrimSeconds: _minDurationSeconds,
-                                  maxTrimSeconds: _maxDurationSeconds,
-                                  onScrubStart: _handleTrimScrubStart,
-                                  onScrubUpdate: _handleTrimScrubUpdate,
-                                  onScrubEnd: _handleTrimScrubEnd,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-                // WhatsApp's own big center play/pause overlay -- only
-                // shown while paused, tapping it resumes playback. Hidden
-                // while editing text or cropping, unrelated to either tool.
-                if (_isVideo &&
-                    !_isVideoPlaying &&
-                    !_isEditingTextOverlay &&
-                    !_isCropMode)
+              ),
+            ),
+            Positioned.fill(
+              child: GestureDetector(
+                onTap: _handleCanvasTap,
+                behavior: HitTestBehavior.translucent,
+              ),
+            ),
+            SafeArea(
+              child: Stack(
+                children: [
                   Positioned.fill(
-                    child: Center(
-                      child: _VideoPlayPauseOverlay(
-                        onTap: _toggleVideoPlayback,
-                      ),
-                    ),
-                  ),
-                // Actively editing text: the card being typed floats free
-                // of its dragged position, centered in whatever space is
-                // left between the top bar and the keyboard/font row --
-                // WhatsApp's own text tool always keeps it here while
-                // typing, and only lets you drag it once you're done (see
-                // the isSelected/allowTransformGestures overrides above).
-                if (_isEditingTextOverlay) ...[
-                  Positioned(
-                    top: _kTextEditTopClearance,
-                    left: 0,
-                    right: 0,
-                    bottom: keyboardInset + _kTextEditBottomRowHeight,
-                    child: Center(
-                      child: StatusTextEditorCard(
-                        cardKey: const Key('updates_media_inline_text_editor'),
-                        fieldKey: const Key('updates_media_inline_text_field'),
-                        controller: _inlineTextController,
-                        focusNode: _inlineTextFocusNode,
-                        textStyleModel: _activeTextStyle,
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    top: _kTextEditTopClearance,
-                    right: 14,
-                    bottom: keyboardInset + _kTextEditBottomRowHeight,
-                    child: StatusTextColorRail(
-                      railKey: const Key('updates_media_text_color_rail'),
-                      barKey: const Key('updates_media_text_color_bar'),
-                      thumbKey: const Key('updates_media_text_color_thumb'),
-                      selectedColor: _activeTextStyle.textColor ?? Colors.white,
-                      onSelectColor: (color) {
-                        _updateSelectedTextStyle(
-                          (style) => style.copyWith(
-                            textColorValue: color.toARGB32(),
+                    child: Stack(
+                      children: [
+                        Positioned.fill(
+                          child: LayoutBuilder(
+                            builder: (context, constraints) {
+                              final availableSize = Size(
+                                constraints.maxWidth,
+                                constraints.maxHeight,
+                              );
+                              final frameSize = statusStoryFrameSizeFor(
+                                availableSize,
+                                _mediaTransform.frameAspectRatio,
+                              );
+                              return Center(
+                                child: SizedBox(
+                                  width: frameSize.width,
+                                  height: frameSize.height,
+                                  child: Stack(
+                                    fit: StackFit.expand,
+                                    // Lets a dragged overlay keep tracking the
+                                    // finger past the frame edge, all the way
+                                    // down to the delete target below the
+                                    // canvas -- Stack clips overflow by
+                                    // default, which would otherwise make the
+                                    // overlay vanish the moment it left the
+                                    // photo instead of following the drag.
+                                    clipBehavior: Clip.none,
+                                    children: [
+                                      for (final item in _overlayItems)
+                                        _InteractiveMediaOverlay(
+                                          key: Key(
+                                            'updates_overlay_item_${item.id}',
+                                          ),
+                                          item: item,
+                                          canvasSize: frameSize,
+                                          // No selection border while actively
+                                          // typing -- matches WhatsApp, whose
+                                          // text tool never shows a bounding
+                                          // box that reads like a crop frame
+                                          // around the text being edited.
+                                          isSelected: _selectedOverlayId ==
+                                                  item.id &&
+                                              _editingTextOverlayId != item.id,
+                                          allowTransformGestures:
+                                              _editingTextOverlayId != item.id,
+                                          // No onDoubleTap any more -- a
+                                          // single tap on text now reopens
+                                          // editing directly (see
+                                          // _handleOverlayTap), so keeping a
+                                          // double-tap handler around would
+                                          // only make Flutter wait out the
+                                          // double-tap window before firing
+                                          // the single tap, adding a laggy
+                                          // delay to something that should
+                                          // feel instant.
+                                          onTap: _editingTextOverlayId ==
+                                                  item.id
+                                              ? null
+                                              : () => _handleOverlayTap(item),
+                                          onScaleStart: (details) =>
+                                              _onOverlayScaleStart(
+                                            item,
+                                            details,
+                                          ),
+                                          onScaleUpdate: (details) =>
+                                              _onOverlayScaleUpdate(
+                                            details,
+                                            frameSize,
+                                          ),
+                                          onScaleEnd: _onOverlayScaleEnd,
+                                          // The item being actively edited is
+                                          // rendered by a dedicated, centered
+                                          // widget below instead (see
+                                          // _isEditingTextOverlay), decoupled
+                                          // from its dragged position -- so it
+                                          // stays put and legible above the
+                                          // keyboard like WhatsApp's own text
+                                          // tool, not wherever it was last
+                                          // placed on the canvas.
+                                          child: _editingTextOverlayId ==
+                                                  item.id
+                                              ? const SizedBox.shrink()
+                                              : OverflowBox(
+                                                  // The frame's own SizedBox
+                                                  // would otherwise clamp
+                                                  // text to the frame, while
+                                                  // the posted story lets it
+                                                  // use the whole screen --
+                                                  // the preview has to be
+                                                  // handed the same room or
+                                                  // it lies about the result.
+                                                  alignment: Alignment.center,
+                                                  maxWidth: availableSize.width,
+                                                  maxHeight:
+                                                      availableSize.height,
+                                                  child: StatusOverlayContent(
+                                                    item: item,
+                                                    compact: false,
+                                                    accentColor:
+                                                        AppPalette.emerald,
+                                                    canvasSize: availableSize,
+                                                  ),
+                                                ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
                           ),
-                        );
-                      },
+                        ),
+                      ],
                     ),
                   ),
-                ],
-                // Crop mode's own floating controls, in the gap below the
-                // media's bottom edge -- matches WhatsApp's own crop screen:
-                // rotate at bottom-left, the ratio bubble at bottom-right,
-                // Reset centered above them once a pinch/pan has actually
-                // moved the media (the frame itself never resizes or
-                // moves -- only the media underneath a fixed-ratio frame
-                // does, so you can choose which part of it gets cropped).
-                if (_isCropMode) ...[
+                  // WhatsApp's own top chrome: close/tool icons always live
+                  // here, with the video trim filmstrip and a mute toggle
+                  // directly beneath -- never swapped out for a tool's own
+                  // tray the way the bottom controls used to be, so the
+                  // media's framing never has to jump when a tool opens.
                   Positioned(
+                    top: 14,
                     left: 14,
-                    bottom: 74,
-                    child: _GlassCircleButton(
-                      key: const Key('updates_media_rotate_button'),
-                      tooltip: 'Rotate',
-                      icon: Icons.rotate_90_degrees_cw_rounded,
-                      onTap: _rotateMediaClockwise,
-                    ),
-                  ),
-                  Positioned(
                     right: 14,
-                    bottom: 74,
-                    child: _CropRatioBubbleButton(
-                      label: _currentCropRatioLabel,
-                      options: _cropAspectOptions,
-                      selectedRatio: _mediaTransform.frameAspectRatio,
-                      isFitToScreen: _isFitToScreenCrop,
-                      onSelectOption: _selectCropAspectOption,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        StatusModeSwitcher(
+                          alignment: Alignment.topCenter,
+                          child: KeyedSubtree(
+                            key: ValueKey('top-row-$_activeToolModeKey'),
+                            child: _buildTopRow(),
+                          ),
+                        ),
+                        // Hidden while editing text or cropping, like
+                        // WhatsApp -- the mute toggle and trim filmstrip
+                        // aren't related to either tool, so they get out of
+                        // the way instead of cluttering a focused editing view.
+                        if (_isVideo &&
+                            _videoFullDurationSeconds > 0 &&
+                            !_isEditingTextOverlay &&
+                            !_isCropMode)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 14),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                StatusComposerGlassButton(
+                                  key: const Key('updates_media_mute_button'),
+                                  tooltip: _isMuted ? 'Unmute' : 'Mute',
+                                  icon: _isMuted
+                                      ? Icons.volume_off_rounded
+                                      : Icons.volume_up_rounded,
+                                  onTap: _toggleMute,
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: VideoTrimScrubber(
+                                    key: const Key(
+                                        'updates_media_trim_scrubber'),
+                                    videoPath: widget.localMediaPath,
+                                    fullDurationSeconds:
+                                        _videoFullDurationSeconds,
+                                    trimStartSeconds: _trimStartSeconds,
+                                    trimEndSeconds:
+                                        _trimStartSeconds + _durationSeconds,
+                                    minTrimSeconds: _minDurationSeconds,
+                                    maxTrimSeconds: _maxDurationSeconds,
+                                    onScrubStart: _handleTrimScrubStart,
+                                    onScrubUpdate: _handleTrimScrubUpdate,
+                                    onScrubEnd: _handleTrimScrubEnd,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                      ],
                     ),
                   ),
-                  if (_hasCropEdits)
+                  // WhatsApp's own big center play/pause overlay -- only
+                  // shown while paused, tapping it resumes playback. Hidden
+                  // while editing text or cropping, unrelated to either tool.
+                  if (_isVideo &&
+                      !_isVideoPlaying &&
+                      !_isEditingTextOverlay &&
+                      !_isCropMode)
+                    Positioned.fill(
+                      child: Center(
+                        child: _VideoPlayPauseOverlay(
+                          onTap: _toggleVideoPlayback,
+                        ),
+                      ),
+                    ),
+                  // Actively editing text: the card being typed floats free
+                  // of its dragged position, centered in whatever space is
+                  // left between the top bar and the keyboard/font row --
+                  // WhatsApp's own text tool always keeps it here while
+                  // typing, and only lets you drag it once you're done (see
+                  // the isSelected/allowTransformGestures overrides above).
+                  if (_isEditingTextOverlay) ...[
+                    Positioned(
+                      top: _kTextEditTopClearance,
+                      left: 0,
+                      right: 0,
+                      bottom: keyboardInset + _kTextEditBottomRowHeight,
+                      child: Center(
+                        child: StatusTextEditorCard(
+                          cardKey:
+                              const Key('updates_media_inline_text_editor'),
+                          fieldKey:
+                              const Key('updates_media_inline_text_field'),
+                          controller: _inlineTextController,
+                          focusNode: _inlineTextFocusNode,
+                          textStyleModel: _activeTextStyle,
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      top: _kTextEditTopClearance,
+                      right: 14,
+                      bottom: keyboardInset + _kTextEditBottomRowHeight,
+                      child: StatusTextColorRail(
+                        railKey: const Key('updates_media_text_color_rail'),
+                        barKey: const Key('updates_media_text_color_bar'),
+                        thumbKey: const Key('updates_media_text_color_thumb'),
+                        selectedColor:
+                            _activeTextStyle.textColor ?? Colors.white,
+                        onSelectColor: (color) {
+                          _updateSelectedTextStyle(
+                            (style) => style.copyWith(
+                              textColorValue: color.toARGB32(),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                  // Crop mode's own floating controls, in the gap below the
+                  // media's bottom edge -- matches WhatsApp's own crop screen:
+                  // rotate at bottom-left, the ratio bubble at bottom-right,
+                  // Reset centered above them once a pinch/pan has actually
+                  // moved the media (the frame itself never resizes or
+                  // moves -- only the media underneath a fixed-ratio frame
+                  // does, so you can choose which part of it gets cropped).
+                  if (_isCropMode) ...[
+                    Positioned(
+                      left: 14,
+                      bottom: 74,
+                      child: StatusComposerGlassButton(
+                        key: const Key('updates_media_rotate_button'),
+                        tooltip: 'Rotate',
+                        icon: Icons.rotate_90_degrees_cw_rounded,
+                        onTap: _rotateMediaClockwise,
+                      ),
+                    ),
+                    Positioned(
+                      right: 14,
+                      bottom: 74,
+                      child: _CropRatioBubbleButton(
+                        label: _currentCropRatioLabel,
+                        options: _cropAspectOptions,
+                        selectedRatio: _mediaTransform.frameAspectRatio,
+                        isFitToScreen: _isFitToScreenCrop,
+                        onSelectOption: _selectCropAspectOption,
+                      ),
+                    ),
+                    if (_hasCropEdits)
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 130,
+                        child: Center(
+                          child: TextButton(
+                            key: const Key('updates_media_crop_reset_button'),
+                            onPressed: _resetMediaTransformOffset,
+                            style: TextButton.styleFrom(
+                              foregroundColor: Colors.white,
+                              backgroundColor:
+                                  Colors.black.withValues(alpha: 0.32),
+                              shape: const StadiumBorder(),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 6,
+                              ),
+                            ),
+                            child: const Text(
+                              'Reset',
+                              style: TextStyle(fontWeight: FontWeight.w700),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                  // Draw mode's own floating controls -- a vertical color
+                  // rail down the right side (matches WhatsApp's reference
+                  // screenshot) and a small pill for eraser/stroke size
+                  // centered above the always-visible caption row.
+                  if (_isDrawMode) ...[
+                    Positioned(
+                      top: _mediaTopInset + 10,
+                      right: 14,
+                      bottom: _kMediaBottomInset + 10,
+                      child: _DrawColorRail(
+                        selectedColor: _drawColor,
+                        isEraserMode: _isEraserMode,
+                        onSelectColor: (color) {
+                          setState(() {
+                            _drawColor = color;
+                            _isEraserMode = false;
+                          });
+                        },
+                      ),
+                    ),
                     Positioned(
                       left: 0,
                       right: 0,
-                      bottom: 130,
+                      bottom: 74,
                       child: Center(
-                        child: TextButton(
-                          key: const Key('updates_media_crop_reset_button'),
-                          onPressed: _resetMediaTransformOffset,
-                          style: TextButton.styleFrom(
-                            foregroundColor: Colors.white,
-                            backgroundColor:
-                                Colors.black.withValues(alpha: 0.32),
-                            shape: const StadiumBorder(),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 6,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.22),
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.1),
                             ),
                           ),
-                          child: const Text(
-                            'Reset',
-                            style: TextStyle(fontWeight: FontWeight.w700),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                key: const Key(
+                                    'updates_media_draw_eraser_button'),
+                                tooltip: _isEraserMode ? 'Pen' : 'Eraser',
+                                onPressed: () => setState(
+                                  () => _isEraserMode = !_isEraserMode,
+                                ),
+                                iconSize: 24,
+                                style: IconButton.styleFrom(
+                                  minimumSize: const Size(44, 44),
+                                  backgroundColor: _isEraserMode
+                                      ? Colors.white.withValues(alpha: 0.18)
+                                      : null,
+                                ),
+                                icon: Icon(
+                                  _isEraserMode
+                                      ? Icons.edit_rounded
+                                      : Icons.auto_fix_off_rounded,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              for (var i = 0; i < _drawStrokeWidths.length; i++)
+                                Padding(
+                                  padding:
+                                      const EdgeInsets.symmetric(horizontal: 2),
+                                  child: _StrokeSizeButton(
+                                    dotDiameter:
+                                        (_isEraserMode ? 10.0 : 6.0) + i * 4.0,
+                                    color: _isEraserMode
+                                        ? Colors.white
+                                        : _drawColor,
+                                    selected: _drawStrokeWidth ==
+                                        _drawStrokeWidths[i],
+                                    onTap: () => setState(
+                                      () => _drawStrokeWidth =
+                                          _drawStrokeWidths[i],
+                                    ),
+                                  ),
+                                ),
+                            ],
                           ),
                         ),
                       ),
                     ),
-                ],
-                // Draw mode's own floating controls -- a vertical color
-                // rail down the right side (matches WhatsApp's reference
-                // screenshot) and a small pill for eraser/stroke size
-                // centered above the always-visible caption row.
-                if (_isDrawMode) ...[
-                  Positioned(
-                    top: _mediaTopInset + 10,
-                    right: 14,
-                    bottom: _kMediaBottomInset + 10,
-                    child: _DrawColorRail(
-                      selectedColor: _drawColor,
-                      isEraserMode: _isEraserMode,
-                      onSelectColor: (color) {
-                        setState(() {
-                          _drawColor = color;
-                          _isEraserMode = false;
-                        });
-                      },
-                    ),
-                  ),
+                  ],
                   Positioned(
                     left: 0,
                     right: 0,
-                    bottom: 74,
-                    child: Center(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.22),
-                          borderRadius: BorderRadius.circular(999),
-                          border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.1),
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              key:
-                                  const Key('updates_media_draw_eraser_button'),
-                              tooltip: _isEraserMode ? 'Pen' : 'Eraser',
-                              onPressed: () => setState(
-                                () => _isEraserMode = !_isEraserMode,
-                              ),
-                              iconSize: 24,
-                              style: IconButton.styleFrom(
-                                minimumSize: const Size(44, 44),
-                                backgroundColor: _isEraserMode
-                                    ? Colors.white.withValues(alpha: 0.18)
-                                    : null,
-                              ),
-                              icon: Icon(
-                                _isEraserMode
-                                    ? Icons.edit_rounded
-                                    : Icons.auto_fix_off_rounded,
-                                color: Colors.white,
-                              ),
-                            ),
-                            for (var i = 0; i < _drawStrokeWidths.length; i++)
-                              Padding(
-                                padding:
-                                    const EdgeInsets.symmetric(horizontal: 2),
-                                child: _StrokeSizeButton(
-                                  dotDiameter:
-                                      (_isEraserMode ? 10.0 : 6.0) + i * 4.0,
-                                  color:
-                                      _isEraserMode ? Colors.white : _drawColor,
-                                  selected:
-                                      _drawStrokeWidth == _drawStrokeWidths[i],
-                                  onTap: () => setState(
-                                    () =>
-                                        _drawStrokeWidth = _drawStrokeWidths[i],
+                    bottom: _kMediaBottomInset,
+                    child: _selectedOverlay == null || _isEditingTextOverlay
+                        ? const SizedBox.shrink()
+                        : Center(
+                            key: const Key('updates_media_delete_target_host'),
+                            child: KeyedSubtree(
+                              key: _deleteTargetKey,
+                              child: IgnorePointer(
+                                ignoring: !_isDraggingOverlay,
+                                child: AnimatedSlide(
+                                  duration: const Duration(milliseconds: 160),
+                                  curve: Curves.easeOutCubic,
+                                  offset: _isDraggingOverlay
+                                      ? Offset.zero
+                                      : const Offset(0, 0.08),
+                                  child: AnimatedOpacity(
+                                    key: const Key(
+                                      'updates_media_delete_overlay_visibility',
+                                    ),
+                                    duration: const Duration(milliseconds: 160),
+                                    curve: Curves.easeOutCubic,
+                                    opacity: _isDraggingOverlay ? 1 : 0,
+                                    child: _ComposerDeleteDropTarget(
+                                      key: const Key(
+                                        'updates_media_delete_overlay_button',
+                                      ),
+                                      isActive: _isDeleteTargetActive,
+                                      onTap: () =>
+                                          _removeOverlay(_selectedOverlay!.id),
+                                    ),
                                   ),
                                 ),
                               ),
-                          ],
-                        ),
-                      ),
+                            ),
+                          ),
+                  ),
+                  // Caption + send always live together in one row now --
+                  // never hidden behind whichever tool is active, except
+                  // while actively editing a text overlay or cropping: each
+                  // of those is a focused, full-screen editing view with its
+                  // own dedicated controls (WhatsApp's text tool shows only
+                  // the keyboard below its font/color tray; the crop tool
+                  // shows only rotate/ratio below the frame), so the caption
+                  // field and share button step aside rather than floating
+                  // over content unrelated to what the user is doing. A
+                  // tool's own tray (text style options, music banner style,
+                  // blur slider) floats directly above this row when relevant.
+                  Positioned(
+                    left: 14,
+                    right: 14,
+                    bottom: 14 + keyboardInset,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _buildAnimatedBottomTray(isTextSelected),
+                        if (!_isEditingTextOverlay && !_isCropMode)
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Expanded(
+                                child: _ComposerCaptionField(
+                                  controller: _captionController,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              _ShareButton(onTap: _shareStatus),
+                            ],
+                          ),
+                      ],
                     ),
                   ),
                 ],
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: _kMediaBottomInset,
-                  child: _selectedOverlay == null || _isEditingTextOverlay
-                      ? const SizedBox.shrink()
-                      : Center(
-                          key: const Key('updates_media_delete_target_host'),
-                          child: KeyedSubtree(
-                            key: _deleteTargetKey,
-                            child: IgnorePointer(
-                              ignoring: !_isDraggingOverlay,
-                              child: AnimatedSlide(
-                                duration: const Duration(milliseconds: 160),
-                                curve: Curves.easeOutCubic,
-                                offset: _isDraggingOverlay
-                                    ? Offset.zero
-                                    : const Offset(0, 0.08),
-                                child: AnimatedOpacity(
-                                  key: const Key(
-                                    'updates_media_delete_overlay_visibility',
-                                  ),
-                                  duration: const Duration(milliseconds: 160),
-                                  curve: Curves.easeOutCubic,
-                                  opacity: _isDraggingOverlay ? 1 : 0,
-                                  child: _ComposerDeleteDropTarget(
-                                    key: const Key(
-                                      'updates_media_delete_overlay_button',
-                                    ),
-                                    isActive: _isDeleteTargetActive,
-                                    onTap: () =>
-                                        _removeOverlay(_selectedOverlay!.id),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                ),
-                // Caption + send always live together in one row now --
-                // never hidden behind whichever tool is active, except
-                // while actively editing a text overlay or cropping: each
-                // of those is a focused, full-screen editing view with its
-                // own dedicated controls (WhatsApp's text tool shows only
-                // the keyboard below its font/color tray; the crop tool
-                // shows only rotate/ratio below the frame), so the caption
-                // field and share button step aside rather than floating
-                // over content unrelated to what the user is doing. A
-                // tool's own tray (text style options, music banner style,
-                // blur slider) floats directly above this row when relevant.
-                Positioned(
-                  left: 14,
-                  right: 14,
-                  bottom: 14 + keyboardInset,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      _buildAnimatedBottomTray(isTextSelected),
-                      if (!_isEditingTextOverlay && !_isCropMode)
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            Expanded(
-                              child: _ComposerCaptionField(
-                                controller: _captionController,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            _ShareButton(onTap: _shareStatus),
-                          ],
-                        ),
-                    ],
-                  ),
-                ),
-              ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -2927,7 +2961,7 @@ class _ComposerTopBar extends StatelessWidget {
 
     return Row(
       children: [
-        _GlassCircleButton(
+        StatusComposerGlassButton(
           key: const Key('updates_media_close_composer_button'),
           tooltip: 'Close',
           icon: Icons.close_rounded,
@@ -2938,21 +2972,21 @@ class _ComposerTopBar extends StatelessWidget {
         if (hasTextSelection) ...[
           // Matches WhatsApp's own text tool: alignment and background/
           // decoration toggles live in the top bar right next to Done.
-          _GlassCircleButton(
+          StatusComposerGlassButton(
             key: const Key('updates_media_text_align_button'),
             tooltip: 'Text alignment',
             icon: Icons.format_align_center_rounded,
             onTap: onCycleAlignment,
           ),
           const SizedBox(width: 8),
-          _GlassCircleButton(
+          StatusComposerGlassButton(
             key: const Key('updates_media_text_decoration_button'),
             tooltip: 'Text background',
             icon: Icons.format_color_text_rounded,
             onTap: onToggleBackground,
           ),
           const SizedBox(width: 8),
-          _GlassCircleButton(
+          StatusComposerGlassButton(
             key: const Key('updates_media_text_done_button'),
             tooltip: 'Done editing',
             icon: Icons.check_rounded,
@@ -3028,7 +3062,6 @@ class _ComposerDeleteDropTarget extends StatelessWidget {
     );
   }
 }
-
 
 class _ComposerMusicEditingTray extends StatelessWidget {
   const _ComposerMusicEditingTray({
@@ -3225,7 +3258,6 @@ Color _colorForDrawBarPosition(double t) {
 /// bar and gradient stops as [_DrawColorRail], just without the eraser
 /// affordance a text overlay has no use for. Floats on the right edge while
 /// actively editing text, matching WhatsApp's own text-color picker.
-
 
 /// The text tool's font-style row -- horizontally scrollable circular
 /// swatches, each previewing a real font look, tapped directly rather than
@@ -3660,40 +3692,6 @@ class _ToolbarToolButton extends StatelessWidget {
     }
 
     return Expanded(child: button);
-  }
-}
-
-class _GlassCircleButton extends StatelessWidget {
-  const _GlassCircleButton({
-    required this.tooltip,
-    required this.icon,
-    required this.onTap,
-    this.showBorder = true,
-    super.key,
-  });
-
-  final String tooltip;
-  final IconData icon;
-  final VoidCallback onTap;
-  final bool showBorder;
-
-  @override
-  Widget build(BuildContext context) {
-    // Fixed dark-glass look regardless of app theme -- this floats over the
-    // photo/video canvas, not the system surface, so it stays legible there
-    // no matter whether the rest of the app is in light or dark mode.
-    return LiquidGlassIconButton(
-      icon: icon,
-      tooltip: tooltip,
-      onTap: onTap,
-      size: 42,
-      iconSize: 20,
-      iconColor: Colors.white,
-      color: Colors.black.withValues(alpha: 0.28),
-      borderColor: showBorder
-          ? Colors.white.withValues(alpha: 0.18)
-          : Colors.transparent,
-    );
   }
 }
 

@@ -500,13 +500,21 @@ TextStatusBackgroundPreset resolveTextStatusBackgroundForStyle(
 ) {
   final backgroundColor = style.backgroundColor;
   if (backgroundColor != null) {
-    return buildCustomTextStatusBackgroundPreset(
-      backgroundColor,
-      useSolidColor: style.useSolidBackground,
-    );
+    // Deliberately not passing style.useSolidBackground here. That flag is
+    // the plate behind the *text* (the fill button, and the same field the
+    // media composer's text overlay uses); it was also being read as
+    // "make the canvas a flat colour instead of a gradient". One flag
+    // doing two jobs is why cycling the background colour switched the
+    // text plate off: the cycle sets the canvas back to a gradient, and
+    // that turned off the user's plate with it.
+    return buildCustomTextStatusBackgroundPreset(backgroundColor);
   }
   return resolveTextStatusBackgroundPreset(style.backgroundId, accentColor);
 }
+
+/// The copy shown on an empty canvas. Exposed so a composer can measure
+/// the same string the canvas will lay out when sizing its own editor.
+const String kTextStatusCanvasPlaceholder = 'Write something worth pausing for';
 
 class TextStatusCanvas extends StatelessWidget {
   const TextStatusCanvas({
@@ -514,7 +522,7 @@ class TextStatusCanvas extends StatelessWidget {
     required this.style,
     required this.accentColor,
     this.borderRadius = const BorderRadius.all(Radius.circular(32)),
-    this.placeholder = 'Write something worth pausing for',
+    this.placeholder = kTextStatusCanvasPlaceholder,
     this.padding,
     this.showFrame = true,
     this.showText = true,
@@ -614,38 +622,39 @@ class TextStatusCanvas extends StatelessWidget {
                   background: background,
                 ),
                 if (showText)
-                Padding(
-                  padding: contentPadding,
-                  child: Align(
-                    alignment: _alignmentFor(style.alignment, style.layout),
-                    child: FractionallySizedBox(
-                      widthFactor: _textWidthFactor(style.layout),
+                  Padding(
+                    padding: contentPadding,
+                    child: Align(
                       alignment: _alignmentFor(style.alignment, style.layout),
-                      // A short status still centers freely inside the
-                      // panel exactly as before -- this cap only ever
-                      // bites once typed text would otherwise need more
-                      // room than the canvas actually has, which used to
-                      // just paint straight past the card's edges instead
-                      // of stopping anywhere. Past the cap the panel holds
-                      // at its max height and the text scrolls inside it,
-                      // so "how much you've typed" never depends on
-                      // outgrowing a frame that can't actually grow
-                      // further than the screen itself.
-                      child: ConstrainedBox(
-                        constraints: BoxConstraints(
-                          maxHeight: constraints.maxHeight * 0.86,
-                        ),
-                        child: _TextPanel(
-                          layout: style.layout,
-                          background: background,
-                          child: SingleChildScrollView(
-                            child: resolvedTextChild,
+                      child: FractionallySizedBox(
+                        widthFactor: _textWidthFactor(style.layout),
+                        alignment: _alignmentFor(style.alignment, style.layout),
+                        // A short status still centers freely inside the
+                        // panel exactly as before -- this cap only ever
+                        // bites once typed text would otherwise need more
+                        // room than the canvas actually has, which used to
+                        // just paint straight past the card's edges instead
+                        // of stopping anywhere. Past the cap the panel holds
+                        // at its max height and the text scrolls inside it,
+                        // so "how much you've typed" never depends on
+                        // outgrowing a frame that can't actually grow
+                        // further than the screen itself.
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxHeight: constraints.maxHeight * 0.86,
+                          ),
+                          child: _TextPanel(
+                            layout: style.layout,
+                            background: background,
+                            showPanel: style.useSolidBackground,
+                            child: SingleChildScrollView(
+                              child: resolvedTextChild,
+                            ),
                           ),
                         ),
                       ),
                     ),
                   ),
-                ),
               ],
             ),
           ),
@@ -662,7 +671,8 @@ class TextStatusCanvas extends StatelessWidget {
     required double shortestSide,
     required int textLength,
   }) {
-    final clampedScale = style.sizeScale.clamp(0.72, 1.45);
+    final clampedScale =
+        style.sizeScale.clamp(kStatusTextMinSizeScale, kStatusTextMaxSizeScale);
     var baseSize = shortestSide * 0.124;
     // Each length tier is its own target scale for that much text, not a
     // further cut on top of every shorter tier's cut already applied --
@@ -683,8 +693,15 @@ class TextStatusCanvas extends StatelessWidget {
     final baseStyle =
         (theme.textTheme.displaySmall ?? const TextStyle()).copyWith(
       color: textColor,
-      fontSize: baseSize * clampedScale,
-      fontWeight: FontWeight.w800,
+      // Floored, not just scaled: the smallest slider position has to land
+      // on a real, legible size rather than whatever the canvas ratio
+      // happens to produce on that screen.
+      fontSize: (baseSize * clampedScale)
+          .clamp(kStatusTextMinFontSize, double.infinity),
+      // The chosen weight, not a fixed one -- the font look may set its own
+      // below, so this is applied again after look.apply to make the user's
+      // choice win.
+      fontWeight: style.fontWeight,
       height: 1.06,
       shadows: <Shadow>[
         Shadow(
@@ -694,7 +711,9 @@ class TextStatusCanvas extends StatelessWidget {
         ),
       ],
     );
-    return fontLook.apply(baseStyle);
+    // Re-applied after the font look, which sets a weight of its own --
+    // the user's explicit choice has to win over the look's default.
+    return fontLook.apply(baseStyle).copyWith(fontWeight: style.fontWeight);
   }
 
   static EdgeInsets _paddingForLayout(StatusTextLayout layout, Size size) {
@@ -790,15 +809,28 @@ class _TextPanel extends StatelessWidget {
   const _TextPanel({
     required this.layout,
     required this.background,
+    required this.showPanel,
     required this.child,
   });
 
   final StatusTextLayout layout;
   final TextStatusBackgroundPreset background;
+
+  /// Whether the layout's plate is painted behind the text.
+  ///
+  /// Off by default so a status starts as bare text on its background,
+  /// matching the editor -- the plate used to appear only once the
+  /// keyboard went down, so the thing being edited and the preview of it
+  /// disagreed. The fill control opts into it.
+  final bool showPanel;
+
   final Widget child;
 
   @override
   Widget build(BuildContext context) {
+    if (!showPanel) {
+      return child;
+    }
     final panel = switch (layout) {
       StatusTextLayout.classic => child,
       StatusTextLayout.poster => DecoratedBox(
@@ -886,164 +918,208 @@ class _DecorativeBackground extends StatelessWidget {
     if (background.isSolid) {
       return const SizedBox.shrink();
     }
+    // Every shape below is placed with a hardcoded offset from the canvas
+    // edge, and the canvas is edge-to-edge -- so `top: 26` landed a solid
+    // accent bar directly behind the clock, and `top: -20` slid a glow orb
+    // under the wifi and battery icons. The offsets are measured from the
+    // usable area instead, so they mean the same thing on a Dynamic
+    // Island, a notch, an Android punch-hole and a flat-top tablet.
+    //
+    // The gradient itself still runs edge-to-edge (it is painted by the
+    // parent, not here) -- only the shapes move. That keeps the background
+    // full-bleed, which is what the posted story shows.
+    final insets = MediaQuery.viewPaddingOf(context);
     return IgnorePointer(
-      child: switch (layout) {
-        StatusTextLayout.classic => Stack(
-            fit: StackFit.expand,
-            children: [
-              Positioned(
-                top: -20,
-                right: -10,
-                child: _GlowOrb(
-                  size: 180,
-                  color: background.accentColor.withValues(alpha: 0.22),
-                ),
-              ),
-              Positioned(
-                left: -48,
-                bottom: -52,
-                child: _GlowOrb(
-                  size: 220,
-                  color: Colors.white.withValues(alpha: 0.12),
-                ),
-              ),
-            ],
-          ),
-        StatusTextLayout.poster => Stack(
-            fit: StackFit.expand,
-            children: [
-              Positioned(
-                top: 26,
-                left: 24,
-                child: Transform.rotate(
-                  angle: -0.18,
-                  child: Container(
-                    width: 110,
-                    height: 12,
-                    decoration: BoxDecoration(
-                      color: background.accentColor.withValues(alpha: 0.82),
-                      borderRadius: BorderRadius.circular(99),
+      child: Padding(
+        padding: EdgeInsets.only(top: insets.top, bottom: insets.bottom),
+        // Padding alone is not enough: several shapes use a negative
+        // offset to bleed off the edge on purpose, which would still reach
+        // back up into the status bar. Clipping the layer's top edge lets
+        // them keep bleeding sideways and downwards while making it
+        // structurally impossible to paint behind the indicators. A plain
+        // rect clip rather than a fade: no saveLayer, and this canvas
+        // rebuilds on every keystroke in the composer.
+        child: ClipRect(
+          clipper: const _TopEdgeClipper(),
+          clipBehavior: Clip.hardEdge,
+          child: switch (layout) {
+            StatusTextLayout.classic => Stack(
+                fit: StackFit.expand,
+                children: [
+                  Positioned(
+                    top: -20,
+                    right: -10,
+                    child: _GlowOrb(
+                      size: 180,
+                      color: background.accentColor.withValues(alpha: 0.22),
                     ),
                   ),
-                ),
-              ),
-              Positioned(
-                right: -34,
-                bottom: -28,
-                child: _GlowOrb(
-                  size: 210,
-                  color: Colors.black.withValues(alpha: 0.14),
-                ),
-              ),
-            ],
-          ),
-        StatusTextLayout.banner => Stack(
-            fit: StackFit.expand,
-            children: [
-              Positioned(
-                top: 34,
-                left: 34,
-                child: Container(
-                  width: 94,
-                  height: 94,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Colors.white.withValues(alpha: 0.08),
+                  Positioned(
+                    left: -48,
+                    bottom: -52,
+                    child: _GlowOrb(
+                      size: 220,
+                      color: Colors.white.withValues(alpha: 0.12),
+                    ),
                   ),
-                ),
+                ],
               ),
-              Positioned(
-                right: 28,
-                bottom: 36,
-                child: Container(
-                  width: 62,
-                  height: 62,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: background.accentColor.withValues(alpha: 0.14),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        StatusTextLayout.invitation => Stack(
-            fit: StackFit.expand,
-            children: [
-              Positioned.fill(
-                child: Padding(
-                  padding: const EdgeInsets.all(18),
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(30),
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.18),
-                        width: 1.2,
+            StatusTextLayout.poster => Stack(
+                fit: StackFit.expand,
+                children: [
+                  Positioned(
+                    top: 26,
+                    left: 24,
+                    child: Transform.rotate(
+                      angle: -0.18,
+                      child: Container(
+                        width: 110,
+                        height: 12,
+                        decoration: BoxDecoration(
+                          color: background.accentColor.withValues(alpha: 0.82),
+                          borderRadius: BorderRadius.circular(99),
+                        ),
                       ),
                     ),
                   ),
-                ),
-              ),
-              Positioned(
-                top: 28,
-                right: 26,
-                child: _DotCluster(color: background.accentColor),
-              ),
-              Positioned(
-                left: 26,
-                bottom: 26,
-                child: _DotCluster(color: Colors.white.withValues(alpha: 0.84)),
-              ),
-            ],
-          ),
-        StatusTextLayout.spotlight => Stack(
-            fit: StackFit.expand,
-            children: [
-              Align(
-                child: _GlowOrb(
-                  size: 260,
-                  color: background.accentColor.withValues(alpha: 0.26),
-                ),
-              ),
-              Positioned(
-                top: 36,
-                right: 36,
-                child: Container(
-                  width: 72,
-                  height: 72,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Colors.white.withValues(alpha: 0.08),
+                  Positioned(
+                    right: -34,
+                    bottom: -28,
+                    child: _GlowOrb(
+                      size: 210,
+                      color: Colors.black.withValues(alpha: 0.14),
+                    ),
                   ),
-                ),
+                ],
               ),
-            ],
-          ),
-        StatusTextLayout.note => Stack(
-            fit: StackFit.expand,
-            children: [
-              Positioned(
-                top: 28,
-                left: 28,
-                child: _TapeStrip(color: background.accentColor),
+            StatusTextLayout.banner => Stack(
+                fit: StackFit.expand,
+                children: [
+                  Positioned(
+                    top: 34,
+                    left: 34,
+                    child: Container(
+                      width: 94,
+                      height: 94,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.white.withValues(alpha: 0.08),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    right: 28,
+                    bottom: 36,
+                    child: Container(
+                      width: 62,
+                      height: 62,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: background.accentColor.withValues(alpha: 0.14),
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              Positioned(
-                top: 28,
-                right: 28,
-                child: _TapeStrip(color: Colors.white.withValues(alpha: 0.82)),
+            StatusTextLayout.invitation => Stack(
+                fit: StackFit.expand,
+                children: [
+                  Positioned.fill(
+                    child: Padding(
+                      padding: const EdgeInsets.all(18),
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(30),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.18),
+                            width: 1.2,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    top: 28,
+                    right: 26,
+                    child: _DotCluster(color: background.accentColor),
+                  ),
+                  Positioned(
+                    left: 26,
+                    bottom: 26,
+                    child: _DotCluster(
+                        color: Colors.white.withValues(alpha: 0.84)),
+                  ),
+                ],
               ),
-              Positioned(
-                bottom: -48,
-                right: -28,
-                child: _GlowOrb(
-                  size: 180,
-                  color: background.accentColor.withValues(alpha: 0.14),
-                ),
+            StatusTextLayout.spotlight => Stack(
+                fit: StackFit.expand,
+                children: [
+                  Align(
+                    child: _GlowOrb(
+                      size: 260,
+                      color: background.accentColor.withValues(alpha: 0.26),
+                    ),
+                  ),
+                  Positioned(
+                    top: 36,
+                    right: 36,
+                    child: Container(
+                      width: 72,
+                      height: 72,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.white.withValues(alpha: 0.08),
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
-      },
+            StatusTextLayout.note => Stack(
+                fit: StackFit.expand,
+                children: [
+                  Positioned(
+                    top: 28,
+                    left: 28,
+                    child: _TapeStrip(color: background.accentColor),
+                  ),
+                  Positioned(
+                    top: 28,
+                    right: 28,
+                    child:
+                        _TapeStrip(color: Colors.white.withValues(alpha: 0.82)),
+                  ),
+                  Positioned(
+                    bottom: -48,
+                    right: -28,
+                    child: _GlowOrb(
+                      size: 180,
+                      color: background.accentColor.withValues(alpha: 0.14),
+                    ),
+                  ),
+                ],
+              ),
+          },
+        ),
+      ),
     );
   }
+}
+
+/// Clips only the top edge of its child, leaving the other three sides
+/// free so decorations can still bleed off them.
+class _TopEdgeClipper extends CustomClipper<Rect> {
+  const _TopEdgeClipper();
+
+  @override
+  Rect getClip(Size size) => Rect.fromLTRB(
+        -size.width,
+        0,
+        size.width * 2,
+        size.height * 2,
+      );
+
+  @override
+  bool shouldReclip(covariant CustomClipper<Rect> oldClipper) => false;
 }
 
 class _GlowOrb extends StatelessWidget {

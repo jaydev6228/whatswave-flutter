@@ -365,7 +365,6 @@ class StatusMediaDecorationOverlay extends StatelessWidget {
       ],
     );
   }
-
 }
 
 /// Shared by both rendering paths below -- shrinks the caption card's font
@@ -1197,8 +1196,11 @@ class _StatusOverlayTextCard extends StatelessWidget {
     final style = look.apply(
       (theme.textTheme.titleMedium ?? const TextStyle()).copyWith(
         color: textStyleModel.textColor ?? Colors.white,
-        fontSize: baseFontSize * textStyleModel.sizeScale.clamp(0.72, 1.28),
-        fontWeight: FontWeight.w800,
+        fontSize: (baseFontSize *
+                textStyleModel.sizeScale
+                    .clamp(kStatusTextMinSizeScale, kStatusTextMaxSizeScale))
+            .clamp(kStatusTextMinFontSize, double.infinity),
+        fontWeight: textStyleModel.fontWeight,
         height: compact ? 1.12 : 1.18,
         shadows: <Shadow>[
           Shadow(
@@ -1208,6 +1210,10 @@ class _StatusOverlayTextCard extends StatelessWidget {
           ),
         ],
       ),
+    );
+    final weightedStyle = style.copyWith(
+      // Wins over the font look's own weight, same as the canvas.
+      fontWeight: textStyleModel.fontWeight,
     );
 
     final hasSolidBackground = textStyleModel.useSolidBackground ||
@@ -1232,7 +1238,7 @@ class _StatusOverlayTextCard extends StatelessWidget {
           StatusTextAlignment.center => TextAlign.center,
           StatusTextAlignment.right => TextAlign.right,
         },
-        style: style,
+        style: weightedStyle,
       ),
     );
   }

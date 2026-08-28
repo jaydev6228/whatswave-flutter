@@ -147,7 +147,8 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
         .snapshots()
         .listen((snapshot) {
       for (final doc in snapshot.docs) {
-        for (final participantUid in _directMessagePartnerUids(doc.data(), uid)) {
+        for (final participantUid
+            in _directMessagePartnerUids(doc.data(), uid)) {
           watchStoryFor(participantUid);
         }
       }
@@ -471,7 +472,8 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
         .collection('views')
         .orderBy('viewedAt', descending: true)
         .snapshots()
-        .asyncMap((snapshot) => _viewersFromSnapshot(snapshot, ownerUid: storyId));
+        .asyncMap(
+            (snapshot) => _viewersFromSnapshot(snapshot, ownerUid: storyId));
   }
 
   Future<List<StoryViewer>> _viewersFromSnapshot(
@@ -480,9 +482,7 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
   }) async {
     final lookup = UserProfileLookup(firestore: _firestore);
     final viewers = await Future.wait(
-      snapshot.docs
-          .where((doc) => doc.id != ownerUid)
-          .map((doc) async {
+      snapshot.docs.where((doc) => doc.id != ownerUid).map((doc) async {
         final data = doc.data();
         final profile = await lookup.fetch(doc.id);
         final viewedAt = data['viewedAt'];
@@ -552,18 +552,18 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
       // markStoryViewed above -- security rules only let that viewer write
       // it (see firestore.rules).
       await _storiesRef.doc(storyId).collection('views').doc(uid).set(
-        liked
-            ? {
-                'likedSegmentIds': FieldValue.arrayUnion([segmentId]),
-                'likedAt': FieldValue.serverTimestamp(),
-                'liked': FieldValue.delete(),
-              }
-            : {
-                'likedSegmentIds': FieldValue.arrayRemove([segmentId]),
-                'liked': FieldValue.delete(),
-              },
-        SetOptions(merge: true),
-      );
+            liked
+                ? {
+                    'likedSegmentIds': FieldValue.arrayUnion([segmentId]),
+                    'likedAt': FieldValue.serverTimestamp(),
+                    'liked': FieldValue.delete(),
+                  }
+                : {
+                    'likedSegmentIds': FieldValue.arrayRemove([segmentId]),
+                    'liked': FieldValue.delete(),
+                  },
+            SetOptions(merge: true),
+          );
     } on FirebaseException catch (e) {
       throw UpdatesRepositoryException(
         e.message ?? 'We could not update that reaction right now.',

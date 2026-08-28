@@ -140,8 +140,7 @@ class _VideoTrimScrubberState extends State<VideoTrimScrubber> {
     if (handle == null || width <= 0 || widget.fullDurationSeconds <= 0) {
       return;
     }
-    final deltaSeconds =
-        details.delta.dx / width * widget.fullDurationSeconds;
+    final deltaSeconds = details.delta.dx / width * widget.fullDurationSeconds;
     switch (handle) {
       case _TrimHandle.start:
         final minStart =
@@ -150,8 +149,8 @@ class _VideoTrimScrubberState extends State<VideoTrimScrubber> {
           minStart,
           widget.trimEndSeconds - widget.minTrimSeconds,
         );
-        final newStart = (widget.trimStartSeconds + deltaSeconds)
-            .clamp(minStart, maxStart);
+        final newStart =
+            (widget.trimStartSeconds + deltaSeconds).clamp(minStart, maxStart);
         widget.onScrubUpdate(
           RangeValues(newStart, widget.trimEndSeconds),
           newStart,
@@ -177,8 +176,7 @@ class _VideoTrimScrubberState extends State<VideoTrimScrubber> {
         // own trimmer lets you slide the selected range to pick a different
         // part of the clip without having to resize it first.
         final span = widget.trimEndSeconds - widget.trimStartSeconds;
-        final maxStart =
-            math.max(0.0, widget.fullDurationSeconds - span);
+        final maxStart = math.max(0.0, widget.fullDurationSeconds - span);
         final newStart =
             (widget.trimStartSeconds + deltaSeconds).clamp(0.0, maxStart);
         widget.onScrubUpdate(

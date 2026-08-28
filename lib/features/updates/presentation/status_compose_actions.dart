@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -33,15 +32,13 @@ Future<void> showStatusComposeChoice(
         key: const Key('status_compose_choice_text'),
         icon: Icons.edit_outlined,
         label: 'Text status',
-        onTap: () =>
-            Navigator.of(sheetContext).pop(_StatusComposeChoice.text),
+        onTap: () => Navigator.of(sheetContext).pop(_StatusComposeChoice.text),
       ),
       LiquidGlassBubbleItem(
         key: const Key('status_compose_choice_media'),
         icon: Icons.photo_camera_outlined,
         label: 'Photo or video',
-        onTap: () =>
-            Navigator.of(sheetContext).pop(_StatusComposeChoice.media),
+        onTap: () => Navigator.of(sheetContext).pop(_StatusComposeChoice.media),
       ),
     ],
   );
@@ -185,19 +182,20 @@ Future<Size?> _resolveInitialStatusMediaSize(
   }
 
   try {
-    final bytes = await File(pickedMedia.path).readAsBytes();
-    if (bytes.isEmpty) {
-      return null;
-    }
-
-    final codec = await ui.instantiateImageCodec(bytes);
-    final frame = await codec.getNextFrame();
+    // Header parse only. This used to read the whole file into the Dart
+    // heap and then fully decode it -- allocating a complete bitmap for a
+    // 12MP photo on the UI isolate -- before the composer route was even
+    // pushed, which is the stall between picking a photo and seeing the
+    // editor. ImageDescriptor reads the dimensions out of the header, and
+    // ImmutableBuffer.fromFilePath keeps the bytes off the Dart heap.
+    final buffer = await ui.ImmutableBuffer.fromFilePath(pickedMedia.path);
+    final descriptor = await ui.ImageDescriptor.encoded(buffer);
     final size = Size(
-      frame.image.width.toDouble(),
-      frame.image.height.toDouble(),
+      descriptor.width.toDouble(),
+      descriptor.height.toDouble(),
     );
-    frame.image.dispose();
-    codec.dispose();
+    descriptor.dispose();
+    buffer.dispose();
     return size;
   } catch (_) {
     return null;

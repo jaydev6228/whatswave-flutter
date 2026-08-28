@@ -29,13 +29,11 @@ Future<void> openStatusStoryViewer(
         onFetchViewers: story.isMine
             ? (activeStory) => controller.fetchStoryViewers(activeStory.id)
             : null,
-        onWatchViewers: story.isMine
-            ? () => controller.watchStoryViewers(story.id)
-            : null,
+        onWatchViewers:
+            story.isMine ? () => controller.watchStoryViewers(story.id) : null,
         onFetchLikedByMe: story.isMine
             ? null
-            : (activeStory, segmentId) =>
-                controller.isStoryLikedByMe(
+            : (activeStory, segmentId) => controller.isStoryLikedByMe(
                   activeStory.id,
                   segmentId: segmentId,
                 ),
