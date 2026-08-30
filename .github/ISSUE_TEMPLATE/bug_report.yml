@@ -1,0 +1,47 @@
+name: Bug report
+description: Something in the app behaves incorrectly
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. Please note this project is
+        source available, not open source — see the LICENSE.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you see, and what did you expect instead?
+      placeholder: |
+        Expected: the caption stays readable over a placed text overlay.
+        Actual: the overlay text renders on top of it.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open a photo status
+        2. Add a text overlay and drag it to the bottom
+        3. Type a caption
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device and OS
+      placeholder: iPhone 15 Pro, iOS 18.2
+    validations:
+      required: true
+  - type: input
+    id: font-scale
+    attributes:
+      label: Font size / display size setting
+      description: Only if the issue is a layout one. Default is fine to say.
+      placeholder: Default, or 200% text scale
+  - type: textarea
+    id: extra
+    attributes:
+      label: Screenshots or logs
+      description: Screenshots help a lot for UI issues. Redact anything private.

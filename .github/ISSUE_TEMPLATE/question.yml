@@ -1,0 +1,15 @@
+name: Question
+description: Ask how something works
+labels: ["question"]
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: What you have already looked at
+      description: Files, docs, or issues you have checked. Saves repeating them.
