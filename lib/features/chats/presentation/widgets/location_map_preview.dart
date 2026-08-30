@@ -94,7 +94,8 @@ class LocationMapCanvas extends StatelessWidget {
   final double longitude;
   final String label;
 
-  Future<void> _launchProvider(BuildContext context, _MapProvider provider) async {
+  Future<void> _launchProvider(
+      BuildContext context, _MapProvider provider) async {
     final query = '$latitude,$longitude';
     final uri = switch (provider) {
       _MapProvider.apple => Uri.parse(
@@ -104,9 +105,11 @@ class LocationMapCanvas extends StatelessWidget {
           'https://www.google.com/maps/search/?api=1&query=$query',
         ),
     };
-    final didLaunch = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    final didLaunch =
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
     if (!didLaunch && context.mounted) {
-      await showErrorDialog(context, 'We could not open Maps for that location.');
+      await showErrorDialog(
+          context, 'We could not open Maps for that location.');
     }
   }
 

@@ -278,6 +278,7 @@ class LiquidGlassChip extends StatelessWidget {
 Future<T?> showLiquidGlassBubbleMenu<T>({
   required BuildContext anchorContext,
   required List<Widget> Function(BuildContext context) itemBuilder,
+
   /// True opens the bubble growing downward from the button's bottom edge
   /// (for a button near the top of the screen); false (the default) grows
   /// upward from the button's top edge (for a button near the bottom).
@@ -414,6 +415,127 @@ class LiquidGlassBubbleItem extends StatelessWidget {
               const Icon(Icons.check_rounded, color: Colors.white, size: 16),
             ],
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The app's dialog, on the same glass as its sheets.
+///
+/// A drop-in for [AlertDialog]'s `title`/`content`/`actions` -- every
+/// dialog in this app uses exactly those three, so converting is a rename.
+///
+/// [DialogTheme] can carry the shape, the border and the elevation, but it
+/// cannot add a [BackdropFilter], so a themed [AlertDialog] stays an opaque
+/// panel. This is the piece the theme could not express.
+///
+/// Tinted lightly enough that the blur actually reads. At sheet weight
+/// (0.86) the fill was so close to opaque that the glass was invisible --
+/// it looked like a flat panel with rounded corners. The blur is what
+/// keeps the text legible at this opacity.
+class LiquidGlassDialog extends StatelessWidget {
+  const LiquidGlassDialog({
+    this.title,
+    this.content,
+    this.actions,
+    super.key,
+  });
+
+  final Widget? title;
+  final Widget? content;
+  final List<Widget>? actions;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final dialogActions = actions;
+
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      elevation: 0,
+      // Matches AlertDialog's own inset so converted dialogs keep their
+      // position and width on every screen size.
+      insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
+      child: LiquidGlassSurface(
+        borderRadius: const BorderRadius.all(Radius.circular(28)),
+        blurSigma: 30,
+        tintOpacityDark: 0.62,
+        tintOpacityLight: 0.78,
+        showShadow: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 24, 24, 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (title != null)
+                DefaultTextStyle(
+                  style: theme.textTheme.headlineSmall!.copyWith(
+                    color: theme.colorScheme.onSurface,
+                    fontWeight: FontWeight.w700,
+                  ),
+                  child: title!,
+                ),
+              if (title != null && content != null) const SizedBox(height: 14),
+              if (content != null)
+                Flexible(
+                  // Long copy scrolls rather than pushing the actions off
+                  // the screen -- AlertDialog's own `scrollable` behaviour.
+                  child: SingleChildScrollView(
+                    child: DefaultTextStyle(
+                      style: theme.textTheme.bodyMedium!.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                      child: content!,
+                    ),
+                  ),
+                ),
+              if (dialogActions != null && dialogActions.isNotEmpty) ...[
+                const SizedBox(height: 10),
+                // Wrap, not Row: at large text scales a pair of buttons can
+                // outgrow the dialog's width (docs/ui_layout_guidelines.md
+                // rule 6).
+                Align(
+                  alignment: Alignment.centerRight,
+                  // Themed for this subtree rather than per action, so the
+                  // dozen-odd dialogs keep their plain TextButton and
+                  // FilledButton children and still get capsules.
+                  child: TextButtonTheme(
+                    data: TextButtonThemeData(
+                      style: TextButton.styleFrom(
+                        shape: const StadiumBorder(),
+                        backgroundColor:
+                            theme.colorScheme.onSurface.withValues(alpha: 0.08),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 12,
+                        ),
+                      ),
+                    ),
+                    child: FilledButtonTheme(
+                      data: FilledButtonThemeData(
+                        style: FilledButton.styleFrom(
+                          shape: const StadiumBorder(),
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 20,
+                            vertical: 12,
+                          ),
+                        ),
+                      ),
+                      child: Wrap(
+                        alignment: WrapAlignment.end,
+                        spacing: 8,
+                        runSpacing: 4,
+                        children: dialogActions,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
         ),
       ),
     );

@@ -99,7 +99,8 @@ class ChatInboxCache {
       id: map['id'] as String? ?? '',
       name: map['name'] as String? ?? '',
       avatarLabel: map['avatarLabel'] as String? ?? '',
-      accentColor: Color((map['accentColorArgb'] as num?)?.toInt() ?? 0xFF6750A4),
+      accentColor:
+          Color((map['accentColorArgb'] as num?)?.toInt() ?? 0xFF6750A4),
       messages: messagesRaw
           .whereType<Map<String, dynamic>>()
           .map(_messageFromCacheJson)

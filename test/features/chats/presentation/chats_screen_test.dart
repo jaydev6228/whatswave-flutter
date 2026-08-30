@@ -145,10 +145,9 @@ void main() {
     await tester.tap(find.byKey(const Key('chats_status_add_button')));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('status_compose_choice_text')),
-        findsOneWidget);
-    expect(find.byKey(const Key('status_compose_choice_media')),
-        findsOneWidget);
+    expect(find.byKey(const Key('status_compose_choice_text')), findsOneWidget);
+    expect(
+        find.byKey(const Key('status_compose_choice_media')), findsOneWidget);
     expect(find.text('Text status'), findsOneWidget);
     expect(find.text('Photo or video'), findsOneWidget);
 
@@ -1192,7 +1191,8 @@ void main() {
     // growing by three routes each time.
     await tester.pageBack();
     await tester.pumpAndSettle();
-    expect(find.byKey(const Key('chat_tile_starred-far-thread')), findsOneWidget);
+    expect(
+        find.byKey(const Key('chat_tile_starred-far-thread')), findsOneWidget);
   });
 
   testWidgets(
@@ -1826,9 +1826,9 @@ void main() {
     final lastMessageFinder = find.byKey(
       const ValueKey<String>('conversation_message_top-thread-message-2'),
     );
-    final composerTop =
-        tester.getTopLeft(find.byKey(const Key('conversation_composer_field')))
-            .dy;
+    final composerTop = tester
+        .getTopLeft(find.byKey(const Key('conversation_composer_field')))
+        .dy;
     final messageListTop = tester.getTopLeft(messageListFinder).dy;
     final firstMessageTop = tester.getTopLeft(firstMessageFinder).dy;
     final lastMessageBottom = tester.getBottomLeft(lastMessageFinder).dy;

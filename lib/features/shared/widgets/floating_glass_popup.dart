@@ -48,7 +48,8 @@ Future<T?> showFloatingGlassPopup<T>(
     duration: const Duration(milliseconds: 200),
     reverseDuration: const Duration(milliseconds: 150),
   );
-  final curved = CurvedAnimation(parent: controller, curve: Curves.easeOutCubic);
+  final curved =
+      CurvedAnimation(parent: controller, curve: Curves.easeOutCubic);
 
   late OverlayEntry entry;
   var isClosing = false;

@@ -128,7 +128,8 @@ class MemoryCallSignalingService implements CallSignalingService {
     if (existing == null) {
       return;
     }
-    final updated = existing.copyWith(status: status, updatedAt: DateTime.now());
+    final updated =
+        existing.copyWith(status: status, updatedAt: DateTime.now());
     _calls[callId] = updated;
     _callControllers[callId]?.add(updated);
   }

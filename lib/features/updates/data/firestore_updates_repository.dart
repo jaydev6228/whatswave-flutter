@@ -319,11 +319,21 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
         return (await fetchUpdates()).stories;
       }
 
+      // The ids of what was actually watched, not just how many. A count
+      // cannot identify status items, so it counted viewers of a deleted
+      // story toward the next one's first segment.
+      final viewedSegmentIds = story.segments
+          .take(normalizedSeenSegments)
+          .map((segment) => segment.id)
+          .toList(growable: false);
+
       // Written to the viewer's own per-viewer doc -- including when the
       // viewer is the owner checking their own story ring state.
       await _storiesRef.doc(storyId).collection('views').doc(uid).set(
         {
           'seenSegments': normalizedSeenSegments,
+          if (viewedSegmentIds.isNotEmpty)
+            'viewedSegmentIds': FieldValue.arrayUnion(viewedSegmentIds),
           'viewedAt': FieldValue.serverTimestamp(),
         },
         SetOptions(merge: true),
@@ -494,7 +504,8 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
               Color(profile?.accentColorArgb ?? AppPalette.slate.toARGB32()),
           avatarUrl: profile?.avatarUrl,
           viewedAt: viewedAt is Timestamp ? viewedAt.toDate() : null,
-          likedSegmentIds: _likedSegmentIdsFromViewData(data),
+          likedSegmentIds: _stringIdsFromViewData(data, 'likedSegmentIds'),
+          viewedSegmentIds: _stringIdsFromViewData(data, 'viewedSegmentIds'),
           seenSegments: (data['seenSegments'] as num?)?.toInt() ?? 0,
         );
       }),
@@ -503,8 +514,8 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
     return viewers;
   }
 
-  List<String> _likedSegmentIdsFromViewData(Map<String, dynamic> data) {
-    final raw = data['likedSegmentIds'];
+  List<String> _stringIdsFromViewData(Map<String, dynamic> data, String key) {
+    final raw = data[key];
     if (raw is List) {
       return raw.map((entry) => entry.toString()).toList(growable: false);
     }
@@ -528,7 +539,8 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
       if (data == null) {
         return false;
       }
-      return _likedSegmentIdsFromViewData(data).contains(segmentId);
+      return _stringIdsFromViewData(data, 'likedSegmentIds')
+          .contains(segmentId);
     } on FirebaseException catch (e) {
       throw UpdatesRepositoryException(
         e.message ?? 'We could not load that reaction right now.',

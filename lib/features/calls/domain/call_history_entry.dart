@@ -27,7 +27,8 @@ extension CallHistoryEntryLogDisplay on CallHistoryEntry {
   CallLogDisplayKind get logDisplayKind {
     if (direction == CallDirection.incoming) {
       return switch (status) {
-        CallHistoryStatus.missed || CallHistoryStatus.failed =>
+        CallHistoryStatus.missed ||
+        CallHistoryStatus.failed =>
           CallLogDisplayKind.missed,
         _ => CallLogDisplayKind.incoming,
       };

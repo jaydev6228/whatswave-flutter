@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:whatswave/features/shared/widgets/liquid_glass.dart';
 
 /// Shown for a one-off action failure, instead of a `SnackBar` -- matches
 /// [showLocationErrorDialog]'s existing precedent of using a modal dialog
@@ -11,7 +12,7 @@ Future<void> showErrorDialog(
   return showDialog<void>(
     context: context,
     builder: (dialogContext) {
-      return AlertDialog(
+      return LiquidGlassDialog(
         title: Text(title),
         content: Text(message),
         actions: [

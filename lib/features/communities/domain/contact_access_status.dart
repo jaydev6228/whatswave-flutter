@@ -12,5 +12,6 @@ extension ContactAccessStatusX on ContactAccessStatus {
   /// contact data available to show at all, as opposed to [denied]/
   /// [unknown] where there's none.
   bool get hasAnyAccess =>
-      this == ContactAccessStatus.granted || this == ContactAccessStatus.limited;
+      this == ContactAccessStatus.granted ||
+      this == ContactAccessStatus.limited;
 }

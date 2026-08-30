@@ -18,6 +18,7 @@ import '../domain/community_hub.dart';
 import '../domain/contact_access_status.dart';
 import 'community_time_format.dart';
 import 'community_unread.dart';
+import 'package:whatswave/features/shared/widgets/liquid_glass.dart';
 
 class CommunityDetailScreen extends StatelessWidget {
   const CommunityDetailScreen({
@@ -110,8 +111,10 @@ class CommunityDetailScreen extends StatelessWidget {
                 _CommunityChatRow(
                   key: const Key('community_detail_announcements_row'),
                   leadingIcon: Icons.campaign_outlined,
-                  leadingBackground:
-                      Theme.of(context).colorScheme.primary.withValues(alpha: 0.14),
+                  leadingBackground: Theme.of(context)
+                      .colorScheme
+                      .primary
+                      .withValues(alpha: 0.14),
                   leadingColor: Theme.of(context).colorScheme.primary,
                   title: 'Announcements',
                   subtitle: community.announcement.headline,
@@ -131,8 +134,8 @@ class CommunityDetailScreen extends StatelessWidget {
                   return _CommunityChatRow(
                     key: Key('community_detail_group_${group.id}'),
                     leadingIcon: Icons.groups_outlined,
-                    leadingBackground: community.accentColor
-                        .withValues(alpha: 0.14),
+                    leadingBackground:
+                        community.accentColor.withValues(alpha: 0.14),
                     leadingColor: community.accentColor,
                     title: group.name,
                     subtitle: group.threadId == null
@@ -206,7 +209,7 @@ Future<void> _confirmAndDeleteCommunity(
   final shouldDelete = await showDialog<bool>(
     context: context,
     builder: (dialogContext) {
-      return AlertDialog(
+      return LiquidGlassDialog(
         title: const Text('Delete community?'),
         content: Text(
           'This permanently removes "${community.title}" and its groups '
@@ -594,8 +597,7 @@ class _CommunityDetailInviteSheetState
                   ),
                   const SizedBox(height: 16),
                   SearchField(
-                    fieldKey:
-                        const Key('community_detail_invite_search_field'),
+                    fieldKey: const Key('community_detail_invite_search_field'),
                     controller: _searchController,
                     hintText: 'Search name or number',
                     onTapOutside: (_) => FocusScope.of(context).unfocus(),

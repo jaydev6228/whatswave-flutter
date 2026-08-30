@@ -64,7 +64,10 @@ List<GroupCallParticipantView> buildGroupCallParticipants({
   required String? viewerUid,
   required bool hostConnectedInRoom,
 }) {
-  final orderedUids = <String>[hostUid, ...memberUids.where((uid) => uid != hostUid)];
+  final orderedUids = <String>[
+    hostUid,
+    ...memberUids.where((uid) => uid != hostUid)
+  ];
 
   int rank(GroupCallParticipantState state) {
     return switch (state) {
@@ -123,8 +126,7 @@ List<GroupCallParticipantView> buildGroupCallParticipants({
     final isSelf = viewerUid != null && uid == viewerUid;
     final isConnectedInRoom =
         connectedUids.contains(uid) || (isHost && hostConnectedInRoom);
-    final inviteStatus =
-        inviteStatuses[uid] ?? CallSignalStatus.ringing;
+    final inviteStatus = inviteStatuses[uid] ?? CallSignalStatus.ringing;
     final state = isHost
         ? (isConnectedInRoom
             ? GroupCallParticipantState.connected

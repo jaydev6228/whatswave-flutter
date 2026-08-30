@@ -6,17 +6,19 @@ import '../../../core/models/status_story.dart';
 /// the reply text without needing a live read of the story.
 ///
 /// [mediaUrl]/[previewText]/[accentColorArgb] are a point-in-time snapshot
-/// captured when the reply was sent, not a live reference -- the story
-/// itself may since have advanced to a new segment, or been deleted/expired
-/// entirely. Tapping the card re-checks whether [storyOwnerUid] still has
-/// a live story and opens *that* (matching WhatsApp's own behavior); if
-/// not, the card renders as an empty, non-tappable placeholder instead of
-/// a broken link to content that's gone.
+/// captured when the reply was sent, not a live reference.
+///
+/// Tapping the card opens the exact status item that was replied to, found
+/// by [segmentId]. Once that item is deleted or expires the card becomes a
+/// non-tappable placeholder -- it does *not* fall through to whatever the
+/// owner has posted since. Resolving by owner alone meant a reply to a
+/// long-gone status opened an unrelated new one.
 class StoryReplyContext {
   const StoryReplyContext({
     required this.storyOwnerUid,
     required this.storyOwnerName,
     required this.segmentType,
+    this.segmentId,
     this.previewText,
     this.mediaUrl,
     this.accentColorArgb,
@@ -25,6 +27,12 @@ class StoryReplyContext {
   final String storyOwnerUid;
   final String storyOwnerName;
   final StatusStoryType segmentType;
+
+  /// The status item this reply was sent from.
+  ///
+  /// Null on replies written before this was recorded; those keep the old
+  /// owner-only behaviour rather than becoming dead links.
+  final String? segmentId;
 
   /// Caption/text-story content at reply time -- null for a photo/video
   /// segment with no caption.
@@ -40,6 +48,7 @@ class StoryReplyContext {
       'storyOwnerUid': storyOwnerUid,
       'storyOwnerName': storyOwnerName,
       'segmentType': segmentType.name,
+      'segmentId': segmentId,
       'previewText': previewText,
       'mediaUrl': mediaUrl,
       'accentColorArgb': accentColorArgb,
@@ -61,6 +70,7 @@ class StoryReplyContext {
       (value) => value.name == raw['segmentType'],
       orElse: () => StatusStoryType.text,
     );
+    final segmentId = raw['segmentId'];
     final previewText = raw['previewText'];
     final mediaUrl = raw['mediaUrl'];
     final accentColorArgb = raw['accentColorArgb'];
@@ -68,9 +78,9 @@ class StoryReplyContext {
       storyOwnerUid: storyOwnerUid,
       storyOwnerName: storyOwnerName,
       segmentType: segmentType,
-      previewText: previewText is String && previewText.isNotEmpty
-          ? previewText
-          : null,
+      segmentId: segmentId is String && segmentId.isNotEmpty ? segmentId : null,
+      previewText:
+          previewText is String && previewText.isNotEmpty ? previewText : null,
       mediaUrl: mediaUrl is String && mediaUrl.isNotEmpty ? mediaUrl : null,
       accentColorArgb: switch (accentColorArgb) {
         int value => value,

@@ -87,7 +87,9 @@ class FloatingTabBar extends StatelessWidget {
                     ),
                     Row(
                       children: [
-                        for (var index = 0; index < destinations.length; index++)
+                        for (var index = 0;
+                            index < destinations.length;
+                            index++)
                           SizedBox(
                             width: itemWidth,
                             child: _FloatingTabItem(

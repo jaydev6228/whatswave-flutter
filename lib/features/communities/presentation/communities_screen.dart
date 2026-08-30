@@ -107,8 +107,7 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
                                 title: 'Could not load communities',
                                 message: widget.controller.errorMessage!,
                                 onRetry: widget.controller.loadOverview,
-                                retryKey:
-                                    const Key('communities_retry_button'),
+                                retryKey: const Key('communities_retry_button'),
                               ),
                             ],
                             const SizedBox(height: 12),
@@ -339,7 +338,8 @@ class _CommunityCard extends StatelessWidget {
                               ),
                             ),
                             Text(
-                              formatCommunityTimestamp(community.lastActivityAt),
+                              formatCommunityTimestamp(
+                                  community.lastActivityAt),
                               style: theme.textTheme.labelSmall?.copyWith(
                                 color: theme.colorScheme.onSurface
                                     .withValues(alpha: 0.56),

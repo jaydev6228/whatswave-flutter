@@ -764,6 +764,173 @@ void main() {
     expect(find.text('Earlier note'), findsOneWidget);
     expect(find.text('Studio launch invite\n7 PM tonight'), findsNothing);
   });
+
+  testWidgets(
+      'the view count sits at the bottom of the story like WhatsApp, not in '
+      'the name row', (tester) async {
+    await _pumpStoryViewerHarness(
+      tester,
+      story: myTextStory,
+      segmentDurationOverride: const Duration(seconds: 10),
+      onFetchViewers: (_) async => const <StoryViewer>[],
+    );
+
+    await tester.tap(find.byKey(const Key('open_viewer_button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    final screen =
+        tester.getSize(find.byKey(const Key('updates_story_viewer')));
+    final count =
+        tester.getRect(find.byKey(const Key('updates_story_viewer_count')));
+    final name = tester.getRect(find.text(myTextStory.name));
+
+    expect(
+      count.top,
+      greaterThan(screen.height * 0.5),
+      reason: 'the view count is still up in the header',
+    );
+    expect(count.top, greaterThan(name.bottom));
+    // Still a real tap target, and still opens the viewers sheet.
+    expect(count.height, greaterThanOrEqualTo(44));
+    await tester.tap(find.byKey(const Key('updates_story_viewer_count')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byKey(const Key('story_viewers_sheet')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'a caption still shows when a placed overlay happens to say the same '
+      'thing, the way WhatsApp shows both', (tester) async {
+    const shared = 'snsnsnssnmasmm';
+    final story = StatusStory(
+      id: 'mine-media',
+      name: 'Jay',
+      avatarLabel: 'JD',
+      previewText: shared,
+      timeLabel: 'Just now',
+      accentColor: AppPalette.emerald,
+      type: StatusStoryType.photo,
+      totalSegments: 1,
+      seenSegments: 0,
+      isMine: true,
+      segments: const [
+        StatusStorySegment(
+          id: 'seg-1',
+          type: StatusStoryType.photo,
+          previewText: shared,
+          localMediaPath: '/missing/photo.jpg',
+          overlayItems: [
+            StatusMediaOverlayItem(
+              id: 'overlay-text',
+              type: StatusMediaOverlayType.text,
+              label: shared,
+            ),
+          ],
+        ),
+      ],
+    );
+
+    await _pumpStoryViewerHarness(
+      tester,
+      story: story,
+      segmentDurationOverride: const Duration(seconds: 10),
+      onFetchViewers: (_) async => const <StoryViewer>[],
+    );
+    await tester.tap(find.byKey(const Key('open_viewer_button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    // Once as the placed overlay, once as the caption. Suppressing the
+    // caption because an overlay matched it made a caption the user had
+    // definitely typed simply never appear.
+    expect(
+      find.text(shared),
+      findsNWidgets(2),
+      reason: 'the caption was swallowed by the matching overlay',
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'the view count is per status item -- someone who watched a story '
+      'that is gone does not count toward a new one', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(393, 852));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    const story = StatusStory(
+      id: 'mine-fresh',
+      name: 'Jay',
+      avatarLabel: 'JD',
+      previewText: 'Brand new',
+      timeLabel: 'Just now',
+      accentColor: AppPalette.emerald,
+      type: StatusStoryType.photo,
+      totalSegments: 1,
+      seenSegments: 0,
+      isMine: true,
+      segments: [
+        StatusStorySegment(
+          id: 'fresh-segment',
+          type: StatusStoryType.photo,
+          previewText: 'Brand new',
+          localMediaPath: '/missing/photo.jpg',
+        ),
+      ],
+    );
+
+    // Watched three segments of an earlier story, none of them this one.
+    // The old count-based rule read that as "has seen >= 1 segment" and
+    // counted them here.
+    await _pumpStoryViewerHarness(
+      tester,
+      story: story,
+      segmentDurationOverride: const Duration(seconds: 30),
+      onFetchViewers: (_) async => [
+        StoryViewer(
+          uid: 'riyana',
+          name: 'Riyana',
+          avatarLabel: 'R',
+          accentColor: AppPalette.emerald,
+          seenSegments: 3,
+          viewedSegmentIds: const ['old-segment-a', 'old-segment-b'],
+        ),
+      ],
+    );
+    await tester.tap(find.byKey(const Key('open_viewer_button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(
+      find.text('0 views'),
+      findsOneWidget,
+      reason: 'a viewer of a different story is being counted here',
+    );
+
+    // And someone who really did watch this item counts.
+    await _pumpStoryViewerHarness(
+      tester,
+      story: story,
+      segmentDurationOverride: const Duration(seconds: 30),
+      onFetchViewers: (_) async => [
+        StoryViewer(
+          uid: 'riyana',
+          name: 'Riyana',
+          avatarLabel: 'R',
+          accentColor: AppPalette.emerald,
+          seenSegments: 1,
+          viewedSegmentIds: const ['fresh-segment'],
+        ),
+      ],
+    );
+    await tester.tap(find.byKey(const Key('open_viewer_button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(find.text('1 view'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 }
 
 double _fillWidthFactor(WidgetTester tester, int segmentIndex) {

@@ -24,7 +24,8 @@ class BlockedContactsScreen extends StatelessWidget {
         final blocked = chatsController.threads
             .where((thread) => thread.isBlocked)
             .toList(growable: false)
-          ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+          ..sort(
+              (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
 
         return Scaffold(
           key: const Key('blocked_contacts_screen'),

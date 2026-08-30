@@ -138,8 +138,7 @@ class _LiveKitTestScreenState extends State<LiveKitTestScreen> {
                 children: [
                   FilledButton(
                     key: const Key('livekit_test_connect_button'),
-                    onPressed:
-                        _isConnecting || _room != null ? null : _connect,
+                    onPressed: _isConnecting || _room != null ? null : _connect,
                     child: _isConnecting
                         ? const SizedBox(
                             width: 16,

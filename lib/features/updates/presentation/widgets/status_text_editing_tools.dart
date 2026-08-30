@@ -557,6 +557,18 @@ IconData statusTextAlignmentIcon(StatusTextAlignment alignment) {
 /// Size is a slider rather than a pinch-only gesture so it is discoverable
 /// and reachable one-handed; weight is a tap-to-cycle button showing the
 /// weight it will apply next, so it costs a single control slot.
+/// Heights of the two styling rows these tools render.
+///
+/// Shared because anything floating above them has to reserve exactly this
+/// much: the media composer reserved a single 78pt row from when the tray
+/// was one row, so the colour rail ran straight over the weight button once
+/// the size row was added.
+const double kStatusTextSizeRowHeight = 48;
+const double kStatusTextFontRowHeight = 56;
+
+/// Gap between the two rows and whatever sits above them.
+const double kStatusTextRowGap = 12;
+
 class StatusTextSizeWeightControls extends StatelessWidget {
   const StatusTextSizeWeightControls({
     required this.style,

@@ -67,7 +67,8 @@ class WhatsWaveApp extends StatefulWidget {
 }
 
 class _WhatsWaveAppState extends State<WhatsWaveApp> {
-  final GlobalKey<NavigatorState> _rootNavigatorKey = GlobalKey<NavigatorState>();
+  final GlobalKey<NavigatorState> _rootNavigatorKey =
+      GlobalKey<NavigatorState>();
   String? _presentedIncomingCallSessionId;
 
   late final AuthController _authController;
@@ -194,10 +195,10 @@ class _WhatsWaveAppState extends State<WhatsWaveApp> {
       return;
     }
 
-    final isUnhandledRealIncomingCall = session.direction ==
-            CallDirection.incoming &&
-        session.isReal &&
-        _presentedIncomingCallSessionId != session.id;
+    final isUnhandledRealIncomingCall =
+        session.direction == CallDirection.incoming &&
+            session.isReal &&
+            _presentedIncomingCallSessionId != session.id;
     if (!isUnhandledRealIncomingCall) {
       return;
     }

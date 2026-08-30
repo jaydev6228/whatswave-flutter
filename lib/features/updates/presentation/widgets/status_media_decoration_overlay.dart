@@ -107,13 +107,27 @@ String meaningfulStatusCaption(StatusStorySegment segment) {
 /// Both the composer preview and the posted story size text against this
 /// same box, which is what keeps the two identical -- the whole point of
 /// a preview is that it shows what gets posted.
+/// The bands at the top and bottom of a story that its chrome occupies --
+/// progress bar, avatar row and action buttons above; caption, reply bar
+/// and view count below.
+///
+/// Shared so anything that must stay clear of the chrome measures against
+/// the same numbers: placed text, and the canvas decorations, which used to
+/// slide under the avatar row because they only allowed for the device's
+/// own insets.
+const double kStatusChromeReservedTop = 104;
+const double kStatusChromeReservedBottom = 136;
+const double kStatusChromeReservedSide = 16;
+
 Size statusOverlayTextBoundsFor(Size canvasSize) {
-  const reservedTop = 104.0;
-  const reservedBottom = 136.0;
-  const reservedSide = 16.0;
   return Size(
-    math.max(canvasSize.width - (reservedSide * 2), 120),
-    math.max(canvasSize.height - reservedTop - reservedBottom, 160),
+    math.max(canvasSize.width - (kStatusChromeReservedSide * 2), 120),
+    math.max(
+      canvasSize.height -
+          kStatusChromeReservedTop -
+          kStatusChromeReservedBottom,
+      160,
+    ),
   );
 }
 
@@ -731,15 +745,195 @@ class StatusOverlayContent extends StatelessWidget {
     final maxHeight = textBounds.height;
     return ConstrainedBox(
       constraints: BoxConstraints(maxWidth: maxWidth, maxHeight: maxHeight),
-      child: SingleChildScrollView(
-        // Only scrolls once the text genuinely outgrows the screen;
-        // shorter overlays still size to their own content.
-        physics: const ClampingScrollPhysics(),
-        child: ConstrainedBox(
-          constraints: BoxConstraints(maxWidth: maxWidth),
-          child: child,
-        ),
+      child: _ScrollableOverlayText(maxWidth: maxWidth, child: child),
+    );
+  }
+}
+
+/// Reports where a text overlay's "more below" hint currently sits, in
+/// global coordinates, or null when there is no hint.
+///
+/// The story viewer's previous/next tap zones sit above the story card and
+/// are translucent, so they receive every tap the hint receives and would
+/// navigate the story out from under it. The viewer listens for this and
+/// leaves that patch of screen alone.
+class StatusOverlayScrollHintNotification extends Notification {
+  const StatusOverlayScrollHintNotification(this.rect);
+
+  final Rect? rect;
+}
+
+/// A placed text overlay that outgrew the screen, with a hint that there
+/// is more below it.
+///
+/// Long overlay text scrolls, but on a posted story nothing said so -- the
+/// text simply ran to the bottom edge and looked finished. A chevron marks
+/// the overflow the way a scrollable dialog does, and goes away for good
+/// once the end has been reached, since by then the reader knows the text
+/// scrolls.
+///
+/// Tapping it pages down. That needs the story viewer to leave this patch
+/// of screen alone -- its previous/next zones sit above the card and are
+/// translucent, so without that they receive the same tap and navigate the
+/// story out from under the reader. The rect is published upwards as a
+/// [StatusOverlayScrollHintNotification] for exactly that.
+class _ScrollableOverlayText extends StatefulWidget {
+  const _ScrollableOverlayText({required this.maxWidth, required this.child});
+
+  final double maxWidth;
+  final Widget child;
+
+  @override
+  State<_ScrollableOverlayText> createState() => _ScrollableOverlayTextState();
+}
+
+class _ScrollableOverlayTextState extends State<_ScrollableOverlayText> {
+  final ScrollController _controller = ScrollController();
+
+  /// Whether there is more text below the fold right now.
+  bool _hasMoreBelow = false;
+
+  /// Set once the reader reaches the end. The hint never comes back after
+  /// that -- it exists to tell you the text scrolls, and you now know.
+  bool _reachedEnd = false;
+
+  final GlobalKey _hintKey = GlobalKey();
+  Rect? _publishedHintRect;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.addListener(_syncOverflow);
+    // The first frame is when extents are known.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _syncOverflow());
+  }
+
+  @override
+  void dispose() {
+    _controller.removeListener(_syncOverflow);
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _syncOverflow() {
+    if (!mounted || !_controller.hasClients) {
+      return;
+    }
+    final position = _controller.position;
+    // A point of slack: a scroll that stops a hair short of the end should
+    // still count as the end.
+    final atEnd = position.pixels >= position.maxScrollExtent - 1;
+    final hasMore = position.maxScrollExtent > 1 && !atEnd && !_reachedEnd;
+    if (atEnd && !_reachedEnd) {
+      setState(() {
+        _reachedEnd = true;
+        _hasMoreBelow = false;
+      });
+      return;
+    }
+    if (hasMore != _hasMoreBelow) {
+      setState(() => _hasMoreBelow = hasMore);
+    }
+  }
+
+  /// Tells the viewer where the hint is, so its tap zones can skip it.
+  void _publishHintRect() {
+    if (!mounted) {
+      return;
+    }
+    Rect? rect;
+    if (_hasMoreBelow) {
+      final box = _hintKey.currentContext?.findRenderObject() as RenderBox?;
+      if (box != null && box.hasSize) {
+        rect = box.localToGlobal(Offset.zero) & box.size;
+      }
+    }
+    if (rect == _publishedHintRect) {
+      return;
+    }
+    _publishedHintRect = rect;
+    StatusOverlayScrollHintNotification(rect).dispatch(context);
+  }
+
+  void _pageDown() {
+    if (!_controller.hasClients) {
+      return;
+    }
+    final position = _controller.position;
+    _controller.animateTo(
+      math.min(
+        position.pixels + position.viewportDimension * 0.8,
+        position.maxScrollExtent,
       ),
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    WidgetsBinding.instance.addPostFrameCallback((_) => _publishHintRect());
+    return Stack(
+      alignment: Alignment.bottomCenter,
+      children: [
+        SingleChildScrollView(
+          controller: _controller,
+          // Only scrolls once the text genuinely outgrows the screen;
+          // shorter overlays still size to their own content.
+          physics: const ClampingScrollPhysics(),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: widget.maxWidth),
+            child: widget.child,
+          ),
+        ),
+        Positioned(
+          bottom: 6,
+          child: IgnorePointer(
+            ignoring: !_hasMoreBelow,
+            child: AnimatedOpacity(
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeOutCubic,
+              opacity: _hasMoreBelow ? 1 : 0,
+              child: Semantics(
+                button: true,
+                label: 'Scroll down for more text',
+                child: GestureDetector(
+                  key: const Key('updates_overlay_text_more_below'),
+                  behavior: HitTestBehavior.opaque,
+                  onTap: _pageDown,
+                  child: Container(
+                    key: _hintKey,
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      // Heavier than the rest of the story chrome and with
+                      // a shadow of its own: this sits directly on top of
+                      // large white text, which nothing else has to do.
+                      color: Colors.black.withValues(alpha: 0.72),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.55),
+                        width: 1.5,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.5),
+                          blurRadius: 10,
+                        ),
+                      ],
+                    ),
+                    child: const Icon(
+                      Icons.keyboard_arrow_down_rounded,
+                      color: Colors.white,
+                      size: 24,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

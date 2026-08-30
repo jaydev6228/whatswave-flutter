@@ -46,10 +46,11 @@ abstract final class AppTheme {
         ),
       ),
       dialogTheme: DialogThemeData(
-        backgroundColor: Colors.white,
         surfaceTintColor: Colors.transparent,
+        elevation: 0,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(22),
+          borderRadius: BorderRadius.circular(28),
+          side: BorderSide(color: Colors.black.withValues(alpha: 0.08)),
         ),
       ),
       bottomSheetTheme: const BottomSheetThemeData(
@@ -165,11 +166,17 @@ abstract final class AppTheme {
           borderRadius: BorderRadius.circular(18),
         ),
       ),
+      // Set on the theme rather than per dialog: there are a dozen-odd
+      // AlertDialogs across the app, and this is the one place that
+      // reaches all of them. The hairline border is what ties them to the
+      // app's glass surfaces, which all carry one.
       dialogTheme: DialogThemeData(
         backgroundColor: const Color(0xFF111B21),
         surfaceTintColor: Colors.transparent,
+        elevation: 0,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(22),
+          borderRadius: BorderRadius.circular(28),
+          side: BorderSide(color: Colors.white.withValues(alpha: 0.12)),
         ),
       ),
       bottomSheetTheme: const BottomSheetThemeData(

@@ -18,6 +18,7 @@ import 'profile_settings_screen.dart';
 import 'storage_data_screen.dart';
 import 'widgets/profile_header_card.dart';
 import 'widgets/settings_tile.dart';
+import 'package:whatswave/features/shared/widgets/liquid_glass.dart';
 
 // Matches PrivacySettingsScreen's own SliverPadding horizontal inset exactly.
 const double _kSettingsScreenHorizontalPadding = 20;
@@ -345,7 +346,7 @@ class SettingsScreen extends StatelessWidget {
     final shouldSignOut = await showDialog<bool>(
       context: context,
       builder: (dialogContext) {
-        return AlertDialog(
+        return LiquidGlassDialog(
           title: const Text('Sign out?'),
           content: const Text(
             "You'll need to verify your phone number again to sign back in on this device.",

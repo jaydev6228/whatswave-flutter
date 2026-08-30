@@ -15,7 +15,8 @@ class UserProfileLookup {
       : _firestore = firestore;
 
   final FirebaseFirestore _firestore;
-  final Map<String, UserProfileSnapshot?> _cache = <String, UserProfileSnapshot?>{};
+  final Map<String, UserProfileSnapshot?> _cache =
+      <String, UserProfileSnapshot?>{};
 
   /// Returns null if [uid] has no published profile yet (e.g. they haven't
   /// signed in since this registry existed) or the read fails for any

@@ -87,18 +87,15 @@ class FirebaseAppTelemetry implements AppTelemetry {
       fatal: fatal,
       attributes: attributes,
     );
-    FirebaseCrashlytics.instance
-        .recordError(
-          error,
-          stackTrace,
-          reason: source,
-          fatal: fatal,
-          information: <String>[
-            for (final entry in attributes.entries)
-              '${entry.key}=${entry.value}',
-          ],
-        )
-        .catchError((_) {});
+    FirebaseCrashlytics.instance.recordError(
+      error,
+      stackTrace,
+      reason: source,
+      fatal: fatal,
+      information: <String>[
+        for (final entry in attributes.entries) '${entry.key}=${entry.value}',
+      ],
+    ).catchError((_) {});
   }
 
   @override

@@ -168,9 +168,8 @@ class FirestoreCallsRepository implements CallsRepository {
       id: doc.id,
       contactId: (data['contactId'] as String?) ?? doc.id,
       name: profile?.name ?? (data['name'] as String?) ?? 'WhatsWave user',
-      avatarLabel: profile?.avatarLabel ??
-          (data['avatarLabel'] as String?) ??
-          '?',
+      avatarLabel:
+          profile?.avatarLabel ?? (data['avatarLabel'] as String?) ?? '?',
       accentColor: Color(
         profile?.accentColorArgb ??
             (data['accentColorArgb'] as int?) ??

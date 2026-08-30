@@ -3,7 +3,7 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:flutter_twemoji/flutter_twemoji.dart';
+import 'package:flutter/rendering.dart' show OverflowBoxFit;
 import 'package:video_player/video_player.dart';
 
 import '../../../app/theme/app_palette.dart';
@@ -17,7 +17,7 @@ import 'widgets/video_trim_scrubber.dart';
 import 'status_motion.dart';
 import 'widgets/status_text_editing_tools.dart';
 import 'status_system_chrome.dart';
-import 'widgets/status_composer_glass_button.dart';
+import 'widgets/status_chrome.dart';
 
 class MediaStatusComposerDraft {
   const MediaStatusComposerDraft({
@@ -173,7 +173,19 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
   // keyboard for the font-style row -- the centered editing card and the
   // color rail both fit inside the gap between these two.
   static const double _kTextEditTopClearance = 78;
-  static const double _kTextEditBottomRowHeight = 78;
+
+  /// The tray's own inset from the bottom of the screen.
+  static const double _kTextEditTrayInset = 14;
+
+  // Everything the styling tray occupies: its inset from the bottom, both
+  // rows, and a gap above. This used to assume a single 78pt row, from
+  // when the tray had one -- once the size/weight row was added the colour
+  // rail's lower stretch sat on top of the weight button and would not
+  // take a drag there.
+  static const double _kTextEditBottomRowHeight = _kTextEditTrayInset +
+      kStatusTextSizeRowHeight +
+      kStatusTextFontRowHeight +
+      kStatusTextRowGap;
 
   static const List<_StickerPreset> _stickerPresets = <_StickerPreset>[
     _StickerPreset(
@@ -337,6 +349,14 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
   Future<void>? _videoInitialization;
   VideoPlayerController? _musicPreviewController;
   bool _isVideoPlaying = false;
+
+  /// Playback position, for the filmstrip's playhead.
+  ///
+  /// A notifier rather than setState: the controller ticks about ten times
+  /// a second and only the strip needs to repaint -- rebuilding the whole
+  /// composer at that rate would redraw the entire canvas so a 2pt line
+  /// can move.
+  final ValueNotifier<double?> _videoPosition = ValueNotifier<double?>(null);
   bool _wasPlayingBeforeTrimScrub = false;
 
   StatusMediaOverlayItem? _gestureAnchorOverlay;
@@ -493,6 +513,7 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
       ..dispose();
     _inlineTextFocusNode.dispose();
     _captionController.dispose();
+    _videoPosition.dispose();
     _videoController?.dispose();
     _musicPreviewController?.dispose();
     super.dispose();
@@ -685,6 +706,7 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
     }
     final trimEnd = _trimStartSeconds + _durationSeconds;
     final positionSeconds = controller.value.position.inMilliseconds / 1000;
+    _videoPosition.value = positionSeconds;
     if (positionSeconds >= trimEnd) {
       unawaited(
         controller.seekTo(Duration(milliseconds: _trimStartMillis)),
@@ -1240,15 +1262,21 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
   /// isn't two separate tools, just one scroll with stickers on top and
   /// emoji below.
   Future<void> _openStickerAndEmojiPicker() async {
-    final theme = Theme.of(context);
     final result = await showModalBottomSheet<Object>(
       context: context,
       useSafeArea: true,
       isScrollControlled: true,
-      showDragHandle: true,
-      backgroundColor: theme.colorScheme.surface,
+      // Transparent so the sheet's own glass shows the story behind it.
+      // Explicitly off, overriding the app theme's global
+      // showDragHandle: true. StatusChromeSheet draws its own handle
+      // inside the glass -- Flutter's renders in the sheet's own area,
+      // which is transparent here, so both showed at once.
+      showDragHandle: false,
+      backgroundColor: Colors.transparent,
       builder: (context) {
-        return _StickerAndEmojiPickerSheet(stickerPresets: _stickerPresets);
+        return StatusChromeSheet(
+          child: _StickerAndEmojiPickerSheet(stickerPresets: _stickerPresets),
+        );
       },
     );
     if (!mounted || result == null) {
@@ -1313,54 +1341,60 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
       context: context,
       useSafeArea: true,
       isScrollControlled: true,
-      showDragHandle: true,
-      backgroundColor: theme.colorScheme.surface,
+      // Explicitly off, overriding the app theme's global
+      // showDragHandle: true. StatusChromeSheet draws its own handle
+      // inside the glass -- Flutter's renders in the sheet's own area,
+      // which is transparent here, so both showed at once.
+      showDragHandle: false,
+      backgroundColor: Colors.transparent,
       builder: (context) {
         // The preview toggle updates this screen's state asynchronously
         // (after the player actually starts/stops), but a modal sheet's
         // `builder` only runs once -- without this StatefulBuilder the
         // play/pause icon in the list never reflected the new state, even
         // though the audio itself was toggling correctly underneath.
-        return StatefulBuilder(
-          builder: (context, setSheetState) {
-            return FutureBuilder<List<StatusMusicTrack>>(
-              future: tracksFuture,
-              builder: (context, snapshot) {
-                if (snapshot.connectionState != ConnectionState.done) {
-                  return const SizedBox(
-                    height: 240,
-                    child: Center(
-                      key: Key('updates_media_music_loading'),
-                      child: CircularProgressIndicator(),
-                    ),
-                  );
-                }
-                if (snapshot.hasError || snapshot.data == null) {
-                  return SizedBox(
-                    height: 240,
-                    child: Center(
-                      child: Text(
-                        'Could not load music right now.',
-                        key: const Key('updates_media_music_load_error'),
-                        style: theme.textTheme.bodyMedium,
+        return StatusChromeSheet(
+          child: StatefulBuilder(
+            builder: (context, setSheetState) {
+              return FutureBuilder<List<StatusMusicTrack>>(
+                future: tracksFuture,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState != ConnectionState.done) {
+                    return const SizedBox(
+                      height: 240,
+                      child: Center(
+                        key: Key('updates_media_music_loading'),
+                        child: CircularProgressIndicator(),
                       ),
-                    ),
+                    );
+                  }
+                  if (snapshot.hasError || snapshot.data == null) {
+                    return SizedBox(
+                      height: 240,
+                      child: Center(
+                        child: Text(
+                          'Could not load music right now.',
+                          key: const Key('updates_media_music_load_error'),
+                          style: theme.textTheme.bodyMedium,
+                        ),
+                      ),
+                    );
+                  }
+                  return _MusicPickerSheet(
+                    tracks: snapshot.data!,
+                    selectedTrackId: _musicTrack?.id,
+                    previewingTrackId: _previewingMusicTrackId,
+                    onPlayPreview: (track) async {
+                      await _playMusicPreview(track, toggleWhenSameTrack: true);
+                      if (context.mounted) {
+                        setSheetState(() {});
+                      }
+                    },
                   );
-                }
-                return _MusicPickerSheet(
-                  tracks: snapshot.data!,
-                  selectedTrackId: _musicTrack?.id,
-                  previewingTrackId: _previewingMusicTrackId,
-                  onPlayPreview: (track) async {
-                    await _playMusicPreview(track, toggleWhenSameTrack: true);
-                    if (context.mounted) {
-                      setSheetState(() {});
-                    }
-                  },
-                );
-              },
-            );
-          },
+                },
+              );
+            },
+          ),
         );
       },
     );
@@ -1372,7 +1406,12 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
       return;
     }
 
-    final position = _suggestedNormalizedPosition(baseDx: 0.24, baseDy: 0.16);
+    // Low enough to clear the trim filmstrip, which occupies the top of
+    // the canvas on a video. At 0.16 the banner landed underneath it: the
+    // strip took the drag, so the banner could not be moved off the spot
+    // it was dropped on. Same band the emoji default uses, which is
+    // already clear of it.
+    final position = _suggestedNormalizedPosition(baseDx: 0.24, baseDy: 0.34);
     final overlay = StatusMediaOverlayItem(
       id: _overlayItems
               .cast<StatusMediaOverlayItem?>()
@@ -1964,19 +2003,23 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
     if (_isCropMode) {
       return Row(
         children: [
-          StatusComposerGlassButton(
+          // Blurred: the crop tool shows the media with no scrim over it,
+          // so its controls sat straight on a busy frame and were hard to
+          // pick out.
+          StatusChromeButton(
             key: const Key('updates_media_crop_cancel_button'),
             tooltip: 'Cancel',
             icon: Icons.close_rounded,
             onTap: _toggleCropMode,
-            showBorder: false,
+            blurred: true,
           ),
           const Spacer(),
-          StatusComposerGlassButton(
+          StatusChromeButton(
             key: const Key('updates_media_crop_done_button'),
             tooltip: 'Done',
             icon: Icons.check_rounded,
             onTap: _toggleCropMode,
+            blurred: true,
           ),
         ],
       );
@@ -1984,30 +2027,30 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
     if (_isDrawMode) {
       return Row(
         children: [
-          StatusComposerGlassButton(
+          StatusChromeButton(
             key: const Key('updates_media_draw_cancel_button'),
             tooltip: 'Cancel',
             icon: Icons.close_rounded,
             onTap: _toggleDrawMode,
-            showBorder: false,
           ),
           const Spacer(),
-          IconButton(
-            key: const Key('updates_media_draw_undo_button'),
-            tooltip: 'Undo stroke',
-            onPressed: _drawingStrokes.isNotEmpty ? _undoLastStroke : null,
-            icon: Icon(
-              Icons.undo_rounded,
-              color: _drawingStrokes.isNotEmpty
-                  ? Colors.white
-                  : Colors.white.withValues(alpha: 0.32),
-            ),
-          ),
-          StatusComposerGlassButton(
-            key: const Key('updates_media_draw_done_button'),
-            tooltip: 'Done',
-            icon: Icons.check_rounded,
-            onTap: _toggleDrawMode,
+          StatusChromeButtonGroup(
+            children: [
+              StatusChromeButton(
+                key: const Key('updates_media_draw_undo_button'),
+                tooltip: 'Undo stroke',
+                icon: Icons.undo_rounded,
+                onTap: _drawingStrokes.isNotEmpty ? _undoLastStroke : null,
+                bare: true,
+              ),
+              StatusChromeButton(
+                key: const Key('updates_media_draw_done_button'),
+                tooltip: 'Done',
+                icon: Icons.check_rounded,
+                onTap: _toggleDrawMode,
+                bare: true,
+              ),
+            ],
           ),
         ],
       );
@@ -2015,15 +2058,14 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
     if (_isBlurMode) {
       return Row(
         children: [
-          StatusComposerGlassButton(
+          StatusChromeButton(
             key: const Key('updates_media_blur_cancel_button'),
             tooltip: 'Cancel',
             icon: Icons.close_rounded,
             onTap: _toggleBlurMode,
-            showBorder: false,
           ),
           const Spacer(),
-          StatusComposerGlassButton(
+          StatusChromeButton(
             key: const Key('updates_media_blur_done_button'),
             tooltip: 'Done',
             icon: Icons.check_rounded,
@@ -2054,19 +2096,18 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
     }
     return Row(
       children: [
-        StatusComposerGlassButton(
+        StatusChromeButton(
           key: const Key('updates_media_close_composer_button'),
           tooltip: 'Close',
           icon: Icons.close_rounded,
           onTap: () => Navigator.of(context).maybePop(),
-          showBorder: false,
         ),
         const SizedBox(width: 10),
         Expanded(
           child: _ComposerToolbar(
+            onAddText: _addTextOverlay,
             hasMusic: _musicTrack != null,
             isTextSelected: false,
-            onAddText: _addTextOverlay,
             onAddStickerOrEmoji: _openStickerAndEmojiPicker,
             onAddMusic: _openMusicPicker,
             onDraw: _toggleDrawMode,
@@ -2142,7 +2183,6 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
     }
     if (_selectedOverlay?.type == StatusMediaOverlayType.music) {
       return _ComposerMusicEditingTray(
-        onAddText: _addTextOverlay,
         selectedStyleId: _selectedMusicStyleId,
         styleOptions: _musicBannerStyles,
         onSelectStyle: _updateSelectedMusicStyle,
@@ -2364,82 +2404,123 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
                                     // photo instead of following the drag.
                                     clipBehavior: Clip.none,
                                     children: [
-                                      for (final item in _overlayItems)
-                                        _InteractiveMediaOverlay(
-                                          key: Key(
-                                            'updates_overlay_item_${item.id}',
-                                          ),
-                                          item: item,
-                                          canvasSize: frameSize,
-                                          // No selection border while actively
-                                          // typing -- matches WhatsApp, whose
-                                          // text tool never shows a bounding
-                                          // box that reads like a crop frame
-                                          // around the text being edited.
-                                          isSelected: _selectedOverlayId ==
-                                                  item.id &&
-                                              _editingTextOverlayId != item.id,
-                                          allowTransformGestures:
-                                              _editingTextOverlayId != item.id,
-                                          // No onDoubleTap any more -- a
-                                          // single tap on text now reopens
-                                          // editing directly (see
-                                          // _handleOverlayTap), so keeping a
-                                          // double-tap handler around would
-                                          // only make Flutter wait out the
-                                          // double-tap window before firing
-                                          // the single tap, adding a laggy
-                                          // delay to something that should
-                                          // feel instant.
-                                          onTap: _editingTextOverlayId ==
-                                                  item.id
-                                              ? null
-                                              : () => _handleOverlayTap(item),
-                                          onScaleStart: (details) =>
-                                              _onOverlayScaleStart(
-                                            item,
-                                            details,
-                                          ),
-                                          onScaleUpdate: (details) =>
-                                              _onOverlayScaleUpdate(
-                                            details,
-                                            frameSize,
-                                          ),
-                                          onScaleEnd: _onOverlayScaleEnd,
-                                          // The item being actively edited is
-                                          // rendered by a dedicated, centered
-                                          // widget below instead (see
-                                          // _isEditingTextOverlay), decoupled
-                                          // from its dragged position -- so it
-                                          // stays put and legible above the
-                                          // keyboard like WhatsApp's own text
-                                          // tool, not wherever it was last
-                                          // placed on the canvas.
-                                          child: _editingTextOverlayId ==
-                                                  item.id
-                                              ? const SizedBox.shrink()
-                                              : OverflowBox(
-                                                  // The frame's own SizedBox
-                                                  // would otherwise clamp
-                                                  // text to the frame, while
-                                                  // the posted story lets it
-                                                  // use the whole screen --
-                                                  // the preview has to be
-                                                  // handed the same room or
-                                                  // it lies about the result.
-                                                  alignment: Alignment.center,
-                                                  maxWidth: availableSize.width,
-                                                  maxHeight:
-                                                      availableSize.height,
-                                                  child: StatusOverlayContent(
-                                                    item: item,
-                                                    compact: false,
-                                                    accentColor:
-                                                        AppPalette.emerald,
-                                                    canvasSize: availableSize,
+                                      // Nothing placed on the media while
+                                      // cropping. Long overlay text covers
+                                      // the frame, which both hides what
+                                      // is being cropped and gets in the
+                                      // way of the corner handles. They
+                                      // are all still there on Done.
+                                      if (!_isCropMode)
+                                        for (final item in _overlayItems)
+                                          _InteractiveMediaOverlay(
+                                            key: Key(
+                                              'updates_overlay_item_${item.id}',
+                                            ),
+                                            item: item,
+                                            canvasSize: frameSize,
+                                            // No selection border while actively
+                                            // typing -- matches WhatsApp, whose
+                                            // text tool never shows a bounding
+                                            // box that reads like a crop frame
+                                            // around the text being edited.
+                                            // Never for text. Its box is
+                                            // clamped to the media frame,
+                                            // so on text taller than the
+                                            // frame -- which is the whole
+                                            // point of letting it use the
+                                            // screen -- the border landed
+                                            // exactly on the frame edges
+                                            // and read as a crop outline
+                                            // rather than a selection.
+                                            // Emoji, stickers and music
+                                            // are small enough that the
+                                            // box always hugs them, and
+                                            // there it earns its keep.
+                                            isSelected: item.type !=
+                                                    StatusMediaOverlayType
+                                                        .text &&
+                                                _selectedOverlayId == item.id,
+                                            allowTransformGestures:
+                                                _editingTextOverlayId !=
+                                                    item.id,
+                                            // No onDoubleTap any more -- a
+                                            // single tap on text now reopens
+                                            // editing directly (see
+                                            // _handleOverlayTap), so keeping a
+                                            // double-tap handler around would
+                                            // only make Flutter wait out the
+                                            // double-tap window before firing
+                                            // the single tap, adding a laggy
+                                            // delay to something that should
+                                            // feel instant.
+                                            onTap: _editingTextOverlayId ==
+                                                    item.id
+                                                ? null
+                                                : () => _handleOverlayTap(item),
+                                            onScaleStart: (details) =>
+                                                _onOverlayScaleStart(
+                                              item,
+                                              details,
+                                            ),
+                                            onScaleUpdate: (details) =>
+                                                _onOverlayScaleUpdate(
+                                              details,
+                                              frameSize,
+                                            ),
+                                            onScaleEnd: _onOverlayScaleEnd,
+                                            // The item being actively edited is
+                                            // rendered by a dedicated, centered
+                                            // widget below instead (see
+                                            // _isEditingTextOverlay), decoupled
+                                            // from its dragged position -- so it
+                                            // stays put and legible above the
+                                            // keyboard like WhatsApp's own text
+                                            // tool, not wherever it was last
+                                            // placed on the canvas.
+                                            child: _editingTextOverlayId ==
+                                                    item.id
+                                                ? const SizedBox.shrink()
+                                                : OverflowBox(
+                                                    // Loosens the frame's own
+                                                    // SizedBox, which would
+                                                    // otherwise clamp text to
+                                                    // the frame while the
+                                                    // posted story lets it use
+                                                    // the whole screen -- the
+                                                    // preview has to be handed
+                                                    // the same room or it lies
+                                                    // about the result.
+                                                    //
+                                                    // fit: deferToChild is
+                                                    // what makes this shrink
+                                                    // to the text. The default
+                                                    // fills, which drew the
+                                                    // selection border around
+                                                    // the whole canvas and let
+                                                    // the overlay swallow taps
+                                                    // everywhere;
+                                                    // UnconstrainedBox
+                                                    // shrink-wraps too but
+                                                    // reports the overflow as
+                                                    // a layout error, which
+                                                    // long text legitimately
+                                                    // causes here.
+                                                    fit: OverflowBoxFit
+                                                        .deferToChild,
+                                                    alignment: Alignment.center,
+                                                    maxWidth:
+                                                        availableSize.width,
+                                                    maxHeight:
+                                                        availableSize.height,
+                                                    child: StatusOverlayContent(
+                                                      item: item,
+                                                      compact: false,
+                                                      accentColor:
+                                                          AppPalette.emerald,
+                                                      canvasSize: availableSize,
+                                                    ),
                                                   ),
-                                                ),
-                                        ),
+                                          ),
                                     ],
                                   ),
                                 ),
@@ -2479,36 +2560,36 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
                             !_isCropMode)
                           Padding(
                             padding: const EdgeInsets.only(top: 14),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                StatusComposerGlassButton(
+                            child: ValueListenableBuilder<double?>(
+                              valueListenable: _videoPosition,
+                              builder: (context, position, _) =>
+                                  VideoTrimScrubber(
+                                key: const Key('updates_media_trim_scrubber'),
+                                videoPath: widget.localMediaPath,
+                                fullDurationSeconds: _videoFullDurationSeconds,
+                                trimStartSeconds: _trimStartSeconds,
+                                trimEndSeconds:
+                                    _trimStartSeconds + _durationSeconds,
+                                minTrimSeconds: _minDurationSeconds,
+                                maxTrimSeconds: _maxDurationSeconds,
+                                onScrubStart: _handleTrimScrubStart,
+                                onScrubUpdate: _handleTrimScrubUpdate,
+                                onScrubEnd: _handleTrimScrubEnd,
+                                positionSeconds: position,
+                                // Mute rides inside the strip's own row, so
+                                // the two read as one control group while
+                                // the duration/size label stays above them
+                                // on its own.
+                                // No chrome of its own: it shares the
+                                // strip's surface, so its own background
+                                // would only read as a second control
+                                // parked next to the filmstrip.
+                                leading: _MuteToggle(
                                   key: const Key('updates_media_mute_button'),
-                                  tooltip: _isMuted ? 'Unmute' : 'Mute',
-                                  icon: _isMuted
-                                      ? Icons.volume_off_rounded
-                                      : Icons.volume_up_rounded,
+                                  isMuted: _isMuted,
                                   onTap: _toggleMute,
                                 ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: VideoTrimScrubber(
-                                    key: const Key(
-                                        'updates_media_trim_scrubber'),
-                                    videoPath: widget.localMediaPath,
-                                    fullDurationSeconds:
-                                        _videoFullDurationSeconds,
-                                    trimStartSeconds: _trimStartSeconds,
-                                    trimEndSeconds:
-                                        _trimStartSeconds + _durationSeconds,
-                                    minTrimSeconds: _minDurationSeconds,
-                                    maxTrimSeconds: _maxDurationSeconds,
-                                    onScrubStart: _handleTrimScrubStart,
-                                    onScrubUpdate: _handleTrimScrubUpdate,
-                                    onScrubEnd: _handleTrimScrubEnd,
-                                  ),
-                                ),
-                              ],
+                              ),
                             ),
                           ),
                       ],
@@ -2583,11 +2664,12 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
                     Positioned(
                       left: 14,
                       bottom: 74,
-                      child: StatusComposerGlassButton(
+                      child: StatusChromeButton(
                         key: const Key('updates_media_rotate_button'),
                         tooltip: 'Rotate',
                         icon: Icons.rotate_90_degrees_cw_rounded,
                         onTap: _rotateMediaClockwise,
+                        blurred: true,
                       ),
                     ),
                     Positioned(
@@ -2607,22 +2689,29 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
                         right: 0,
                         bottom: 130,
                         child: Center(
-                          child: TextButton(
-                            key: const Key('updates_media_crop_reset_button'),
-                            onPressed: _resetMediaTransformOffset,
-                            style: TextButton.styleFrom(
-                              foregroundColor: Colors.white,
-                              backgroundColor:
-                                  Colors.black.withValues(alpha: 0.32),
-                              shape: const StadiumBorder(),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 6,
+                          // Same blurred surface as the crop tool's other
+                          // controls -- a bare label on the media was the
+                          // hardest of the lot to read.
+                          child: StatusChromeSurface(
+                            borderRadius:
+                                const BorderRadius.all(Radius.circular(999)),
+                            blurred: true,
+                            child: TextButton(
+                              key: const Key('updates_media_crop_reset_button'),
+                              onPressed: _resetMediaTransformOffset,
+                              style: TextButton.styleFrom(
+                                foregroundColor: Colors.white,
+                                backgroundColor: Colors.transparent,
+                                shape: const StadiumBorder(),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 6,
+                                ),
                               ),
-                            ),
-                            child: const Text(
-                              'Reset',
-                              style: TextStyle(fontWeight: FontWeight.w700),
+                              child: const Text(
+                                'Reset',
+                                style: TextStyle(fontWeight: FontWeight.w700),
+                              ),
                             ),
                           ),
                         ),
@@ -2772,7 +2861,12 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         _buildAnimatedBottomTray(isTextSelected),
-                        if (!_isEditingTextOverlay && !_isCropMode)
+                        // Draw is a focused editing view with its own
+                        // controls, exactly like text and crop -- the
+                        // caption and share step aside for it too.
+                        if (!_isEditingTextOverlay &&
+                            !_isCropMode &&
+                            !_isDrawMode)
                           Row(
                             crossAxisAlignment: CrossAxisAlignment.end,
                             children: [
@@ -2782,7 +2876,12 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
                                 ),
                               ),
                               const SizedBox(width: 12),
-                              _ShareButton(onTap: _shareStatus),
+                              StatusChromeSendButton(
+                                actionKey: const Key(
+                                  'updates_share_media_status_button',
+                                ),
+                                onTap: _shareStatus,
+                              ),
                             ],
                           ),
                       ],
@@ -2961,38 +3060,43 @@ class _ComposerTopBar extends StatelessWidget {
 
     return Row(
       children: [
-        StatusComposerGlassButton(
+        StatusChromeButton(
           key: const Key('updates_media_close_composer_button'),
           tooltip: 'Close',
           icon: Icons.close_rounded,
           onTap: onClose,
-          showBorder: false,
         ),
         const Spacer(),
-        if (hasTextSelection) ...[
+        if (hasTextSelection)
           // Matches WhatsApp's own text tool: alignment and background/
-          // decoration toggles live in the top bar right next to Done.
-          StatusComposerGlassButton(
-            key: const Key('updates_media_text_align_button'),
-            tooltip: 'Text alignment',
-            icon: Icons.format_align_center_rounded,
-            onTap: onCycleAlignment,
+          // decoration toggles live in the top bar right next to Done --
+          // and in one capsule, like the tool toolbar, rather than three
+          // separate backgrounds sitting side by side.
+          StatusChromeButtonGroup(
+            children: [
+              StatusChromeButton(
+                key: const Key('updates_media_text_align_button'),
+                tooltip: 'Text alignment',
+                icon: Icons.format_align_center_rounded,
+                onTap: onCycleAlignment,
+                bare: true,
+              ),
+              StatusChromeButton(
+                key: const Key('updates_media_text_decoration_button'),
+                tooltip: 'Text background',
+                icon: Icons.format_color_text_rounded,
+                onTap: onToggleBackground,
+                bare: true,
+              ),
+              StatusChromeButton(
+                key: const Key('updates_media_text_done_button'),
+                tooltip: 'Done editing',
+                icon: Icons.check_rounded,
+                onTap: onDoneEditing,
+                bare: true,
+              ),
+            ],
           ),
-          const SizedBox(width: 8),
-          StatusComposerGlassButton(
-            key: const Key('updates_media_text_decoration_button'),
-            tooltip: 'Text background',
-            icon: Icons.format_color_text_rounded,
-            onTap: onToggleBackground,
-          ),
-          const SizedBox(width: 8),
-          StatusComposerGlassButton(
-            key: const Key('updates_media_text_done_button'),
-            tooltip: 'Done editing',
-            icon: Icons.check_rounded,
-            onTap: onDoneEditing,
-          ),
-        ],
       ],
     );
   }
@@ -3065,13 +3169,11 @@ class _ComposerDeleteDropTarget extends StatelessWidget {
 
 class _ComposerMusicEditingTray extends StatelessWidget {
   const _ComposerMusicEditingTray({
-    required this.onAddText,
     required this.selectedStyleId,
     required this.styleOptions,
     required this.onSelectStyle,
   });
 
-  final VoidCallback onAddText;
   final String selectedStyleId;
   final List<_MusicBannerStyleOption> styleOptions;
   final ValueChanged<String> onSelectStyle;
@@ -3092,18 +3194,6 @@ class _ComposerMusicEditingTray extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              _ToolbarToolButton(
-                key: const Key('updates_media_panel_fonts'),
-                tooltip: 'Add text',
-                icon: Icons.text_fields_rounded,
-                onTap: onAddText,
-                expand: false,
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
           SizedBox(
             height: 50,
             child: ListView.separated(
@@ -3519,13 +3609,12 @@ class _CropRatioBubbleButton extends StatelessWidget {
       builder: (buttonContext) => GestureDetector(
         key: const Key('updates_media_crop_aspect_ratio_button'),
         onTap: () => _openBubble(buttonContext),
-        child: Container(
+        // Blurred, like the rest of the crop tool's chrome: nothing sits
+        // between these controls and the media.
+        child: StatusChromeSurface(
+          borderRadius: const BorderRadius.all(Radius.circular(999)),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
-          decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.32),
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
-          ),
+          blurred: true,
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -3569,13 +3658,10 @@ class _ComposerToolbar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    // The capsule this whole family of controls is matched to.
+    return StatusChromeSurface(
+      borderRadius: const BorderRadius.all(Radius.circular(999)),
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.22),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-      ),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: Row(
@@ -3749,12 +3835,16 @@ class _ComposerCaptionField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.28),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
-      ),
+    // The capsule's exact fill and border, plus a backdrop blur.
+    //
+    // A placed text overlay can be huge and land anywhere, including right
+    // behind this row -- at which point the hint and the caret were
+    // competing with headline-sized text showing through. Blurring what is
+    // behind separates them without changing the material: same colour,
+    // same border, still translucent.
+    return StatusChromeSurface(
+      borderRadius: const BorderRadius.all(Radius.circular(20)),
+      blurred: true,
       child: TextField(
         key: const Key('updates_media_caption_field'),
         controller: controller,
@@ -3762,9 +3852,22 @@ class _ComposerCaptionField extends StatelessWidget {
         minLines: 1,
         style: const TextStyle(color: Colors.white),
         decoration: InputDecoration(
+          // The app theme fills text fields, which painted an opaque slab
+          // inside the glass and left the caption looking like a cut-out
+          // bar rather than something laid over the story.
+          filled: false,
           hintText: 'Add a caption...',
           hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
+          // Every state spelled out, not just `border`: the app theme
+          // supplies enabledBorder/focusedBorder, which drew a second
+          // outline inside the surface so the caption's edge never matched
+          // the send button's.
           border: InputBorder.none,
+          enabledBorder: InputBorder.none,
+          focusedBorder: InputBorder.none,
+          disabledBorder: InputBorder.none,
+          errorBorder: InputBorder.none,
+          focusedErrorBorder: InputBorder.none,
           contentPadding: const EdgeInsets.symmetric(
             horizontal: 16,
             vertical: 12,
@@ -3775,27 +3878,36 @@ class _ComposerCaptionField extends StatelessWidget {
   }
 }
 
-class _ShareButton extends StatelessWidget {
-  const _ShareButton({required this.onTap});
+/// The mute toggle that rides inside the filmstrip's surface.
+class _MuteToggle extends StatelessWidget {
+  const _MuteToggle({required this.isMuted, required this.onTap, super.key});
 
+  final bool isMuted;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    // Same dark-glass chrome as every other floating control on this
-    // screen (close, edit, toolbar icons) -- an emerald tint keeps it
-    // reading as the primary action without breaking from that theme with
-    // a solid, unrelated fill.
-    return LiquidGlassIconButton(
-      actionKey: const Key('updates_share_media_status_button'),
-      icon: Icons.send_rounded,
-      tooltip: 'Share status',
-      onTap: onTap,
-      size: 54,
-      iconSize: 24,
-      iconColor: Colors.white,
-      color: AppPalette.emerald.withValues(alpha: 0.86),
-      borderColor: Colors.white.withValues(alpha: 0.22),
+    return Tooltip(
+      message: isMuted ? 'Unmute' : 'Mute',
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(10),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(10),
+          child: SizedBox(
+            // Clears the platform minimum tap target even though the glyph
+            // is small (docs/ui_layout_guidelines.md rule 7).
+            width: 44,
+            height: 44,
+            child: Icon(
+              isMuted ? Icons.volume_off_rounded : Icons.volume_up_rounded,
+              color: Colors.white,
+              size: 20,
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -3916,7 +4028,6 @@ class _StickerAndEmojiPickerSheetState
         : widget.stickerPresets
             .where((preset) => preset.label.toLowerCase().contains(query))
             .toList(growable: false);
-    var flatEmojiIndex = 0;
 
     return FractionallySizedBox(
       heightFactor: 0.72,
@@ -3926,13 +4037,6 @@ class _StickerAndEmojiPickerSheetState
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Stickers & emoji',
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-            const SizedBox(height: 12),
             TextField(
               key: const Key('updates_media_sticker_search_field'),
               controller: _searchController,
@@ -4015,68 +4119,7 @@ class _StickerAndEmojiPickerSheetState
                     ),
                   ),
                   const SizedBox(height: 10),
-                  for (final category in kStatusEmojiCategories) ...[
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: Text(
-                        category.label,
-                        style: theme.textTheme.labelLarge?.copyWith(
-                          fontWeight: FontWeight.w800,
-                          color: theme.colorScheme.onSurface
-                              .withValues(alpha: 0.6),
-                        ),
-                      ),
-                    ),
-                    GridView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: category.emoji.length,
-                      gridDelegate:
-                          const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 6,
-                        mainAxisSpacing: 10,
-                        crossAxisSpacing: 10,
-                        childAspectRatio: 1,
-                      ),
-                      itemBuilder: (context, i) {
-                        final emoji = category.emoji[i];
-                        final index = flatEmojiIndex++;
-                        return InkWell(
-                          key: Key('updates_media_emoji_option_$index'),
-                          onTap: () => Navigator.of(context).pop(emoji),
-                          borderRadius: BorderRadius.circular(16),
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: theme.colorScheme.surfaceContainerHighest
-                                  .withValues(alpha: 0.52),
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                            child: Center(
-                              child: usesTwemoji(theme.platform)
-                                  ? Semantics(
-                                      label: emoji,
-                                      child: ExcludeSemantics(
-                                        child: Twemoji(
-                                          emoji: emoji,
-                                          width: 26,
-                                          height: 26,
-                                        ),
-                                      ),
-                                    )
-                                  : Text(
-                                      emoji,
-                                      style: emojiPreviewTextStyle(
-                                        context,
-                                        fontSize: 26,
-                                      ),
-                                    ),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 18),
-                  ],
+                  ...buildStatusEmojiCategories(context),
                 ],
               ),
             ),
@@ -4110,13 +4153,6 @@ class _MusicPickerSheet extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Add music',
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-            const SizedBox(height: 8),
             Expanded(
               child: ListView.separated(
                 padding: EdgeInsets.zero,

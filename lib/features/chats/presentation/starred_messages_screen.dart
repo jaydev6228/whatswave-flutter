@@ -224,8 +224,8 @@ class _StarredMessageRow extends StatelessWidget {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodyMedium?.copyWith(
-                        color: theme.colorScheme.onSurface
-                            .withValues(alpha: 0.72),
+                        color:
+                            theme.colorScheme.onSurface.withValues(alpha: 0.72),
                       ),
                     ),
                   ],

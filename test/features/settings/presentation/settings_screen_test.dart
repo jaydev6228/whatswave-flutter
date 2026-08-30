@@ -355,7 +355,8 @@ void main() {
     expect(find.text('No blocked contacts'), findsOneWidget);
   });
 
-  testWidgets('storage and data tile shows real media counts and the '
+  testWidgets(
+      'storage and data tile shows real media counts and the '
       'auto-download toggle', (tester) async {
     final authController = await _createAuthenticatedAuthController();
     final preferencesController = AppPreferencesController();

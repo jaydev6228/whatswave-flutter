@@ -18,6 +18,7 @@ import 'widgets/status_ring_avatar.dart';
 import 'widgets/status_story_media_surface.dart';
 import 'widgets/text_status_canvas.dart';
 import 'status_motion.dart';
+import 'package:whatswave/features/shared/widgets/liquid_glass.dart';
 
 const double _kUpdatesScreenHorizontalPadding = 16;
 const double _kUpdatesRowHorizontalPadding = 18;
@@ -443,7 +444,7 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
             final shouldClear = await showDialog<bool>(
               context: context,
               builder: (dialogContext) {
-                return AlertDialog(
+                return LiquidGlassDialog(
                   title: const Text('Delete all statuses?'),
                   content: Text(
                     statusCount <= 1

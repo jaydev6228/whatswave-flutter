@@ -297,4 +297,69 @@ void main() {
     );
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+      'overlay text that outgrows the screen shows a scroll hint, which '
+      'goes away for good once the end is reached', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(393, 852));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final segment = StatusStorySegment(
+      id: 'segment-long',
+      type: StatusStoryType.photo,
+      previewText: '',
+      localMediaPath: '/missing/photo.jpg',
+      overlayItems: [
+        StatusMediaOverlayItem(
+          id: 'overlay-text',
+          type: StatusMediaOverlayType.text,
+          label: List.generate(120, (i) => 'line $i').join(' '),
+        ),
+      ],
+    );
+
+    await _pump(tester, segment);
+    await tester.pumpAndSettle();
+
+    const hint = Key('updates_overlay_text_more_below');
+    double opacity() => tester
+        .widget<AnimatedOpacity>(find.ancestor(
+          of: find.byKey(hint),
+          matching: find.byType(AnimatedOpacity),
+        ))
+        .opacity;
+
+    // There is more text below, so say so.
+    expect(opacity(), 1, reason: 'no hint that the text continues below');
+
+    final scrollable = find.descendant(
+      of: find.byType(StatusMediaDecorationOverlay),
+      matching: find.byType(Scrollable),
+    );
+    final controller = tester.widget<Scrollable>(scrollable.first).controller!;
+
+    // Tapping it pages down.
+    await tester.tap(find.byKey(hint));
+    await tester.pumpAndSettle();
+    expect(
+      controller.position.pixels,
+      greaterThan(0),
+      reason: 'the hint does not scroll when tapped',
+    );
+
+    // Read to the end and it goes away...
+    await tester.drag(scrollable.first, const Offset(0, -4000));
+    await tester.pumpAndSettle();
+    expect(opacity(), 0, reason: 'the hint outstayed the end of the text');
+
+    // ...and stays away, even after scrolling back up.
+    await tester.drag(scrollable.first, const Offset(0, 4000));
+    await tester.pumpAndSettle();
+    expect(
+      opacity(),
+      0,
+      reason: 'the hint came back after the reader had already seen the end',
+    );
+    expect(tester.takeException(), isNull);
+  });
 }

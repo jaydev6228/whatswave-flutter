@@ -85,7 +85,8 @@ class CallsController extends ChangeNotifier {
   lk.Room? _room;
   lk.EventsListener<lk.RoomEvent>? _roomListener;
   lk.LocalVideoTrack? _localVideoTrack;
-  final Map<String, lk.VideoTrack> _remoteVideoTracks = <String, lk.VideoTrack>{};
+  final Map<String, lk.VideoTrack> _remoteVideoTracks =
+      <String, lk.VideoTrack>{};
 
   bool get hasLoaded => _hasLoaded;
   bool get isLoading => _isLoading;
@@ -148,13 +149,15 @@ class CallsController extends ChangeNotifier {
 
     final connected = <String>{
       ...connectedParticipantUids,
-      if (_myUid != null && session.phase == CallSessionPhase.connected) _myUid!,
+      if (_myUid != null && session.phase == CallSessionPhase.connected)
+        _myUid!,
     };
 
     return buildGroupCallParticipants(
       hostUid: hostUid,
       memberUids: memberUids,
-      displayNames: session.contact.memberDisplayNames ?? const <String, String>{},
+      displayNames:
+          session.contact.memberDisplayNames ?? const <String, String>{},
       avatarUrls: session.contact.memberAvatarUrls ?? const <String, String>{},
       inviteStatuses: _groupInviteStatuses,
       connectedUids: connected,
@@ -358,8 +361,7 @@ class CallsController extends ChangeNotifier {
         );
       }
       if (signaling != null) {
-        _errorMessage =
-            'This group has no other members to call right now.';
+        _errorMessage = 'This group has no other members to call right now.';
         notifyListeners();
         return false;
       }
@@ -1111,7 +1113,8 @@ class CallsController extends ChangeNotifier {
       return;
     }
 
-    if (session.contact.isGroup && session.direction == CallDirection.outgoing) {
+    if (session.contact.isGroup &&
+        session.direction == CallDirection.outgoing) {
       final roomName = session.roomName;
       final memberUids = session.contact.memberUids ?? const <String>[];
       if (roomName != null && memberUids.contains(participantIdentity)) {
@@ -1191,7 +1194,8 @@ class CallsController extends ChangeNotifier {
         );
         return;
       case CallSignalStatus.declined:
-        if (session.contact.isGroup && session.direction == CallDirection.outgoing) {
+        if (session.contact.isGroup &&
+            session.direction == CallDirection.outgoing) {
           return;
         }
         await _finishSession(status: CallHistoryStatus.declined);
@@ -1488,7 +1492,8 @@ class CallsController extends ChangeNotifier {
     if (session == null || session.id != sessionId) {
       return;
     }
-    if (!session.contact.isGroup || session.direction != CallDirection.outgoing) {
+    if (!session.contact.isGroup ||
+        session.direction != CallDirection.outgoing) {
       return;
     }
     if (remoteParticipantCount > 0) {
@@ -1594,7 +1599,8 @@ class CallsController extends ChangeNotifier {
             uid: participant.uid,
             name: participant.displayName,
             avatarLabel: participant.avatarLabel,
-            accentColor: _accentColorForParticipantName(participant.displayName),
+            accentColor:
+                _accentColorForParticipantName(participant.displayName),
             avatarUrl: participant.avatarUrl,
             isSelf: participant.isSelf,
           ),

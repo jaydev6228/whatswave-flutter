@@ -131,8 +131,7 @@ class _AddGroupMembersScreenState extends State<AddGroupMembersScreen> {
                               key: Key('add_group_member_${contact.id}'),
                               value: isSelected,
                               onChanged: (_) => _toggleContact(contact.id),
-                              controlAffinity:
-                                  ListTileControlAffinity.trailing,
+                              controlAffinity: ListTileControlAffinity.trailing,
                               secondary: AvatarBadge(
                                 label: contact.avatarLabel,
                                 color: contact.accentColor,

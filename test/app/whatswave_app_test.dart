@@ -72,7 +72,8 @@ void main() {
     expect(names, contains('tab_communities'));
   });
 
-  testWidgets('uses the app scroll behavior to avoid Android stretch overscroll',
+  testWidgets(
+      'uses the app scroll behavior to avoid Android stretch overscroll',
       (tester) async {
     await pumpWhatsWaveAppForDevice(
       tester,

@@ -348,18 +348,16 @@ class ChatsController extends ChangeNotifier {
       if (existing == null) {
         _errorMessage = 'We could not load that chat right now.';
       } else {
-        _threads = _threads
-            .map(
-              (thread) {
-                if (thread.id != threadId) {
-                  return thread;
-                }
-                return thread.copyWith(
-                  messages: _mergeMessages(thread.messages, page.messages),
-                );
-              },
-            )
-            .toList(growable: false);
+        _threads = _threads.map(
+          (thread) {
+            if (thread.id != threadId) {
+              return thread;
+            }
+            return thread.copyWith(
+              messages: _mergeMessages(thread.messages, page.messages),
+            );
+          },
+        ).toList(growable: false);
       }
     } on ChatRepositoryException catch (error) {
       _errorMessage = error.message;
@@ -407,8 +405,9 @@ class ChatsController extends ChangeNotifier {
         final merged = _mergeMessages(cached.messages, page.messages);
         _threads = _threads
             .map(
-              (thread) =>
-                  thread.id == threadId ? thread.copyWith(messages: merged) : thread,
+              (thread) => thread.id == threadId
+                  ? thread.copyWith(messages: merged)
+                  : thread,
             )
             .toList(growable: false);
       }
@@ -448,28 +447,26 @@ class ChatsController extends ChangeNotifier {
   }
 
   List<ChatThread> _mergeIncomingThreads(List<ChatThread> incoming) {
-    return incoming
-        .map((thread) {
-          final cached = threadById(thread.id);
-          if (cached == null) {
-            return thread;
-          }
+    return incoming.map((thread) {
+      final cached = threadById(thread.id);
+      if (cached == null) {
+        return thread;
+      }
 
-          if (!_fullyLoadedThreadIds.contains(thread.id)) {
-            if (thread.messages.isNotEmpty &&
-                cached.messages.length > thread.messages.length) {
-              return thread.copyWith(
-                messages: _mergeMessages(cached.messages, thread.messages),
-              );
-            }
-            return thread;
-          }
-
+      if (!_fullyLoadedThreadIds.contains(thread.id)) {
+        if (thread.messages.isNotEmpty &&
+            cached.messages.length > thread.messages.length) {
           return thread.copyWith(
             messages: _mergeMessages(cached.messages, thread.messages),
           );
-        })
-        .toList(growable: false);
+        }
+        return thread;
+      }
+
+      return thread.copyWith(
+        messages: _mergeMessages(cached.messages, thread.messages),
+      );
+    }).toList(growable: false);
   }
 
   ChatThread _mergeIncomingThread(ChatThread incoming) {
@@ -488,35 +485,33 @@ class ChatsController extends ChangeNotifier {
     required String messageId,
     required bool forEveryone,
   }) {
-    _threads = _threads
-        .map(
-          (thread) {
-            if (thread.id != threadId) {
-              return thread;
-            }
-            if (forEveryone) {
-              return thread.copyWith(
-                messages: thread.messages
-                    .map(
-                      (message) => message.id == messageId
-                          ? message.copyWith(
-                              text: '',
-                              attachments: const <ChatAttachment>[],
-                              isDeleted: true,
-                            )
-                          : message,
-                    )
-                    .toList(growable: false),
-              );
-            }
-            return thread.copyWith(
-              messages: thread.messages
-                  .where((message) => message.id != messageId)
-                  .toList(growable: false),
-            );
-          },
-        )
-        .toList(growable: false);
+    _threads = _threads.map(
+      (thread) {
+        if (thread.id != threadId) {
+          return thread;
+        }
+        if (forEveryone) {
+          return thread.copyWith(
+            messages: thread.messages
+                .map(
+                  (message) => message.id == messageId
+                      ? message.copyWith(
+                          text: '',
+                          attachments: const <ChatAttachment>[],
+                          isDeleted: true,
+                        )
+                      : message,
+                )
+                .toList(growable: false),
+          );
+        }
+        return thread.copyWith(
+          messages: thread.messages
+              .where((message) => message.id != messageId)
+              .toList(growable: false),
+        );
+      },
+    ).toList(growable: false);
     notifyListeners();
   }
 
@@ -1004,29 +999,25 @@ class ChatsController extends ChangeNotifier {
     if (key.isEmpty) {
       return;
     }
-    _threads = _threads
-        .map((thread) {
-          if (thread.id != threadId) {
-            return thread;
+    _threads = _threads.map((thread) {
+      if (thread.id != threadId) {
+        return thread;
+      }
+      return thread.copyWith(
+        messages: thread.messages.map((message) {
+          if (message.id != messageId) {
+            return message;
           }
-          return thread.copyWith(
-            messages: thread.messages
-                .map((message) {
-                  if (message.id != messageId) {
-                    return message;
-                  }
-                  final reactions = Map<String, String>.from(message.reactions);
-                  if (reactions[key] == emoji) {
-                    reactions.remove(key);
-                  } else {
-                    reactions[key] = emoji;
-                  }
-                  return message.copyWith(reactions: reactions);
-                })
-                .toList(growable: false),
-          );
-        })
-        .toList(growable: false);
+          final reactions = Map<String, String>.from(message.reactions);
+          if (reactions[key] == emoji) {
+            reactions.remove(key);
+          } else {
+            reactions[key] = emoji;
+          }
+          return message.copyWith(reactions: reactions);
+        }).toList(growable: false),
+      );
+    }).toList(growable: false);
     notifyListeners();
   }
 
@@ -1218,8 +1209,8 @@ class ChatsController extends ChangeNotifier {
     // Refetch a window that covers what's loaded (capped) rather than the
     // thread's full history -- pagination means `messages` is a window, not
     // everything.
-    final limit = before.messages.length
-        .clamp(_initialPageSize, _maxSyncWindow);
+    final limit =
+        before.messages.length.clamp(_initialPageSize, _maxSyncWindow);
 
     try {
       final page = await _repository.fetchThreadMessagesPage(
@@ -1331,9 +1322,9 @@ class ChatsController extends ChangeNotifier {
       }).toList(growable: false);
     }
 
-    final incomingThread = incoming
-        .cast<ChatThread?>()
-        .firstWhere((thread) => thread?.id == mutatedThreadId, orElse: () => null);
+    final incomingThread = incoming.cast<ChatThread?>().firstWhere(
+        (thread) => thread?.id == mutatedThreadId,
+        orElse: () => null);
     final cachedThread = threadById(mutatedThreadId);
     if (incomingThread == null || cachedThread == null) {
       return _mergeIncomingThreads(incoming);
@@ -1450,7 +1441,8 @@ class ChatsController extends ChangeNotifier {
     final participantUid = thread.participantUid;
     if (participantUid != null && participantUid.isNotEmpty) {
       _hiddenStoryKeys.add('uid:$participantUid');
-      _hiddenStoryKeys.add('thread:${_canonicalDirectThreadId(participantUid)}');
+      _hiddenStoryKeys
+          .add('thread:${_canonicalDirectThreadId(participantUid)}');
     }
   }
 
@@ -1464,7 +1456,8 @@ class ChatsController extends ChangeNotifier {
       name: name,
     ));
     _hiddenStoryKeys.remove('uid:$participantUid');
-    _hiddenStoryKeys.remove('thread:${_canonicalDirectThreadId(participantUid)}');
+    _hiddenStoryKeys
+        .remove('thread:${_canonicalDirectThreadId(participantUid)}');
     _hiddenStoryKeys.remove('thread:$participantUid');
   }
 

@@ -29,8 +29,8 @@ class SwipeActionBackground extends StatelessWidget {
         foregroundColor ?? theme.colorScheme.onPrimaryContainer;
 
     return Container(
-      color: (color ?? theme.colorScheme.primaryContainer)
-          .withValues(alpha: 0.78),
+      color:
+          (color ?? theme.colorScheme.primaryContainer).withValues(alpha: 0.78),
       alignment: alignment,
       padding: padding,
       child: Row(
