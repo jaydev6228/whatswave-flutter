@@ -33,7 +33,8 @@ class CallParticipantAvatar extends StatelessWidget {
     final initials = Container(
       width: size,
       height: size,
-      color: backgroundColor ?? theme.colorScheme.surface.withValues(alpha: 0.24),
+      color:
+          backgroundColor ?? theme.colorScheme.surface.withValues(alpha: 0.24),
       alignment: Alignment.center,
       child: Text(
         display,

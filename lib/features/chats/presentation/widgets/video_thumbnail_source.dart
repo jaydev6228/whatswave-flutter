@@ -24,7 +24,8 @@ final Map<String, Future<Uint8List?>> _videoThumbnailCache = {};
 /// (Cloud Function) version of this feature was replaced with this
 /// on-device approach.
 Future<Uint8List?> videoThumbnailFor(String videoPath) {
-  return _videoThumbnailCache.putIfAbsent(videoPath, () => _generate(videoPath));
+  return _videoThumbnailCache.putIfAbsent(
+      videoPath, () => _generate(videoPath));
 }
 
 Future<Uint8List?> _generate(String videoPath) async {

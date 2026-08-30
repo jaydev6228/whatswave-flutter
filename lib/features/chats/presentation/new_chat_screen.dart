@@ -15,6 +15,7 @@ import '../../shared/widgets/error_dialog.dart';
 import '../../shared/widgets/search_field.dart';
 import '../application/chats_controller.dart';
 import 'new_group_screen.dart';
+import 'package:whatswave/features/shared/widgets/liquid_glass.dart';
 
 /// The Chats tab's "+" destination -- combines starting a new group with
 /// browsing contacts (message/call/video for people already on WhatsWave,
@@ -108,12 +109,11 @@ class _NewChatScreenState extends State<NewChatScreen>
 
             final onWhatsWave =
                 contacts.where((c) => c.isOnWhatsWave).toList(growable: false);
-            final needsInvite = contacts
-                .where((c) => !c.isOnWhatsWave)
-                .toList(growable: false);
+            final needsInvite =
+                contacts.where((c) => !c.isOnWhatsWave).toList(growable: false);
             final hasAccess = controller.contactAccessStatus.hasAnyAccess;
-            final hasLimitedAccess = controller.contactAccessStatus ==
-                ContactAccessStatus.limited;
+            final hasLimitedAccess =
+                controller.contactAccessStatus == ContactAccessStatus.limited;
 
             return CustomScrollView(
               key: const PageStorageKey<String>('new_chat_scroll_view'),
@@ -309,7 +309,7 @@ class _NewChatScreenState extends State<NewChatScreen>
     await showDialog<void>(
       context: context,
       builder: (dialogContext) {
-        return AlertDialog(
+        return LiquidGlassDialog(
           title: Text('Invite ${contact.name}'),
           content: SelectableText(inviteLink),
           actions: [
@@ -577,8 +577,7 @@ class _LimitedContactsBanner extends StatelessWidget {
                 Text(
                   'You picked a limited set of contacts to share. Add more from your device settings.',
                   style: theme.textTheme.bodySmall?.copyWith(
-                    color:
-                        theme.colorScheme.onSurface.withValues(alpha: 0.72),
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.72),
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -590,8 +589,8 @@ class _LimitedContactsBanner extends StatelessWidget {
                     style: TextButton.styleFrom(
                       visualDensity: VisualDensity.compact,
                       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 4, vertical: 4),
                     ),
                     child: const Text('Add more contacts'),
                   ),

@@ -35,7 +35,8 @@ void main() {
     await tester.pumpWidget(
       const MaterialApp(
         home: Scaffold(
-          body: AvatarBadge(label: 'Jamie Doe', color: Colors.teal, avatarUrl: ''),
+          body: AvatarBadge(
+              label: 'Jamie Doe', color: Colors.teal, avatarUrl: ''),
         ),
       ),
     );

@@ -3,10 +3,28 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+
+import 'status_chrome.dart';
 import 'package:get_video_thumbnail/get_video_thumbnail.dart';
 import 'package:get_video_thumbnail/index.dart' show ImageFormat;
 
 const int _kFilmstripFrameCount = 10;
+
+/// Timestamp for filmstrip frame [index]: the midpoint of the slice it
+/// fills, clamped inside the clip.
+///
+/// Deliberately not evenly spaced from 0 to the full duration. Each frame
+/// stands for a 1/N-wide band of the strip, so the middle of that band is
+/// what it should show -- and spacing to the duration asked for a frame at
+/// exactly the end, past the last decodable one, which came back null and
+/// left the end of the strip empty.
+@visibleForTesting
+int filmstripFrameTimeMs(int index, int durationMs, {int frameCount = 10}) {
+  return (durationMs * (index + 0.5) / frameCount)
+      .round()
+      .clamp(0, math.max(durationMs - 1, 0))
+      .toInt();
+}
 
 /// Caches a video's filmstrip frames in memory, keyed by path -- the
 /// composer rebuilds often while trimming (every drag frame), and
@@ -36,9 +54,11 @@ Future<List<Uint8List?>> _generateFilmstrip(
   // any frame appeared, since 10 on-device thumbnail extractions in a row
   // add up even though each one alone is quick.
   final requests = List.generate(_kFilmstripFrameCount, (i) async {
-    final timeMs = _kFilmstripFrameCount == 1
-        ? 0
-        : (durationMs * i / (_kFilmstripFrameCount - 1)).round();
+    final timeMs = filmstripFrameTimeMs(
+      i,
+      durationMs,
+      frameCount: _kFilmstripFrameCount,
+    );
     try {
       return await VideoThumbnail.thumbnailData(
         video: videoPath,
@@ -51,7 +71,35 @@ Future<List<Uint8List?>> _generateFilmstrip(
       return null;
     }
   });
-  return Future.wait(requests);
+  final frames = await Future.wait(requests);
+  // Any frame that still failed borrows its nearest neighbour, so the strip
+  // is always covered edge to edge by real thumbnails rather than showing
+  // a gap where one extraction happened not to work.
+  return fillFilmstripGaps(frames);
+}
+
+@visibleForTesting
+List<Uint8List?> fillFilmstripGaps(List<Uint8List?> frames) {
+  if (frames.every((frame) => frame == null)) {
+    return frames;
+  }
+  final filled = List<Uint8List?>.of(frames);
+  for (var i = 0; i < filled.length; i++) {
+    if (filled[i] != null) {
+      continue;
+    }
+    for (var offset = 1; offset < filled.length; offset++) {
+      final before = i - offset;
+      final after = i + offset;
+      final candidate = (before >= 0 ? frames[before] : null) ??
+          (after < frames.length ? frames[after] : null);
+      if (candidate != null) {
+        filled[i] = candidate;
+        break;
+      }
+    }
+  }
+  return filled;
 }
 
 String _formatTrimDuration(double seconds) {
@@ -78,10 +126,23 @@ class VideoTrimScrubber extends StatefulWidget {
     required this.onScrubStart,
     required this.onScrubUpdate,
     required this.onScrubEnd,
+    this.positionSeconds,
+    this.leading,
     super.key,
   });
 
   final String videoPath;
+
+  /// Placed to the left of the filmstrip, inside the same surface -- the
+  /// mute toggle. Kept here rather than beside the whole widget so the
+  /// duration/size label above stays outside that surface.
+  final Widget? leading;
+
+  /// Where playback currently is, so the strip can show a playhead the way
+  /// WhatsApp's trimmer does. Null hides it (a still, or before the
+  /// controller reports a position).
+  final double? positionSeconds;
+
   final double fullDurationSeconds;
   final double trimStartSeconds;
   final double trimEndSeconds;
@@ -234,7 +295,27 @@ class _VideoTrimScrubberState extends State<VideoTrimScrubber> {
             ),
           ),
         ),
-        _buildScrubberBar(),
+        if (widget.leading case final leading?)
+          // One surface around both, so the leading control and the strip
+          // read as a single group rather than two things side by side --
+          // the same background as the tool capsule, squared off.
+          StatusChromeSurface(
+            borderRadius: const BorderRadius.all(Radius.circular(14)),
+            // No padding on any side. The surface's fill is translucent,
+            // so any band of it beside the strip showed the story through
+            // -- most visibly to the right of the strip, where nothing
+            // else covers it.
+            padding: EdgeInsets.zero,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                leading,
+                Expanded(child: _buildScrubberBar()),
+              ],
+            ),
+          )
+        else
+          _buildScrubberBar(),
       ],
     );
   }
@@ -260,34 +341,58 @@ class _VideoTrimScrubberState extends State<VideoTrimScrubber> {
                 child: SizedBox(
                   height: _barHeight,
                   width: width,
-                  child: FutureBuilder<List<Uint8List?>>(
-                    future: _framesFuture,
-                    builder: (context, snapshot) {
-                      final frames = snapshot.data;
-                      if (frames == null) {
-                        return const ColoredBox(color: Color(0xFF1C1C1E));
-                      }
-                      return Row(
-                        children: [
-                          for (final frame in frames)
-                            Expanded(
-                              child: frame != null
-                                  ? Image.memory(
-                                      frame,
-                                      fit: BoxFit.cover,
-                                      height: _barHeight,
-                                      gaplessPlayback: true,
-                                    )
-                                  : const ColoredBox(
-                                      color: Color(0xFF1C1C1E),
-                                    ),
-                            ),
-                        ],
-                      );
-                    },
+                  // Opaque base under the frames. Whatever happens to the
+                  // thumbnails -- still loading, one extraction failed --
+                  // the story behind must never show through the strip.
+                  child: ColoredBox(
+                    color: const Color(0xFF1C1C1E),
+                    child: FutureBuilder<List<Uint8List?>>(
+                      future: _framesFuture,
+                      builder: (context, snapshot) {
+                        final frames = snapshot.data;
+                        if (frames == null) {
+                          return const ColoredBox(color: Color(0xFF1C1C1E));
+                        }
+                        return Row(
+                          children: [
+                            for (final frame in frames)
+                              Expanded(
+                                child: frame != null
+                                    ? Image.memory(
+                                        frame,
+                                        fit: BoxFit.cover,
+                                        height: _barHeight,
+                                        gaplessPlayback: true,
+                                      )
+                                    : const ColoredBox(
+                                        color: Color(0xFF1C1C1E),
+                                      ),
+                              ),
+                          ],
+                        );
+                      },
+                    ),
                   ),
                 ),
               ),
+              // The playhead. Drawn under the handles so dragging an edge
+              // is never blocked by it, and only while it is inside the
+              // selected window -- outside it there is nothing playing.
+              if (widget.positionSeconds case final position?)
+                if (position >= widget.trimStartSeconds &&
+                    position <= widget.trimEndSeconds)
+                  Positioned(
+                    key: const Key('updates_media_trim_playhead'),
+                    left: (position / fullDuration * width)
+                        .clamp(0.0, width - 2)
+                        .toDouble(),
+                    top: 0,
+                    bottom: 0,
+                    width: 2,
+                    child: const IgnorePointer(
+                      child: ColoredBox(color: Colors.white),
+                    ),
+                  ),
               // Darken the trimmed-out portions -- WhatsApp's own trimmer
               // dims everything outside the selected range.
               Positioned(

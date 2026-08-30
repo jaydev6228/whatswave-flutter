@@ -27,7 +27,8 @@ class CompositeGroupAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final members = participants.take(maxVisibleMembers).toList(growable: false);
+    final members =
+        participants.take(maxVisibleMembers).toList(growable: false);
     if (members.isEmpty) {
       return AvatarBadge(
         label: fallbackLabel,

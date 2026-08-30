@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:whatswave/app/theme/app_theme.dart';
 import 'package:whatswave/core/models/status_story.dart';
 import 'package:whatswave/features/updates/presentation/text_status_composer_screen.dart';
-import 'package:whatswave/features/updates/presentation/widgets/status_composer_glass_button.dart';
+import 'package:whatswave/features/updates/presentation/widgets/status_chrome.dart';
 import 'package:whatswave/features/updates/presentation/widgets/status_text_editing_tools.dart';
 import 'package:whatswave/features/updates/presentation/widgets/text_status_canvas.dart';
 
@@ -101,7 +101,10 @@ void main() {
     await tester.tap(find.byKey(const Key('updates_add_text_emoji_button')));
     await tester.pumpAndSettle();
 
-    expect(find.text('Add emoji'), findsOneWidget);
+    // The sheet carries no title -- the button that opened it already
+    // said what it is -- so the grid is what proves it opened.
+    expect(
+        find.byKey(const Key('updates_media_emoji_option_0')), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('updates_media_emoji_option_0')));
     await tester.pumpAndSettle();
@@ -907,7 +910,7 @@ void main() {
       );
       expect(
         tester.widget(button),
-        isA<StatusComposerGlassButton>(),
+        isA<StatusChromeButton>(),
         reason: '$key is not the shared glass button',
       );
       // Floor guard rather than a fix for anything: Material already
@@ -1038,5 +1041,44 @@ void main() {
       );
       expect(tester.takeException(), isNull);
     }
+  });
+
+  testWidgets('the send button reads as disabled until there is text to send',
+      (tester) async {
+    await tester.binding.setSurfaceSize(iphoneProProfile.size);
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      const MaterialApp(home: TextStatusComposerScreen()),
+    );
+    await tester.pumpAndSettle();
+
+    double sendOpacity() => tester
+        .widget<AnimatedOpacity>(
+          find.ancestor(
+            of: find.byKey(const Key('updates_share_status_button')),
+            matching: find.byType(AnimatedOpacity),
+          ),
+        )
+        .opacity;
+
+    // Empty status: the button is inert, so it must not look live.
+    expect(sendOpacity(), lessThan(1));
+
+    await tester.enterText(
+      find.byKey(const Key('updates_composer_field')),
+      'Hello',
+    );
+    await tester.pumpAndSettle();
+    expect(sendOpacity(), 1);
+
+    // Whitespace alone is still nothing to send.
+    await tester.enterText(
+      find.byKey(const Key('updates_composer_field')),
+      '   ',
+    );
+    await tester.pumpAndSettle();
+    expect(sendOpacity(), lessThan(1));
+    expect(tester.takeException(), isNull);
   });
 }

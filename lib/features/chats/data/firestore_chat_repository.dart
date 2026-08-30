@@ -77,8 +77,8 @@ class FirestoreChatRepository implements ChatRepository {
       final snapshot =
           await _threadsRef.where('participantUids', arrayContains: uid).get();
       return Future.wait(
-        _visibleDocs(snapshot.docs, uid)
-            .map((doc) => _threadFromDoc(doc, currentUid: uid, summaryOnly: true)),
+        _visibleDocs(snapshot.docs, uid).map(
+            (doc) => _threadFromDoc(doc, currentUid: uid, summaryOnly: true)),
       );
     } on FirebaseException catch (e) {
       throw ChatRepositoryException(e.message ?? 'Could not load your chats.');
@@ -93,8 +93,8 @@ class FirestoreChatRepository implements ChatRepository {
         .snapshots()
         .asyncMap(
           (snapshot) => Future.wait(
-            _visibleDocs(snapshot.docs, uid)
-                .map((doc) => _threadFromDoc(doc, currentUid: uid, summaryOnly: true)),
+            _visibleDocs(snapshot.docs, uid).map((doc) =>
+                _threadFromDoc(doc, currentUid: uid, summaryOnly: true)),
           ),
         );
   }
@@ -105,13 +105,15 @@ class FirestoreChatRepository implements ChatRepository {
     try {
       final doc = await _threadsRef.doc(threadId).get();
       if (!doc.exists) {
-        throw const ChatRepositoryException('That chat is no longer available.');
+        throw const ChatRepositoryException(
+            'That chat is no longer available.');
       }
       final hiddenFor =
           (doc.data()?['hiddenFor'] as List<dynamic>?)?.cast<String>() ??
               const <String>[];
       if (hiddenFor.contains(uid)) {
-        throw const ChatRepositoryException('That chat is no longer available.');
+        throw const ChatRepositoryException(
+            'That chat is no longer available.');
       }
       return _threadFromDoc(doc, currentUid: uid);
     } on ChatRepositoryException {
@@ -129,8 +131,7 @@ class FirestoreChatRepository implements ChatRepository {
   }) async {
     final uid = _requireCurrentUid;
     try {
-      final messagesRef =
-          _threadsRef.doc(threadId).collection('messages');
+      final messagesRef = _threadsRef.doc(threadId).collection('messages');
       Query<Map<String, dynamic>> query =
           messagesRef.orderBy('sentAt', descending: true);
       if (before != null) {

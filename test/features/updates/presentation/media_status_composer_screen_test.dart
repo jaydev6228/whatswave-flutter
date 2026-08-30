@@ -3,6 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:whatswave/app/theme/app_theme.dart';
 import 'package:whatswave/core/models/status_story.dart';
 import 'package:whatswave/features/updates/presentation/media_status_composer_screen.dart';
+import 'package:whatswave/features/updates/presentation/widgets/status_chrome.dart';
+import 'package:whatswave/features/updates/presentation/widgets/status_media_decoration_overlay.dart';
 import 'package:whatswave/features/updates/presentation/status_motion.dart';
 import 'package:whatswave/features/updates/presentation/widgets/status_story_media_surface.dart';
 
@@ -41,10 +43,21 @@ void main() {
     await tester.tap(find.byKey(const Key('updates_media_add_music_button')));
     await tester.pumpAndSettle();
 
-    expect(find.text('Add music'), findsOneWidget);
+    // The sheet no longer carries a title -- tapping the music button is
+    // already the label -- so the track list is what proves it opened.
+    expect(
+        find.byKey(const Key('updates_media_music_option_0')), findsOneWidget);
     expect(tester.takeException(), isNull);
 
     await tester.tap(find.byKey(const Key('updates_media_music_option_0')));
+    await tester.pumpAndSettle();
+
+    // Picking a track leaves the music overlay selected, which swaps the
+    // tool toolbar out for the selection bar. Tap the canvas to deselect
+    // and get the tools back -- the music tray used to carry its own
+    // duplicate "Add text" button for this, which read as a stray icon
+    // floating above the style chips.
+    await tester.tapAt(const Offset(30, 300));
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const Key('updates_media_panel_fonts')));
@@ -661,7 +674,10 @@ void main() {
     await _tapEmojiOption(tester, 0);
 
     final emojiFinder = find.text('😀').last;
-    await tester.drag(emojiFinder, const Offset(120, -180));
+    // Sideways and only a little up: -180 parked it under the tool
+    // toolbar, so the "tap to select" below hit the crop button instead
+    // and the overlay vanished with the rest of them.
+    await tester.drag(emojiFinder, const Offset(120, -60));
     await tester.pumpAndSettle();
 
     await tester.tapAt(const Offset(10, 10));
@@ -1635,6 +1651,522 @@ void main() {
       find.byType(StatusStoryMediaSurface),
     );
     expect(surface.drawingStrokes.single.colorValue, thumbColor!.toARGB32());
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'a placed text overlay hugs its text instead of covering the canvas',
+      (tester) async {
+    const size = Size(393, 852);
+    await tester.binding.setSurfaceSize(size);
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.lightTheme(),
+        darkTheme: AppTheme.darkTheme(),
+        home: const MediaStatusComposerScreen(
+          type: StatusStoryType.photo,
+          localMediaPath: '/missing/photo.jpg',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('updates_media_panel_fonts')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('updates_media_inline_text_field')),
+      'Trtttttt',
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('updates_media_text_done_button')));
+    await tester.pumpAndSettle();
+
+    final text = tester.getRect(find.text('Trtttttt').first);
+    // The bordered shell inside the overlay. The overlay's own outermost
+    // box is a Center and so always fills -- it is this container that
+    // draws the selection border and takes the drag.
+    final shell = tester.getRect(
+      find
+          .descendant(
+            of: find.byWidgetPredicate(
+              (w) => w.key.toString().contains('updates_overlay_item_'),
+            ),
+            matching: find.byType(AnimatedContainer),
+          )
+          .first,
+    );
+
+    // Padding around the glyphs, not the whole screen. Sized to the canvas
+    // the border reads as a box drawn round the story, and the overlay
+    // swallows every tap on it.
+    expect(
+      shell.width,
+      lessThan(text.width + 60),
+      reason: 'the overlay shell is far wider than its text',
+    );
+    expect(
+      shell.height,
+      lessThan(text.height + 60),
+      reason: 'the overlay shell is far taller than its text',
+    );
+    expect(shell.width, lessThan(size.width));
+    expect(shell.height, lessThan(size.height));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'the colour rail stops above the styling rows instead of sitting on '
+      'the weight button', (tester) async {
+    await tester.binding.setSurfaceSize(iphoneProProfile.size);
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.lightTheme(),
+        darkTheme: AppTheme.darkTheme(),
+        home: const MediaStatusComposerScreen(
+          type: StatusStoryType.photo,
+          localMediaPath: '/missing/photo.jpg',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('updates_media_panel_fonts')));
+    await tester.pumpAndSettle();
+
+    final rail =
+        tester.getRect(find.byKey(const Key('updates_media_text_color_rail')));
+    // Both rows the tray renders, not just the font row -- the rail
+    // reserved a single row's height from when the tray had one, so its
+    // lower stretch covered the weight button and would not take a drag.
+    for (final key in <String>[
+      'updates_media_text_weight_button',
+      'updates_media_text_size_slider',
+      'updates_media_text_font_row',
+    ]) {
+      expect(
+        rail.overlaps(tester.getRect(find.byKey(Key(key)))),
+        isFalse,
+        reason: 'the colour rail sits on top of $key',
+      );
+    }
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'the draw tool hides the caption and share, the way the text and crop '
+      'tools already do', (tester) async {
+    await tester.binding.setSurfaceSize(iphoneProProfile.size);
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.lightTheme(),
+        darkTheme: AppTheme.darkTheme(),
+        home: const MediaStatusComposerScreen(
+          type: StatusStoryType.photo,
+          localMediaPath: '/missing/photo.jpg',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Add a caption...'), findsOneWidget);
+    expect(
+      find.byKey(const Key('updates_share_media_status_button')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const Key('updates_media_draw_button')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Add a caption...'),
+      findsNothing,
+      reason: 'the caption still floats over the drawing canvas',
+    );
+    expect(
+      find.byKey(const Key('updates_share_media_status_button')),
+      findsNothing,
+      reason: 'share still floats over the drawing canvas',
+    );
+
+    // And both come back when the tool is done.
+    await tester.tap(find.byKey(const Key('updates_media_draw_done_button')));
+    await tester.pumpAndSettle();
+    expect(find.text('Add a caption...'), findsOneWidget);
+    expect(
+      find.byKey(const Key('updates_share_media_status_button')),
+      findsOneWidget,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'the caption field, send button, close and mute all sit on the same '
+      'background as the tool capsule', (tester) async {
+    await tester.binding.setSurfaceSize(iphoneProProfile.size);
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.lightTheme(),
+        darkTheme: AppTheme.darkTheme(),
+        home: const MediaStatusComposerScreen(
+          type: StatusStoryType.photo,
+          localMediaPath: '/missing/photo.jpg',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Every one of these renders through the shared surface. They used to
+    // each pick their own fill -- a blurred glass here, a solid emerald
+    // there -- so they read as different materials stacked on one screen.
+    for (final key in <String>[
+      'updates_media_caption_field',
+      'updates_share_media_status_button',
+      'updates_media_close_composer_button',
+    ]) {
+      final control = find.byKey(Key(key));
+      expect(control, findsOneWidget, reason: '$key is missing');
+      // Either direction: some of these carry their key on the surface's
+      // wrapper, others on the control inside it.
+      final onSurface = find
+              .ancestor(of: control, matching: find.byType(StatusChromeSurface))
+              .evaluate()
+              .isNotEmpty ||
+          find
+              .descendant(
+                  of: control, matching: find.byType(StatusChromeSurface))
+              .evaluate()
+              .isNotEmpty;
+      expect(
+        onSurface,
+        isTrue,
+        reason: '$key is not on the shared composer background',
+      );
+    }
+
+    // And the surface really is the capsule's flat fill, not a blurred one.
+    final surface = tester.widget<StatusChromeSurface>(
+      find.byType(StatusChromeSurface).first,
+    );
+    final decoration = tester
+        .widget<Container>(
+          find
+              .descendant(
+                of: find.byWidget(surface),
+                matching: find.byType(Container),
+              )
+              .first,
+        )
+        .decoration! as BoxDecoration;
+    expect(decoration.color, StatusChromeSurface.fill);
+    // The tool capsule itself is unblurred -- it sits over the scrim.
+    // (The caption row and send do blur; see the crop/blur test.)
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('updates_media_panel_fonts')),
+        matching: find.byType(BackdropFilter),
+      ),
+      findsNothing,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'adjacent chrome buttons share one capsule, and the sheets use the '
+      'composer glass rather than a flat app panel', (tester) async {
+    await tester.binding.setSurfaceSize(iphoneProProfile.size);
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.lightTheme(),
+        darkTheme: AppTheme.darkTheme(),
+        home: const MediaStatusComposerScreen(
+          type: StatusStoryType.photo,
+          localMediaPath: '/missing/photo.jpg',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Draw mode: undo and done sit together, not as two separate chips.
+    await tester.tap(find.byKey(const Key('updates_media_draw_button')));
+    await tester.pumpAndSettle();
+    for (final key in <String>[
+      'updates_media_draw_undo_button',
+      'updates_media_draw_done_button',
+    ]) {
+      expect(
+        find.ancestor(
+          of: find.byKey(Key(key)),
+          matching: find.byType(StatusChromeButtonGroup),
+        ),
+        findsOneWidget,
+        reason: '$key is not grouped with the button beside it',
+      );
+    }
+    await tester.tap(find.byKey(const Key('updates_media_draw_done_button')));
+    await tester.pumpAndSettle();
+
+    // The stickers/emoji sheet comes up on the composer's glass.
+    await tester.tap(find.byKey(const Key('updates_media_add_emoji_button')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byType(StatusChromeSheet),
+      findsOneWidget,
+      reason: 'the sheet is still a flat app panel',
+    );
+    // Exactly one drag handle. The app theme turns Flutter's on globally
+    // and it renders outside this sheet's glass, so the call site has to
+    // switch it off or the sheet shows two bars.
+    expect(
+      tester.widget<BottomSheet>(find.byType(BottomSheet)).showDragHandle,
+      isFalse,
+      reason: 'the sheet draws a second drag handle outside its glass',
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'the crop tool blurs behind its controls, since nothing scrims the '
+      'media there', (tester) async {
+    await tester.binding.setSurfaceSize(iphoneProProfile.size);
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.lightTheme(),
+        darkTheme: AppTheme.darkTheme(),
+        home: const MediaStatusComposerScreen(
+          type: StatusStoryType.photo,
+          localMediaPath: '/missing/photo.jpg',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // The caption row and send blur behind themselves: a placed text
+    // overlay can land right behind them, and they have to stay readable
+    // against it.
+    for (final key in <String>[
+      'updates_media_caption_field',
+      'updates_share_media_status_button',
+    ]) {
+      expect(
+        find.ancestor(
+          of: find.byKey(Key(key)),
+          matching: find.byType(BackdropFilter),
+        ),
+        findsWidgets,
+        reason: '$key does not separate itself from overlay text behind it',
+      );
+    }
+
+    // The tool capsule does not -- it sits over the scrim, where a blur
+    // only muddies it.
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('updates_media_panel_fonts')),
+        matching: find.byType(BackdropFilter),
+      ),
+      findsNothing,
+    );
+
+    await tester.tap(find.byKey(const Key('updates_media_crop_rotate_button')));
+    await tester.pumpAndSettle();
+
+    for (final key in <String>[
+      'updates_media_crop_cancel_button',
+      'updates_media_crop_done_button',
+      'updates_media_rotate_button',
+      'updates_media_crop_aspect_ratio_button',
+    ]) {
+      // These keys sit on the wrapper, with the surface inside them, so
+      // the blur is a descendant rather than an ancestor.
+      expect(
+        find.descendant(
+          of: find.byKey(Key(key)),
+          matching: find.byType(BackdropFilter),
+        ),
+        findsWidgets,
+        reason: '$key sits unblurred straight on the media',
+      );
+    }
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'the music banner lands clear of the trim filmstrip so it can be '
+      'dragged', (tester) async {
+    const size = Size(393, 852);
+    await tester.binding.setSurfaceSize(size);
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.lightTheme(),
+        darkTheme: AppTheme.darkTheme(),
+        home: const MediaStatusComposerScreen(
+          type: StatusStoryType.video,
+          localMediaPath: '/missing/video.mp4',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('updates_media_add_music_button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('updates_media_music_option_0')));
+    await tester.pumpAndSettle();
+
+    // The shell that draws and takes the drag. The overlay's own outermost
+    // box is a Center and always fills the canvas.
+    final banner = tester.getRect(
+      find
+          .descendant(
+            of: find.byWidgetPredicate(
+              (w) => w.key.toString().contains('updates_overlay_item_music'),
+            ),
+            matching: find.byType(AnimatedContainer),
+          )
+          .first,
+    );
+
+    // Clear of the band the trim chrome occupies -- the tool row, the
+    // duration label and the filmstrip. A banner dropped under the strip
+    // cannot be dragged off it, because the strip takes the gesture.
+    //
+    // Asserted against the shared chrome constant rather than the strip
+    // itself: the filmstrip needs a real video to render, so a test that
+    // waited for it would simply never check anything.
+    expect(
+      banner.top,
+      greaterThan(kStatusChromeReservedTop + 60),
+      reason: 'the music banner landed under the trim filmstrip',
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('the crop tool shows the media alone, with no overlays on it',
+      (tester) async {
+    await tester.binding.setSurfaceSize(iphoneProProfile.size);
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.lightTheme(),
+        darkTheme: AppTheme.darkTheme(),
+        home: const MediaStatusComposerScreen(
+          type: StatusStoryType.photo,
+          localMediaPath: '/missing/photo.jpg',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('updates_media_panel_fonts')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('updates_media_inline_text_field')),
+      'Placed text',
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('updates_media_text_done_button')));
+    await tester.pumpAndSettle();
+
+    final overlays = find.byWidgetPredicate(
+      (w) => w.key.toString().contains('updates_overlay_item_'),
+    );
+    expect(overlays, findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('updates_media_crop_rotate_button')));
+    await tester.pumpAndSettle();
+
+    // Long overlay text covers the frame, hiding what is being cropped and
+    // getting in the way of the corner handles.
+    expect(
+      overlays,
+      findsNothing,
+      reason: 'overlays are still drawn over the crop tool',
+    );
+
+    // And they all come back on Done.
+    await tester.tap(find.byKey(const Key('updates_media_crop_done_button')));
+    await tester.pumpAndSettle();
+    expect(overlays, findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'a selected text overlay draws no bounding box, while an emoji still '
+      'does', (tester) async {
+    await tester.binding.setSurfaceSize(iphoneProProfile.size);
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.lightTheme(),
+        darkTheme: AppTheme.darkTheme(),
+        home: const MediaStatusComposerScreen(
+          type: StatusStoryType.photo,
+          localMediaPath: '/missing/photo.jpg',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('updates_media_panel_fonts')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('updates_media_inline_text_field')),
+      'Placed text',
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('updates_media_text_done_button')));
+    await tester.pumpAndSettle();
+
+    Border? borderOf(String idFragment) {
+      final shell = tester.widget<AnimatedContainer>(
+        find
+            .descendant(
+              of: find.byWidgetPredicate(
+                (w) => w.key.toString().contains(idFragment),
+              ),
+              matching: find.byType(AnimatedContainer),
+            )
+            .first,
+      );
+      return (shell.decoration! as BoxDecoration).border as Border?;
+    }
+
+    // Select the text overlay.
+    await tester.tap(find.text('Placed text').last, warnIfMissed: false);
+    await tester.pumpAndSettle();
+
+    // Its box is clamped to the media frame, so on text taller than the
+    // frame the border lands on the frame edges and reads as a crop
+    // outline. Text never draws one.
+    expect(
+      borderOf('updates_overlay_item_')?.top.color,
+      Colors.transparent,
+      reason: 'a selected text overlay is drawing a bounding box',
+    );
     expect(tester.takeException(), isNull);
   });
 }

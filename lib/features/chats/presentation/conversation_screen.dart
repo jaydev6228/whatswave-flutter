@@ -486,8 +486,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
     final theme = Theme.of(context);
     final visibleMessages = _visibleMessagesForThread(thread);
     final displayMessages = _displayMessagesForList(visibleMessages);
-    final showOlderLoader =
-        widget.controller.isLoadingOlderMessages(thread.id);
+    final showOlderLoader = widget.controller.isLoadingOlderMessages(thread.id);
 
     // A thread short enough to fit on screen without scrolling should sit at
     // the TOP of the pane (WhatsApp's own behavior), not reverse:true's
@@ -530,140 +529,139 @@ class _ConversationScreenState extends State<ConversationScreen> {
       reverse: true,
       shrinkWrap: isShortThread,
       addRepaintBoundaries: true,
-              findChildIndexCallback: (Key key) {
-                if (key is! ValueKey<String>) {
-                  return null;
-                }
-                final rawId = key.value;
-                const prefix = 'conversation_message_';
-                if (!rawId.startsWith(prefix)) {
-                  return null;
-                }
-                final messageId = rawId.substring(prefix.length);
-                return displayMessages.indexWhere(
-                  (message) => _messageListKeyFor(message) == messageId,
-                );
-              },
-              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-              padding: EdgeInsets.fromLTRB(
-                16,
-                16,
-                16,
-                _messageListBottomPadding,
+      findChildIndexCallback: (Key key) {
+        if (key is! ValueKey<String>) {
+          return null;
+        }
+        final rawId = key.value;
+        const prefix = 'conversation_message_';
+        if (!rawId.startsWith(prefix)) {
+          return null;
+        }
+        final messageId = rawId.substring(prefix.length);
+        return displayMessages.indexWhere(
+          (message) => _messageListKeyFor(message) == messageId,
+        );
+      },
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+      padding: EdgeInsets.fromLTRB(
+        16,
+        16,
+        16,
+        _messageListBottomPadding,
+      ),
+      itemCount: displayMessages.length + (showOlderLoader ? 1 : 0),
+      itemBuilder: (context, index) {
+        // reverse:true -> the extra trailing index is the visual top,
+        // where older history is being paged in.
+        if (index == displayMessages.length) {
+          return const _OlderMessagesLoader();
+        }
+        final message = displayMessages[index];
+        // reverse:true / newest-first: the older neighbour is the next
+        // index. Show a day chip above the first message of each day.
+        final olderMessage = index + 1 < displayMessages.length
+            ? displayMessages[index + 1]
+            : null;
+        final shouldShowDayChip = olderMessage == null ||
+            !_isSameDay(message.sentAt, olderMessage.sentAt);
+        final bubble = _MessageBubble(
+          thread: thread,
+          message: message,
+          highlightMessageIdNotifier: _highlightedMessageIdNotifier,
+          onRetryTap: message.isFromCurrentUser &&
+                  message.deliveryState == MessageDeliveryState.failed &&
+                  _localMessages.any(
+                    (localMessage) => localMessage.id == message.id,
+                  )
+              ? () => _retryFailedMessage(thread.id, message)
+              : null,
+          onAttachmentTap: (attachment) {
+            _handleAttachmentPreviewTap(
+              attachment,
+              threadName: thread.name,
+            );
+          },
+          onReactionTap: (emoji) {
+            widget.controller.toggleMessageReaction(
+              threadId: thread.id,
+              messageId: message.id,
+              emoji: emoji,
+            );
+          },
+          onAction: (action) => _handleMessageAction(
+            action,
+            thread: thread,
+            message: message,
+          ),
+          isStoryReplyAvailable: _isStoryReplyAvailable(message),
+          onStoryReplyCardTap: message.hasStoryReplyContext
+              ? () => _openStoryReplyCard(message.storyReplyContext!)
+              : null,
+          onReplyPreviewTap: _jumpToMessage,
+          isSelectionMode: _isSelecting,
+          isSelected: _selectedMessageIds.contains(message.id),
+          onToggleSelection: () => _toggleMessageSelection(message.id),
+        );
+        final listKey = _messageListKeyFor(message);
+        final shouldAnimateEntry =
+            listKey == _animatedMessageId || message.id == _animatedMessageId;
+        final messageBody = shouldAnimateEntry
+            ? _AnimatedMessageEntry(
+                key: ValueKey('conversation_message_$listKey'),
+                animateOnMount: !_skipNextMessageEntryAnimation,
+                isMine: message.isFromCurrentUser,
+                child: bubble,
+              )
+            : KeyedSubtree(
+                key: ValueKey('conversation_message_$listKey'),
+                child: bubble,
+              );
+
+        // WhatsApp-style swipe-right-to-reply, disabled while
+        // selecting or on a tombstoned message.
+        final swipeableBody = message.isDeleted || _isSelecting
+            ? messageBody
+            : _SwipeToReply(
+                key: ValueKey('swipe_reply_$listKey'),
+                onReply: () => _startReplyingTo(message),
+                child: messageBody,
+              );
+
+        return RepaintBoundary(
+          child: _KeepAliveMessageItem(
+            child: KeyedSubtree(
+              key: _messageKeys.putIfAbsent(
+                message.id,
+                GlobalKey.new,
               ),
-              itemCount: displayMessages.length + (showOlderLoader ? 1 : 0),
-              itemBuilder: (context, index) {
-                // reverse:true -> the extra trailing index is the visual top,
-                // where older history is being paged in.
-                if (index == displayMessages.length) {
-                  return const _OlderMessagesLoader();
-                }
-                final message = displayMessages[index];
-                // reverse:true / newest-first: the older neighbour is the next
-                // index. Show a day chip above the first message of each day.
-                final olderMessage = index + 1 < displayMessages.length
-                    ? displayMessages[index + 1]
-                    : null;
-                final shouldShowDayChip = olderMessage == null ||
-                    !_isSameDay(message.sentAt, olderMessage.sentAt);
-                final bubble = _MessageBubble(
-                  thread: thread,
-                  message: message,
-                  highlightMessageIdNotifier: _highlightedMessageIdNotifier,
-                  onRetryTap: message.isFromCurrentUser &&
-                          message.deliveryState ==
-                              MessageDeliveryState.failed &&
-                          _localMessages.any(
-                            (localMessage) => localMessage.id == message.id,
-                          )
-                      ? () => _retryFailedMessage(thread.id, message)
-                      : null,
-                  onAttachmentTap: (attachment) {
-                    _handleAttachmentPreviewTap(
-                      attachment,
-                      threadName: thread.name,
-                    );
-                  },
-                  onReactionTap: (emoji) {
-                    widget.controller.toggleMessageReaction(
-                      threadId: thread.id,
-                      messageId: message.id,
-                      emoji: emoji,
-                    );
-                  },
-                  onAction: (action) => _handleMessageAction(
-                    action,
-                    thread: thread,
-                    message: message,
-                  ),
-                  isStoryReplyAvailable: _isStoryReplyAvailable(message),
-                  onStoryReplyCardTap: message.hasStoryReplyContext
-                      ? () => _openStoryReplyCard(message.storyReplyContext!)
-                      : null,
-                  onReplyPreviewTap: _jumpToMessage,
-                  isSelectionMode: _isSelecting,
-                  isSelected: _selectedMessageIds.contains(message.id),
-                  onToggleSelection: () => _toggleMessageSelection(message.id),
-                );
-                final listKey = _messageListKeyFor(message);
-                final shouldAnimateEntry = listKey == _animatedMessageId ||
-                    message.id == _animatedMessageId;
-                final messageBody = shouldAnimateEntry
-                    ? _AnimatedMessageEntry(
-                        key: ValueKey('conversation_message_$listKey'),
-                        animateOnMount: !_skipNextMessageEntryAnimation,
-                        isMine: message.isFromCurrentUser,
-                        child: bubble,
-                      )
-                    : KeyedSubtree(
-                        key: ValueKey('conversation_message_$listKey'),
-                        child: bubble,
-                      );
-
-                // WhatsApp-style swipe-right-to-reply, disabled while
-                // selecting or on a tombstoned message.
-                final swipeableBody = message.isDeleted || _isSelecting
-                    ? messageBody
-                    : _SwipeToReply(
-                        key: ValueKey('swipe_reply_$listKey'),
-                        onReply: () => _startReplyingTo(message),
-                        child: messageBody,
-                      );
-
-                return RepaintBoundary(
-                  child: _KeepAliveMessageItem(
-                    child: KeyedSubtree(
-                      key: _messageKeys.putIfAbsent(
-                        message.id,
-                        GlobalKey.new,
-                      ),
-                      child: Column(
-                        children: [
-                          if (shouldShowDayChip)
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 14),
-                              child: _DayDivider(
-                                label: _dayLabelFor(message.sentAt),
-                              ),
-                            ),
-                          swipeableBody,
-                          // Trailing gap below each bubble. reverse:true means
-                          // index 0 is the newest (screen bottom); skip its
-                          // trailing spacer since the list's own bottom padding
-                          // handles the gap above the composer. The reaction
-                          // case stays taller -- the reaction badge overlays
-                          // below the bubble (Positioned bottom: -22) and
-                          // needs that clearance to avoid clipping into the
-                          // next message.
-                          if (index != 0)
-                            SizedBox(height: message.hasReactions ? 30 : 6),
-                        ],
+              child: Column(
+                children: [
+                  if (shouldShowDayChip)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 14),
+                      child: _DayDivider(
+                        label: _dayLabelFor(message.sentAt),
                       ),
                     ),
-                  ),
-                );
-              },
-            );
+                  swipeableBody,
+                  // Trailing gap below each bubble. reverse:true means
+                  // index 0 is the newest (screen bottom); skip its
+                  // trailing spacer since the list's own bottom padding
+                  // handles the gap above the composer. The reaction
+                  // case stays taller -- the reaction badge overlays
+                  // below the bubble (Positioned bottom: -22) and
+                  // needs that clearance to avoid clipping into the
+                  // next message.
+                  if (index != 0)
+                    SizedBox(height: message.hasReactions ? 30 : 6),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
 
     return SafeArea(
       bottom: false,
@@ -779,26 +777,51 @@ class _ConversationScreenState extends State<ConversationScreen> {
     );
   }
 
+  /// The live story this reply points at, or null once it is gone.
+  ///
+  /// Matched on the status item the reply was actually sent from, not just
+  /// its owner: resolving by owner meant a reply to a status that had long
+  /// since been deleted opened whatever unrelated thing that person had
+  /// posted in the meantime.
+  StatusStory? _storyForReply(StoryReplyContext replyContext) {
+    final story =
+        widget.updatesController.storyForOwnerUid(replyContext.storyOwnerUid);
+    if (story == null) {
+      return null;
+    }
+    final segmentId = replyContext.segmentId;
+    if (segmentId == null) {
+      // Written before segment ids were recorded -- keep the old behaviour
+      // rather than turning every old reply into a dead link.
+      return story;
+    }
+    final stillLive = story.segments.any((segment) => segment.id == segmentId);
+    return stillLive ? story : null;
+  }
+
   bool _isStoryReplyAvailable(ChatMessage message) {
     final replyContext = message.storyReplyContext;
     if (replyContext == null) {
       return false;
     }
-    return widget.updatesController
-            .storyForOwnerUid(replyContext.storyOwnerUid) !=
-        null;
+    return _storyForReply(replyContext) != null;
   }
 
   Future<void> _openStoryReplyCard(StoryReplyContext replyContext) async {
-    final story =
-        widget.updatesController.storyForOwnerUid(replyContext.storyOwnerUid);
+    final story = _storyForReply(replyContext);
     if (story == null) {
       return;
     }
+    // Open the item that was replied to, not the ring's first one.
+    final segmentId = replyContext.segmentId;
+    final index = segmentId == null
+        ? null
+        : story.segments.indexWhere((segment) => segment.id == segmentId);
     await openStatusStoryViewer(
       context,
       controller: widget.updatesController,
       story: story,
+      initialSegmentIndex: index != null && index >= 0 ? index : null,
       chatsController: widget.controller,
     );
   }
@@ -901,9 +924,8 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
       final estimatedOffset =
           (targetIndex / (displayMessages.length - 1)) * maxExtent;
-      final viewportExtent = metrics.viewportDimension > 0
-          ? metrics.viewportDimension
-          : 700.0;
+      final viewportExtent =
+          metrics.viewportDimension > 0 ? metrics.viewportDimension : 700.0;
 
       // Try the estimate, then widen outward (further/nearer in the list) in
       // case item-height variance threw the estimate off.
@@ -1714,7 +1736,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
     final forEveryone = await showDialog<bool>(
       context: context,
       builder: (dialogContext) {
-        return AlertDialog(
+        return LiquidGlassDialog(
           title: Text(
             count == 1 ? 'Delete message?' : 'Delete $count messages?',
           ),
@@ -1865,7 +1887,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) {
-        return AlertDialog(
+        return LiquidGlassDialog(
           title: Text(forEveryone ? 'Delete for everyone?' : 'Delete message?'),
           content: Text(
             forEveryone

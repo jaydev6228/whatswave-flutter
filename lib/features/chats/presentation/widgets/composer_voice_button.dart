@@ -183,7 +183,9 @@ class _ComposerVoiceButtonState extends State<ComposerVoiceButton> {
                         ),
                         const SizedBox(width: 12),
                         Text(
-                          _cancelPending ? 'Release to cancel' : 'Release to send',
+                          _cancelPending
+                              ? 'Release to cancel'
+                              : 'Release to send',
                           style: theme.textTheme.labelSmall?.copyWith(
                             color: theme.colorScheme.onSurface
                                 .withValues(alpha: 0.64),
@@ -255,7 +257,8 @@ class _ComposerVoiceButtonState extends State<ComposerVoiceButton> {
         _suppressTap = false;
       },
       child: Transform.translate(
-        offset: Offset(_longPressActive ? _dragOffsetX.clamp(-96.0, 0.0) : 0, 0),
+        offset:
+            Offset(_longPressActive ? _dragOffsetX.clamp(-96.0, 0.0) : 0, 0),
         child: IgnorePointer(
           child: LiquidGlassIconButton(
             icon: Icons.mic_rounded,

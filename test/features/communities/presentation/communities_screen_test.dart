@@ -121,8 +121,7 @@ void main() {
     );
   });
 
-  testWidgets(
-      'tapping a group preview with a real thread opens a conversation',
+  testWidgets('tapping a group preview with a real thread opens a conversation',
       (tester) async {
     final matchedContacts = DemoData.buildCommunityContacts().map((contact) {
       if (contact.id != 'priya-rai') {
@@ -167,7 +166,8 @@ void main() {
     await tester.tap(find.byKey(Key('community_card_$targetCommunityId')));
     await tester.pumpAndSettle();
 
-    final groupId = controller.communityById(targetCommunityId)!.groups.first.id;
+    final groupId =
+        controller.communityById(targetCommunityId)!.groups.first.id;
     await _scrollUntilVisibleInSheet(
       tester,
       sheetKey: const Key('community_detail_screen'),
@@ -176,7 +176,8 @@ void main() {
     await tester.tap(find.byKey(Key('community_detail_group_$groupId')));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('conversation_composer_field')), findsOneWidget);
+    expect(
+        find.byKey(const Key('conversation_composer_field')), findsOneWidget);
   });
 
   testWidgets('shows an error card and retries after a failed load',

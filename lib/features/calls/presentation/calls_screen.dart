@@ -14,6 +14,7 @@ import '../domain/call_contact.dart';
 import '../domain/call_history_entry.dart';
 import 'call_flow.dart';
 import 'calls_contact_search.dart';
+import 'package:whatswave/features/shared/widgets/liquid_glass.dart';
 
 const double _kCallsScreenHorizontalPadding = 16;
 const double _kCallsRowHorizontalPadding = 18;
@@ -249,8 +250,7 @@ class _CallsScreenState extends State<CallsScreen> {
                                 foregroundColor:
                                     theme.colorScheme.onErrorContainer,
                               ),
-                              confirmDismiss: (_) =>
-                                  _confirmDeleteCall(entry),
+                              confirmDismiss: (_) => _confirmDeleteCall(entry),
                               onDismissed: (_) {
                                 widget.controller.deleteHistoryEntry(
                                   entry.id,
@@ -342,7 +342,7 @@ class _CallsScreenState extends State<CallsScreen> {
     final result = await showDialog<bool>(
       context: context,
       builder: (dialogContext) {
-        return AlertDialog(
+        return LiquidGlassDialog(
           title: const Text('Delete this call?'),
           content: Text(
             'This removes the call with ${entry.name} from your recent calls.',
@@ -464,9 +464,8 @@ class _RecentCallCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isMissed = entry.logDisplayKind == CallLogDisplayKind.missed;
-    final arrowColor = isMissed
-        ? theme.colorScheme.error
-        : theme.colorScheme.primary;
+    final arrowColor =
+        isMissed ? theme.colorScheme.error : theme.colorScheme.primary;
     final subtitle = entry.durationSeconds > 0
         ? '${_formatRelativeTime(entry.startedAt)} • ${_formatDuration(entry.durationSeconds)}'
         : _formatRelativeTime(entry.startedAt);
@@ -504,9 +503,8 @@ class _RecentCallCard extends StatelessWidget {
                                 overflow: TextOverflow.ellipsis,
                                 style: theme.textTheme.titleSmall?.copyWith(
                                   fontWeight: FontWeight.w800,
-                                  color: isMissed
-                                      ? theme.colorScheme.error
-                                      : null,
+                                  color:
+                                      isMissed ? theme.colorScheme.error : null,
                                 ),
                               ),
                             ),

@@ -198,8 +198,7 @@ class _BackendSyncScreenState extends State<BackendSyncScreen> {
                                         'backend_sync_test_crash_button'),
                                     onPressed: () =>
                                         FirebaseCrashlytics.instance.crash(),
-                                    icon: const Icon(
-                                        Icons.bug_report_outlined),
+                                    icon: const Icon(Icons.bug_report_outlined),
                                     label: const Text('Send test crash'),
                                   ),
                                   const SizedBox(height: 8),
@@ -213,7 +212,8 @@ class _BackendSyncScreenState extends State<BackendSyncScreen> {
                                       ),
                                     ),
                                     icon: const Icon(Icons.videocam_outlined),
-                                    label: const Text('Test LiveKit connection'),
+                                    label:
+                                        const Text('Test LiveKit connection'),
                                   ),
                                   const SizedBox(height: 8),
                                   OutlinedButton.icon(
@@ -234,8 +234,7 @@ class _BackendSyncScreenState extends State<BackendSyncScreen> {
                                       ),
                                     ),
                                     icon: const Icon(Icons.call_outlined),
-                                    label:
-                                        const Text('Test call signaling'),
+                                    label: const Text('Test call signaling'),
                                   ),
                                 ],
                               ),

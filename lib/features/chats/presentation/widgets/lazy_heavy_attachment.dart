@@ -66,7 +66,8 @@ class LazyLocationMapSnippet extends StatelessWidget {
       child: DeferredHeavyAttachment(
         key: ValueKey('lazy_map_${latitude}_$longitude'),
         placeholder: ColoredBox(
-          color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
+          color:
+              theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
           child: Center(
             child: Icon(
               Icons.location_on_rounded,

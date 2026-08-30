@@ -34,8 +34,7 @@ void main() {
       expect(find.text('0:07'), findsOneWidget);
     });
 
-    testWidgets(
-        'shows the speed button from the start, defaulted to 1x',
+    testWidgets('shows the speed button from the start, defaulted to 1x',
         (tester) async {
       await pumpBubble(tester);
 

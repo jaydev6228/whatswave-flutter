@@ -87,9 +87,7 @@ class ChatThread {
     final uids = participantUids ??
         participants?.map((participant) => participant.uid).toList() ??
         const <String>[];
-    return uids
-        .where((uid) => uid != currentUid)
-        .toList(growable: false);
+    return uids.where((uid) => uid != currentUid).toList(growable: false);
   }
 
   ChatMessage? get latestMessage => messages.isEmpty ? null : messages.last;

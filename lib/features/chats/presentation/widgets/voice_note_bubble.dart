@@ -233,8 +233,7 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
                       return _PlaybackWaveform(
                         samples: _waveform,
                         progress: animatedProgress,
-                        playedColor:
-                            widget.contentColor.withValues(alpha: 0.9),
+                        playedColor: widget.contentColor.withValues(alpha: 0.9),
                         unplayedColor:
                             widget.contentColor.withValues(alpha: 0.3),
                         knobColor: theme.colorScheme.primary,

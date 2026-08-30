@@ -44,8 +44,8 @@ Future<AvatarPhotoSheetAction?> showAvatarPhotoOptionsSheet(
                     color: Theme.of(sheetContext).colorScheme.error,
                   ),
                 ),
-                onTap: () =>
-                    Navigator.of(sheetContext).pop(AvatarPhotoSheetAction.remove),
+                onTap: () => Navigator.of(sheetContext)
+                    .pop(AvatarPhotoSheetAction.remove),
               ),
             const SizedBox(height: 8),
           ],

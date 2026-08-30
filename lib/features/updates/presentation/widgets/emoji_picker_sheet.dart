@@ -253,6 +253,86 @@ const List<EmojiCategory> kStatusEmojiCategories = <EmojiCategory>[
 /// the media composer and the text-status composer so both offer the same
 /// full, categorized emoji set (matching WhatsApp's own "add an emoji"
 /// action) instead of two divergent hand-picked lists.
+/// The emoji grid both status composers show, as list children.
+///
+/// One source rather than two near-identical copies: the media composer's
+/// stickers sheet and the text composer's emoji sheet had the same sixty
+/// lines of grid each, so a change to one silently left the other behind.
+///
+/// Returns children to spread into the caller's ListView rather than a
+/// single Column widget. A Column would be one list child, so the whole
+/// emoji set would build and lay out at once instead of the list inflating
+/// only what is on screen.
+List<Widget> buildStatusEmojiCategories(
+  BuildContext context, {
+  List<EmojiCategory> categories = kStatusEmojiCategories,
+  int startIndex = 0,
+}) {
+  final theme = Theme.of(context);
+  var flatIndex = startIndex;
+
+  return [
+    for (final category in categories) ...[
+      Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Text(
+          category.label,
+          style: theme.textTheme.labelLarge?.copyWith(
+            fontWeight: FontWeight.w800,
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+          ),
+        ),
+      ),
+      // A fixed-column grid (not an organic Wrap) so every row lines up
+      // identically and the last column never leaves an inconsistent gap
+      // on the right -- the exact "layout issue on right side" a Wrap
+      // risks once the available width doesn't divide evenly into whole
+      // items.
+      GridView.builder(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        itemCount: category.emoji.length,
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: 6,
+          mainAxisSpacing: 10,
+          crossAxisSpacing: 10,
+          childAspectRatio: 1,
+        ),
+        itemBuilder: (context, i) {
+          final emoji = category.emoji[i];
+          final index = flatIndex++;
+          return InkWell(
+            key: Key('updates_media_emoji_option_$index'),
+            onTap: () => Navigator.of(context).pop(emoji),
+            borderRadius: BorderRadius.circular(16),
+            child: Container(
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerHighest
+                    .withValues(alpha: 0.52),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Center(
+                child: usesTwemoji(theme.platform)
+                    ? Semantics(
+                        label: emoji,
+                        child: ExcludeSemantics(
+                          child: Twemoji(emoji: emoji, width: 26, height: 26),
+                        ),
+                      )
+                    : Text(
+                        emoji,
+                        style: emojiPreviewTextStyle(context, fontSize: 26),
+                      ),
+              ),
+            ),
+          );
+        },
+      ),
+      const SizedBox(height: 18),
+    ],
+  ];
+}
+
 class EmojiPickerSheet extends StatelessWidget {
   const EmojiPickerSheet({
     this.emojiCategories = kStatusEmojiCategories,
@@ -263,100 +343,17 @@ class EmojiPickerSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    var flatIndex = 0;
-
     return FractionallySizedBox(
       heightFactor: 0.62,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Add emoji',
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-            const SizedBox(height: 14),
-            Expanded(
-              child: ListView(
-                key: const Key('updates_media_emoji_category_list'),
-                children: [
-                  for (final category in emojiCategories) ...[
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: Text(
-                        category.label,
-                        style: theme.textTheme.labelLarge?.copyWith(
-                          fontWeight: FontWeight.w800,
-                          color: theme.colorScheme.onSurface
-                              .withValues(alpha: 0.6),
-                        ),
-                      ),
-                    ),
-                    // A fixed-column grid (not an organic Wrap) so every
-                    // row lines up identically and the last column never
-                    // leaves an inconsistent gap on the right -- the exact
-                    // "layout issue on right side" a Wrap risks once the
-                    // available width doesn't divide evenly into whole
-                    // items.
-                    GridView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: category.emoji.length,
-                      gridDelegate:
-                          const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 6,
-                        mainAxisSpacing: 10,
-                        crossAxisSpacing: 10,
-                        childAspectRatio: 1,
-                      ),
-                      itemBuilder: (context, i) {
-                        final emoji = category.emoji[i];
-                        final index = flatIndex++;
-                        return InkWell(
-                          key: Key('updates_media_emoji_option_$index'),
-                          onTap: () => Navigator.of(context).pop(emoji),
-                          borderRadius: BorderRadius.circular(16),
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: theme.colorScheme.surfaceContainerHighest
-                                  .withValues(alpha: 0.52),
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                            child: Center(
-                              child: usesTwemoji(theme.platform)
-                                  ? Semantics(
-                                      label: emoji,
-                                      child: ExcludeSemantics(
-                                        child: Twemoji(
-                                          emoji: emoji,
-                                          width: 26,
-                                          height: 26,
-                                        ),
-                                      ),
-                                    )
-                                  : Text(
-                                      emoji,
-                                      style: emojiPreviewTextStyle(
-                                        context,
-                                        fontSize: 26,
-                                      ),
-                                    ),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 18),
-                  ],
-                ],
-              ),
-            ),
-          ],
+        // No title: the button that opened this already said what it is.
+        child: ListView(
+          key: const Key('updates_media_emoji_category_list'),
+          children: buildStatusEmojiCategories(
+            context,
+            categories: emojiCategories,
+          ),
         ),
       ),
     );

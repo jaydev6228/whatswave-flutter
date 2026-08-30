@@ -409,7 +409,8 @@ class AuthController extends ChangeNotifier {
     } on AuthException catch (error) {
       _errorMessage = error.message;
     } catch (_) {
-      _errorMessage = 'We could not update your profile photo. Please try again.';
+      _errorMessage =
+          'We could not update your profile photo. Please try again.';
     }
 
     _setBusy(false);
@@ -437,7 +438,8 @@ class AuthController extends ChangeNotifier {
     } on AuthException catch (error) {
       _errorMessage = error.message;
     } catch (_) {
-      _errorMessage = 'We could not remove your profile photo. Please try again.';
+      _errorMessage =
+          'We could not remove your profile photo. Please try again.';
     }
 
     _setBusy(false);

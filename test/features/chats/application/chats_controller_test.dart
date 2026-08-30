@@ -538,8 +538,7 @@ void main() {
       );
       expect(didSendFile, isTrue);
 
-      final afterFile =
-          controller.threadById('ava-patel')!.messages.length;
+      final afterFile = controller.threadById('ava-patel')!.messages.length;
       expect(afterFile, greaterThan(messagesBefore));
 
       final didSendText = await controller.sendTextMessage(
@@ -553,7 +552,8 @@ void main() {
       );
     });
 
-    test('watchThreads summary update does not shrink visible history', () async {
+    test('watchThreads summary update does not shrink visible history',
+        () async {
       final repo = _WatchSummaryRepository(
         delegate: FakeChatRepository(
           initialThreads: DemoData.buildChatThreads(),
@@ -563,8 +563,7 @@ void main() {
       final controller = ChatsController(repository: repo);
 
       await controller.loadThreads();
-      final countBefore =
-          controller.threadById('ava-patel')!.messages.length;
+      final countBefore = controller.threadById('ava-patel')!.messages.length;
       expect(countBefore, greaterThan(1));
       expect(controller.hasFullyLoadedMessages('ava-patel'), isFalse);
 
@@ -577,8 +576,7 @@ void main() {
       );
     });
 
-    test(
-        'deleteMessage removes message optimistically on fully loaded thread',
+    test('deleteMessage removes message optimistically on fully loaded thread',
         () async {
       await controller.loadThreads();
       await controller.ensureThreadMessagesLoaded('ava-patel');
@@ -638,8 +636,7 @@ void main() {
       );
     });
 
-    test(
-        'background sync does not rebuild when server history already matches',
+    test('background sync does not rebuild when server history already matches',
         () async {
       final fullThreads = DemoData.buildChatThreads();
       final controller = ChatsController(
@@ -676,10 +673,12 @@ void main() {
 
       final didDelete = await controller.deleteThread('ava-patel');
       expect(didDelete, isTrue);
-      expect(controller.isStoryHidden(
-        avatarLabel: ava.avatarLabel,
-        name: ava.name,
-      ), isTrue);
+      expect(
+          controller.isStoryHidden(
+            avatarLabel: ava.avatarLabel,
+            name: ava.name,
+          ),
+          isTrue);
 
       final threadId = await controller.startThreadWith(
         participantUid: 'uid-ava-patel',
@@ -689,17 +688,20 @@ void main() {
       );
       expect(threadId, 'ava-patel');
       expect(controller.threadById('ava-patel'), isNotNull);
-      expect(controller.isStoryHidden(
-        avatarLabel: ava.avatarLabel,
-        name: 'Ava',
-      ), isFalse);
+      expect(
+          controller.isStoryHidden(
+            avatarLabel: ava.avatarLabel,
+            name: 'Ava',
+          ),
+          isFalse);
     });
 
     test(
         'pages older message history in as the window grows, then stops '
         'once the thread is exhausted', () async {
       final pagedController = ChatsController(
-        repository: _SummaryInboxRepository([_threadWithMessages('paged', 120)]),
+        repository:
+            _SummaryInboxRepository([_threadWithMessages('paged', 120)]),
       );
       addTearDown(pagedController.dispose);
 

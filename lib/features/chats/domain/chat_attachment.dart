@@ -6,7 +6,15 @@ enum ChatAttachmentType { photo, video, file, location, voiceNote }
 /// its filename extension -- drives which icon/color/preview strategy a
 /// document attachment gets (see [documentKindVisual] and
 /// [AttachmentViewerScreen]'s document canvas).
-enum ChatDocumentKind { pdf, word, spreadsheet, presentation, text, image, generic }
+enum ChatDocumentKind {
+  pdf,
+  word,
+  spreadsheet,
+  presentation,
+  text,
+  image,
+  generic
+}
 
 const Map<String, ChatDocumentKind> _documentKindByExtension = {
   '.pdf': ChatDocumentKind.pdf,
@@ -38,13 +46,28 @@ const Map<String, ChatDocumentKind> _documentKindByExtension = {
   Color fallbackTint,
 ) {
   return switch (kind) {
-    ChatDocumentKind.pdf => (Icons.picture_as_pdf_rounded, const Color(0xFFE2483D)),
-    ChatDocumentKind.word => (Icons.description_rounded, const Color(0xFF2B7DE9)),
-    ChatDocumentKind.spreadsheet => (Icons.table_chart_rounded, const Color(0xFF1F9D55)),
-    ChatDocumentKind.presentation => (Icons.slideshow_rounded, const Color(0xFFE8710A)),
+    ChatDocumentKind.pdf => (
+        Icons.picture_as_pdf_rounded,
+        const Color(0xFFE2483D)
+      ),
+    ChatDocumentKind.word => (
+        Icons.description_rounded,
+        const Color(0xFF2B7DE9)
+      ),
+    ChatDocumentKind.spreadsheet => (
+        Icons.table_chart_rounded,
+        const Color(0xFF1F9D55)
+      ),
+    ChatDocumentKind.presentation => (
+        Icons.slideshow_rounded,
+        const Color(0xFFE8710A)
+      ),
     ChatDocumentKind.text => (Icons.article_outlined, const Color(0xFF6B7280)),
     ChatDocumentKind.image => (Icons.image_outlined, fallbackTint),
-    ChatDocumentKind.generic => (Icons.insert_drive_file_outlined, fallbackTint),
+    ChatDocumentKind.generic => (
+        Icons.insert_drive_file_outlined,
+        fallbackTint
+      ),
   };
 }
 

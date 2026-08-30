@@ -19,6 +19,7 @@ import '../domain/group_participant.dart';
 import 'add_group_members_screen.dart';
 import 'shared_media_screen.dart';
 import 'starred_messages_screen.dart';
+import 'package:whatswave/features/shared/widgets/liquid_glass.dart';
 
 /// WhatsApp-style contact info: shared media, common groups, and
 /// destructive actions (clear chat, block), reached by tapping the
@@ -140,8 +141,7 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
         final canEditGroup = thread.isGroup &&
             thread.currentUserIsGroupAdmin &&
             !isCommunityAnnouncement;
-        final isGroupIconBusy =
-            widget.controller.isThreadBusy(thread.id);
+        final isGroupIconBusy = widget.controller.isThreadBusy(thread.id);
 
         return Scaffold(
           appBar: AppBar(
@@ -150,9 +150,8 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
               if (canEditGroup && !_isEditingGroup)
                 TextButton(
                   key: const Key('contact_info_edit_button'),
-                  onPressed: isGroupIconBusy
-                      ? null
-                      : () => _startGroupEdit(thread),
+                  onPressed:
+                      isGroupIconBusy ? null : () => _startGroupEdit(thread),
                   child: const Text('Edit'),
                 ),
               if (_isEditingGroup) ...[
@@ -163,9 +162,8 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                 ),
                 TextButton(
                   key: const Key('contact_info_save_button'),
-                  onPressed: isGroupIconBusy
-                      ? null
-                      : () => _saveGroupEdit(thread),
+                  onPressed:
+                      isGroupIconBusy ? null : () => _saveGroupEdit(thread),
                   child: isGroupIconBusy
                       ? const SizedBox(
                           width: 18,
@@ -573,7 +571,7 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) {
-        return AlertDialog(
+        return LiquidGlassDialog(
           title: const Text('Clear this chat?'),
           content: Text(
             'Messages with ${thread.name} will be removed from this device. '
@@ -606,7 +604,7 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) {
-        return AlertDialog(
+        return LiquidGlassDialog(
           title: Text(
             willBlock ? 'Block ${thread.name}?' : 'Unblock ${thread.name}?',
           ),
@@ -887,7 +885,7 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) {
-        return AlertDialog(
+        return LiquidGlassDialog(
           title: Text('Remove ${participant.name}?'),
           content: Text(
             '${participant.name} will be removed from ${thread.name}.',
@@ -921,7 +919,7 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) {
-        return AlertDialog(
+        return LiquidGlassDialog(
           title: const Text('Exit group?'),
           content: Text(
             "You'll no longer receive messages from ${thread.name}.",
@@ -1019,8 +1017,8 @@ class _CommunityLinkRow extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurface
-                            .withValues(alpha: 0.64),
+                        color:
+                            theme.colorScheme.onSurface.withValues(alpha: 0.64),
                       ),
                     ),
                   ],

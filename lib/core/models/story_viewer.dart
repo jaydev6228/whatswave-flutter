@@ -12,6 +12,7 @@ class StoryViewer {
     this.avatarUrl,
     this.viewedAt,
     this.likedSegmentIds = const <String>[],
+    this.viewedSegmentIds = const <String>[],
     this.seenSegments = 0,
   });
 
@@ -29,10 +30,22 @@ class StoryViewer {
   /// the whole story ring.
   final List<String> likedSegmentIds;
 
-  /// How many segments this viewer has watched through -- used to decide
-  /// whether they count toward a specific segment's view total (WhatsApp
-  /// tracks views per status item, not once for the whole story ring).
+  /// Segment ids this viewer actually watched.
+  ///
+  /// Views are per status item, so they are recorded by id -- the same way
+  /// likes are. A plain count could not distinguish items: it was read as
+  /// "has seen at least N segments", so anyone who watched a story that
+  /// has since been deleted still counted toward the first segment of the
+  /// next one, and a brand-new status opened showing views it never had.
+  final List<String> viewedSegmentIds;
+
+  /// How many segments this viewer has watched through.
+  ///
+  /// Retained for the story-ring seen/unseen state. Deliberately *not*
+  /// used to decide per-segment view totals -- see [viewedSegmentIds].
   final int seenSegments;
 
   bool likedSegment(String segmentId) => likedSegmentIds.contains(segmentId);
+
+  bool viewedSegment(String segmentId) => viewedSegmentIds.contains(segmentId);
 }

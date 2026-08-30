@@ -89,8 +89,8 @@ class StorageDataScreen extends StatelessWidget {
                     color: theme.colorScheme.surface,
                     borderRadius: BorderRadius.circular(18),
                     border: Border.all(
-                      color:
-                          theme.colorScheme.outlineVariant.withValues(alpha: 0.24),
+                      color: theme.colorScheme.outlineVariant
+                          .withValues(alpha: 0.24),
                     ),
                   ),
                   child: SettingsTile(
@@ -103,7 +103,8 @@ class StorageDataScreen extends StatelessWidget {
                     trailing: Switch.adaptive(
                       key: const Key('storage_auto_download_switch'),
                       value: preferencesController.mediaAutoDownloadEnabled,
-                      onChanged: preferencesController.setMediaAutoDownloadEnabled,
+                      onChanged:
+                          preferencesController.setMediaAutoDownloadEnabled,
                     ),
                   ),
                 ),

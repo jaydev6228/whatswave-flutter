@@ -4,11 +4,10 @@ import 'package:flutter/material.dart';
 
 import '../../../app/theme/app_palette.dart';
 import '../../../core/models/status_story.dart';
-import '../../shared/widgets/liquid_glass.dart';
 import 'status_motion.dart';
 import 'status_system_chrome.dart';
 import 'widgets/emoji_picker_sheet.dart';
-import 'widgets/status_composer_glass_button.dart';
+import 'widgets/status_chrome.dart';
 import 'widgets/status_media_decoration_overlay.dart';
 import 'widgets/text_status_canvas.dart';
 import 'widgets/status_text_editing_tools.dart';
@@ -40,7 +39,7 @@ class TextStatusComposerScreen extends StatefulWidget {
 
 /// The font swatch row's height and the colour rail's width -- the editor
 /// card reserves exactly these so the three controls never overlap.
-const double _kTextFontRowHeight = 56;
+const double _kTextFontRowHeight = kStatusTextFontRowHeight;
 const double _kTextRailWidth = 34;
 
 /// Height of the floating top chrome (8pt padding + a 48pt tap target +
@@ -48,7 +47,7 @@ const double _kTextRailWidth = 34;
 /// to run up under the Share button, where Share won the hit test and the
 /// top of the track simply did not respond to drags.
 const double _kTextChromeHeight = 64;
-const double _kTextSizeRowHeight = 48;
+const double _kTextSizeRowHeight = kStatusTextSizeRowHeight;
 
 /// The floating send button, matched to the media composer's so both
 /// composers end on the same primary action. It sits bottom-right rather
@@ -268,19 +267,19 @@ class _TextStatusComposerScreenState extends State<TextStatusComposerScreen> {
                 Positioned(
                   right: 16,
                   bottom: sendButtonBottom,
-                  // No fade and no keyboard offset: the button stays put.
+                  // No keyboard offset: the button stays put. It does fade
+                  // while the status is empty -- at full strength it looked
+                  // live but did nothing, since there is nothing to send.
                   child: SafeArea(
                     top: false,
-                    child: LiquidGlassIconButton(
-                      actionKey: const Key('updates_share_status_button'),
-                      icon: Icons.send_rounded,
-                      tooltip: 'Share status',
-                      onTap: _canShare ? _share : null,
-                      size: _kTextSendButtonSize,
-                      iconSize: 24,
-                      iconColor: Colors.white,
-                      color: AppPalette.emerald.withValues(alpha: 0.86),
-                      borderColor: Colors.white.withValues(alpha: 0.22),
+                    child: AnimatedOpacity(
+                      duration: kStatusMotionDuration,
+                      curve: kStatusMotionCurve,
+                      opacity: _canShare ? 1 : 0.35,
+                      child: StatusChromeSendButton(
+                        actionKey: const Key('updates_share_status_button'),
+                        onTap: _canShare ? _share : null,
+                      ),
                     ),
                   ),
                 ),
@@ -296,7 +295,7 @@ class _TextStatusComposerScreenState extends State<TextStatusComposerScreen> {
                       child: Row(
                         spacing: 8,
                         children: [
-                          StatusComposerGlassButton(
+                          StatusChromeButton(
                             key: const Key('updates_close_composer_button'),
                             tooltip: 'Close',
                             icon: Icons.close_rounded,
@@ -327,7 +326,7 @@ class _TextStatusComposerScreenState extends State<TextStatusComposerScreen> {
                                         scrollDirection: Axis.horizontal,
                                         reverse: true,
                                         child: Row(spacing: 8, children: [
-                                          StatusComposerGlassButton(
+                                          StatusChromeButton(
                                             key: const Key(
                                                 'updates_cycle_font_button'),
                                             tooltip: 'Text alignment',
@@ -336,7 +335,7 @@ class _TextStatusComposerScreenState extends State<TextStatusComposerScreen> {
                                             onTap: () =>
                                                 _restyle(_cycleAlignment),
                                           ),
-                                          StatusComposerGlassButton(
+                                          StatusChromeButton(
                                             key: const Key(
                                                 'updates_text_decoration_button'),
                                             tooltip: 'Text background',
@@ -348,7 +347,7 @@ class _TextStatusComposerScreenState extends State<TextStatusComposerScreen> {
                                             onTap: () =>
                                                 _restyle(_toggleTextBackground),
                                           ),
-                                          StatusComposerGlassButton(
+                                          StatusChromeButton(
                                             key: const Key(
                                                 'updates_cycle_background_button'),
                                             tooltip: 'Change background color',
@@ -356,14 +355,14 @@ class _TextStatusComposerScreenState extends State<TextStatusComposerScreen> {
                                             onTap: () =>
                                                 _restyle(_cycleBackground),
                                           ),
-                                          StatusComposerGlassButton(
+                                          StatusChromeButton(
                                             key: const Key(
                                                 'updates_add_text_emoji_button'),
                                             tooltip: 'Add emoji',
                                             icon: Icons.emoji_emotions_outlined,
                                             onTap: _openEmojiPicker,
                                           ),
-                                          StatusComposerGlassButton(
+                                          StatusChromeButton(
                                             key: const Key(
                                                 'updates_randomize_text_style_button'),
                                             tooltip: 'Shuffle style',
@@ -597,14 +596,18 @@ class _TextStatusComposerScreenState extends State<TextStatusComposerScreen> {
   }
 
   Future<void> _openEmojiPicker() async {
-    final theme = Theme.of(context);
     final emoji = await showModalBottomSheet<String>(
       context: context,
       useSafeArea: true,
       isScrollControlled: true,
-      showDragHandle: true,
-      backgroundColor: theme.colorScheme.surface,
-      builder: (context) => const EmojiPickerSheet(),
+      // Transparent so the sheet's own glass shows the story behind it.
+      // Explicitly off, overriding the app theme's global
+      // showDragHandle: true. StatusChromeSheet draws its own handle
+      // inside the glass -- Flutter's renders in the sheet's own area,
+      // which is transparent here, so both showed at once.
+      showDragHandle: false,
+      backgroundColor: Colors.transparent,
+      builder: (context) => const StatusChromeSheet(child: EmojiPickerSheet()),
     );
     if (!mounted || emoji == null || emoji.isEmpty) {
       return;

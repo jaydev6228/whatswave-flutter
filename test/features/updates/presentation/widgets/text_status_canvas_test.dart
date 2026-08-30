@@ -10,17 +10,15 @@ import 'package:whatswave/features/updates/presentation/widgets/text_status_canv
 
 void main() {
   testWidgets(
-      'no background decoration paints inside the status bar band, so the '
-      'shuffle design cannot sit behind the clock, wifi or battery',
-      (tester) async {
+      'the canvas background is the gradient and nothing else, in every '
+      'layout', (tester) async {
     const topInset = 59.0; // Dynamic Island.
     const size = Size(393, 852);
     await tester.binding.setSurfaceSize(size);
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
-    // Renders `child` full screen and returns the raw pixels of the band
-    // the OS status bar occupies.
-    Future<Uint8List> statusBandOf(Widget child) async {
+    // Renders `child` full screen and returns its raw pixels.
+    Future<Uint8List> pixelsOf(Widget child) async {
       await tester.pumpWidget(
         MediaQuery(
           data: const MediaQueryData(
@@ -50,21 +48,21 @@ void main() {
       );
       image.dispose();
       final all = data!.buffer.asUint8List();
-      // Every row above the inset, all four channels.
-      return Uint8List.fromList(
-        all.sublist(0, topInset.toInt() * size.width.toInt() * 4),
-      );
+      // The whole canvas, all four channels.
+      return Uint8List.fromList(all);
     }
 
-    // The absolute reference: the background gradient on its own, with no
-    // decoration layer at all. Comparing layouts against each other cannot
-    // catch a leak in whichever layout is the reference -- this can.
+    // The background gradient on its own. Decorative shapes used to be
+    // painted over it -- orbs, tape strips, dot clusters -- which collided
+    // with the OS status bar, then with the story's own chrome, and read as
+    // stray artifacts rather than design. They are gone: a text status is
+    // the gradient, the way WhatsApp's is.
     const style = StatusTextStyle();
     final background = resolveTextStatusBackgroundForStyle(
       style,
       AppPalette.green,
     );
-    final bareGradient = await statusBandOf(
+    final bareGradient = await pixelsOf(
       DecoratedBox(
         decoration: BoxDecoration(
           gradient: LinearGradient(
@@ -76,14 +74,9 @@ void main() {
       ),
     );
 
-    // Every layout decorates the top of the canvas differently -- `poster`
-    // a solid rotated accent bar at `top: 26`, `banner` a 94pt circle,
-    // `classic` a glow orb deliberately bleeding off the edge at
-    // `top: -20`. None of them may put a pixel in the status bar band, so
-    // each one's band must be exactly the bare gradient.
     for (final layout in StatusTextLayout.values) {
       expect(
-        await statusBandOf(
+        await pixelsOf(
           TextStatusCanvas(
             text: '',
             style: StatusTextStyle(layout: layout),
@@ -94,7 +87,7 @@ void main() {
           ),
         ),
         orderedEquals(bareGradient),
-        reason: '${layout.name} paints behind the OS status bar icons',
+        reason: '${layout.name} paints something over the gradient',
       );
     }
 

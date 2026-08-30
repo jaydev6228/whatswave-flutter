@@ -19,8 +19,8 @@ class TabCrossfadeStack extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final duration =
-        ShellTabMotion.durationFor(context, ShellTabMotion.contentCrossfadeDuration);
+    final duration = ShellTabMotion.durationFor(
+        context, ShellTabMotion.contentCrossfadeDuration);
 
     return Stack(
       fit: StackFit.expand,

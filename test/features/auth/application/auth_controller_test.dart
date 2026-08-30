@@ -247,8 +247,7 @@ void main() {
       expect(profileController.errorMessage, 'Profile save failed.');
     });
 
-    test('updates the avatar and clears busy/error state on success',
-        () async {
+    test('updates the avatar and clears busy/error state on success', () async {
       const restoredUser = AppUser(
         name: 'Jay Devra',
         phoneNumber: '+819012345678',
@@ -271,7 +270,8 @@ void main() {
       expect(controller.currentUser?.avatarUrl, '/fake/picked-photo.jpg');
     });
 
-    test('surfaces a repository error and leaves the user unchanged on a '
+    test(
+        'surfaces a repository error and leaves the user unchanged on a '
         'failed avatar upload', () async {
       const restoredUser = AppUser(
         name: 'Jay Devra',
@@ -332,7 +332,8 @@ void main() {
       expect(controller.statusMessage, 'You have been signed out.');
     });
 
-    test('still clears local session state when the repository sign-out call fails',
+    test(
+        'still clears local session state when the repository sign-out call fails',
         () async {
       const restoredUser = AppUser(
         name: 'Jay Devra',
@@ -355,8 +356,7 @@ void main() {
       expect(controller.step, AuthStep.phoneEntry);
     });
 
-    test(
-        'upgrades the locale-based country code with the GPS-detected one',
+    test('upgrades the locale-based country code with the GPS-detected one',
         () async {
       final controller = AuthController(
         repository: _TestAuthRepository(),
@@ -376,8 +376,7 @@ void main() {
       expect(controller.selectedCountry.isoCode, 'JP');
     });
 
-    test(
-        'leaves the country code untouched when location permission is denied',
+    test('leaves the country code untouched when location permission is denied',
         () async {
       final controller = AuthController(
         repository: _TestAuthRepository(),
@@ -530,13 +529,14 @@ class _TestAuthRepository implements AuthRepository {
 
   @override
   Future<AppUser> deleteAvatar() async {
-    final currentUser = restoredUser ?? AppUser(
-      name: 'JD',
-      phoneNumber: '+819012345678',
-      about: '',
-      avatarLabel: 'JD',
-      accentColor: Colors.green,
-    );
+    final currentUser = restoredUser ??
+        AppUser(
+          name: 'JD',
+          phoneNumber: '+819012345678',
+          about: '',
+          avatarLabel: 'JD',
+          accentColor: Colors.green,
+        );
     return currentUser.copyWith(clearAvatarUrl: true);
   }
 

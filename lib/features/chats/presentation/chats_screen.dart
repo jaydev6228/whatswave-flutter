@@ -281,11 +281,12 @@ class _ChatsScreenState extends State<ChatsScreen> {
                             isArchivedView: false,
                             showDivider: index != visibleThreads.length - 1,
                             onOpen: () => _openThread(thread),
-                            onStoryTap: widget.controller.shouldShowStoryForThread(
+                            onStoryTap:
+                                widget.controller.shouldShowStoryForThread(
                               thread,
                             )
-                                ? () => _openThreadStory(thread)
-                                : null,
+                                    ? () => _openThreadStory(thread)
+                                    : null,
                             onArchiveToggle: () async {
                               _dismissSearchFocus();
                               return widget.controller.setThreadArchived(
@@ -565,7 +566,8 @@ class _ArchivedChatsScreenState extends State<ArchivedChatsScreen> {
                 ),
                 if (archivedThreads.isEmpty)
                   SliverPadding(
-                    padding: EdgeInsets.fromLTRB(20, 0, 20, 24 + bottomSafeInset),
+                    padding:
+                        EdgeInsets.fromLTRB(20, 0, 20, 24 + bottomSafeInset),
                     sliver: SliverToBoxAdapter(
                       child: EmptyStateCard(
                         icon: Icons.archive_outlined,
@@ -594,11 +596,12 @@ class _ArchivedChatsScreenState extends State<ArchivedChatsScreen> {
                             isArchivedView: true,
                             showDivider: index != archivedThreads.length - 1,
                             onOpen: () => _openArchivedThread(thread),
-                            onStoryTap: widget.controller.shouldShowStoryForThread(
+                            onStoryTap:
+                                widget.controller.shouldShowStoryForThread(
                               thread,
                             )
-                                ? () => _openArchivedThreadStory(thread)
-                                : null,
+                                    ? () => _openArchivedThreadStory(thread)
+                                    : null,
                             onArchiveToggle: () {
                               return widget.controller.setThreadArchived(
                                 threadId: thread.id,
@@ -703,9 +706,8 @@ class _ArchiveableChatListItem extends StatelessWidget {
         Dismissible(
           key: Key(
               'chat_swipe_${thread.id}_${isArchivedView ? 'archived' : 'inbox'}'),
-          direction: isBusy
-              ? DismissDirection.none
-              : DismissDirection.horizontal,
+          direction:
+              isBusy ? DismissDirection.none : DismissDirection.horizontal,
           movementDuration: const Duration(milliseconds: 220),
           resizeDuration: const Duration(milliseconds: 180),
           background: isArchivedView
@@ -771,7 +773,7 @@ class _ArchiveableChatListItem extends StatelessWidget {
     final result = await showDialog<bool>(
       context: context,
       builder: (dialogContext) {
-        return AlertDialog(
+        return LiquidGlassDialog(
           title: const Text('Delete this chat?'),
           content: Text(
             'This removes "${thread.name}" from your chat list. '
@@ -798,9 +800,6 @@ class _ArchiveableChatListItem extends StatelessWidget {
     return result ?? false;
   }
 }
-
-
-
 
 class _ChatTile extends StatelessWidget {
   const _ChatTile({

@@ -112,8 +112,8 @@ class _VoiceNoteRecorderSheetState extends State<_VoiceNoteRecorderSheet> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isActive = _stage == _RecorderStage.recording ||
-        _stage == _RecorderStage.paused;
+    final isActive =
+        _stage == _RecorderStage.recording || _stage == _RecorderStage.paused;
 
     return SafeArea(
       child: Padding(
@@ -122,9 +122,11 @@ class _VoiceNoteRecorderSheetState extends State<_VoiceNoteRecorderSheet> {
           mainAxisSize: MainAxisSize.min,
           children: [
             if (_stage == _RecorderStage.permissionDenied) ...[
-              const Icon(Icons.mic_off_rounded, size: 40, color: AppPalette.rose),
+              const Icon(Icons.mic_off_rounded,
+                  size: 40, color: AppPalette.rose),
               const SizedBox(height: 12),
-              Text('Microphone access needed', style: theme.textTheme.titleMedium),
+              Text('Microphone access needed',
+                  style: theme.textTheme.titleMedium),
               const SizedBox(height: 6),
               Text(
                 'Allow microphone access in Settings to record a voice note.',
@@ -138,9 +140,11 @@ class _VoiceNoteRecorderSheetState extends State<_VoiceNoteRecorderSheet> {
                 child: const Text('Close'),
               ),
             ] else if (_stage == _RecorderStage.error) ...[
-              const Icon(Icons.error_outline_rounded, size: 40, color: AppPalette.rose),
+              const Icon(Icons.error_outline_rounded,
+                  size: 40, color: AppPalette.rose),
               const SizedBox(height: 12),
-              Text('Could not start recording', style: theme.textTheme.titleMedium),
+              Text('Could not start recording',
+                  style: theme.textTheme.titleMedium),
               const SizedBox(height: 6),
               Text(
                 'Check your device storage and try again.',
@@ -213,9 +217,8 @@ class _VoiceNoteRecorderSheetState extends State<_VoiceNoteRecorderSheet> {
                       iconSize: 20,
                       constraints:
                           const BoxConstraints(minWidth: 44, minHeight: 44),
-                      tooltip: _stage == _RecorderStage.paused
-                          ? 'Resume'
-                          : 'Pause',
+                      tooltip:
+                          _stage == _RecorderStage.paused ? 'Resume' : 'Pause',
                     ),
                   const SizedBox(width: 6),
                   IconButton.filled(

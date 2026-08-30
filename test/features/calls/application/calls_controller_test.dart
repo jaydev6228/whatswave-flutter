@@ -72,8 +72,7 @@ void main() {
     );
   });
 
-  test('surfaces an error when deleting a call history entry fails',
-      () async {
+  test('surfaces an error when deleting a call history entry fails', () async {
     final repository = FakeCallsRepository(latency: Duration.zero);
     final controller = CallsController(
       repository: repository,
@@ -373,8 +372,7 @@ void main() {
       await uidController.close();
     });
 
-    test(
-        'shows the group host call screen before remote invites are placed',
+    test('shows the group host call screen before remote invites are placed',
         () async {
       final signaling = DelayedFakeCallSignalingService();
       final controller = CallsController(
@@ -407,8 +405,7 @@ void main() {
       expect(controller.currentSession?.isReal, isTrue);
     });
 
-    test(
-        'keeps a group host in the call while another member is still ringing',
+    test('keeps a group host in the call while another member is still ringing',
         () async {
       final signaling = FakeCallSignalingService();
       final controller = CallsController(
@@ -442,8 +439,7 @@ void main() {
       expect(controller.currentSession, isNotNull);
     });
 
-    test(
-        'ends a group host call once nobody is connected or still ringing',
+    test('ends a group host call once nobody is connected or still ringing',
         () async {
       final signaling = FakeCallSignalingService();
       final controller = CallsController(
@@ -724,8 +720,7 @@ void main() {
   });
 
   group('ringing', () {
-    test('rings on an incoming call and stops when it is accepted',
-        () async {
+    test('rings on an incoming call and stops when it is accepted', () async {
       final ringtonePlayer = FakeRingtonePlayer();
       final controller = CallsController(
         repository: FakeCallsRepository(latency: Duration.zero),

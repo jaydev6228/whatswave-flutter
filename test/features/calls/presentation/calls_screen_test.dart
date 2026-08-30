@@ -12,6 +12,7 @@ import 'package:whatswave/features/communities/domain/community_contact.dart';
 import 'package:whatswave/features/communities/domain/contact_access_status.dart';
 
 import '../../../support/device_matrix.dart';
+import 'package:whatswave/features/shared/widgets/liquid_glass.dart';
 
 CommunitiesController _defaultCommunitiesController({
   List<CommunityContact>? initialContacts,
@@ -212,7 +213,7 @@ void main() {
     expect(find.text('Delete this call?'), findsOneWidget);
     await tester.tap(
       find.descendant(
-        of: find.byType(AlertDialog),
+        of: find.byType(LiquidGlassDialog),
         matching: find.text('Delete'),
       ),
     );
@@ -282,7 +283,8 @@ void main() {
     expect(
       find.text('You'),
       findsNothing,
-      reason: 'The preview badge is intentionally removed for a cleaner local preview.',
+      reason:
+          'The preview badge is intentionally removed for a cleaner local preview.',
     );
     expect(find.text('Camera'), findsNothing);
     expect(find.text('Speaker'), findsNothing);
@@ -324,8 +326,7 @@ void main() {
     );
   });
 
-  testWidgets(
-      'keeps the dock camera switch control soft in light theme',
+  testWidgets('keeps the dock camera switch control soft in light theme',
       (tester) async {
     final controller = CallsController(
       repository: FakeCallsRepository(latency: Duration.zero),

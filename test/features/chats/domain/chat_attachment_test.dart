@@ -54,7 +54,9 @@ void main() {
       expect(_fileAttachment().documentKind, ChatDocumentKind.generic);
     });
 
-    test('resolves the extension from a remote download URL with a query string', () {
+    test(
+        'resolves the extension from a remote download URL with a query string',
+        () {
       final attachment = _fileAttachment(
         localMediaPath:
             'https://storage.example.com/chatMedia/u1/report.pdf?alt=media&token=abc',
@@ -88,13 +90,16 @@ void main() {
   });
 
   group('documentKindVisual', () {
-    test('gives generic and image kinds the fallback tint, others a fixed brand color', () {
+    test(
+        'gives generic and image kinds the fallback tint, others a fixed brand color',
+        () {
       const fallback = AppPalette.purple;
       final (genericIcon, genericColor) =
           documentKindVisual(ChatDocumentKind.generic, fallback);
       final (imageIcon, imageColor) =
           documentKindVisual(ChatDocumentKind.image, fallback);
-      final (pdfIcon, pdfColor) = documentKindVisual(ChatDocumentKind.pdf, fallback);
+      final (pdfIcon, pdfColor) =
+          documentKindVisual(ChatDocumentKind.pdf, fallback);
 
       expect(genericColor, fallback);
       expect(imageColor, fallback);

@@ -80,9 +80,8 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
     final uid = _requireCurrentUid;
     await _ensureContactsLoaded();
     try {
-      final snapshot = await _communitiesRef
-          .where('memberUids', arrayContains: uid)
-          .get();
+      final snapshot =
+          await _communitiesRef.where('memberUids', arrayContains: uid).get();
       final communities = snapshot.docs
           .map(_communityFromDoc)
           .whereType<CommunityHub>()
@@ -130,7 +129,8 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
           return contact;
         }
         try {
-          final doc = await _firestore.collection('phoneDirectory').doc(key).get();
+          final doc =
+              await _firestore.collection('phoneDirectory').doc(key).get();
           final matchedUid = doc.data()?['uid'] as String?;
           if (matchedUid == null || matchedUid == currentUid) {
             return contact;

@@ -128,9 +128,9 @@ class FirebaseMessagingPushRegistrationService
 
     try {
       final settings = await _messaging.requestPermission();
-      final authorized = settings.authorizationStatus ==
-              AuthorizationStatus.authorized ||
-          settings.authorizationStatus == AuthorizationStatus.provisional;
+      final authorized =
+          settings.authorizationStatus == AuthorizationStatus.authorized ||
+              settings.authorizationStatus == AuthorizationStatus.provisional;
       if (!authorized) {
         return const PushRegistrationSyncResult(
           registration: PushRegistration(

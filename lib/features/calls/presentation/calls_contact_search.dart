@@ -54,8 +54,7 @@ bool _contactMatchesWhatsWaveSearch(
     }
   }
 
-  final usernameQuery =
-      query.startsWith('@') ? query.substring(1) : query;
+  final usernameQuery = query.startsWith('@') ? query.substring(1) : query;
   final username = contact.username?.toLowerCase();
   if (username != null &&
       username.isNotEmpty &&

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:whatswave/features/shared/widgets/liquid_glass.dart';
 
 /// Shown wherever location access is needed and denied, instead of a
 /// persistent error banner (a banner tied to a shared controller field can
@@ -6,13 +7,12 @@ import 'package:flutter/material.dart';
 Future<void> showLocationPermissionDeniedDialog(
   BuildContext context, {
   required Future<void> Function() onOpenSettings,
-  String message =
-      'Allow location access in Settings to use this feature.',
+  String message = 'Allow location access in Settings to use this feature.',
 }) async {
   final shouldOpenSettings = await showDialog<bool>(
     context: context,
     builder: (dialogContext) {
-      return AlertDialog(
+      return LiquidGlassDialog(
         title: const Text('Location access needed'),
         content: Text(message),
         actions: [
@@ -44,7 +44,7 @@ Future<void> showLocationErrorDialog(
   return showDialog<void>(
     context: context,
     builder: (dialogContext) {
-      return AlertDialog(
+      return LiquidGlassDialog(
         title: const Text('Location unavailable'),
         content: Text(message),
         actions: [

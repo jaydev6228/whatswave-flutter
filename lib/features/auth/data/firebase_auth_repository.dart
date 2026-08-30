@@ -239,7 +239,8 @@ class FirebaseAuthRepository implements AuthRepository {
   /// would silently wipe out `avatarUrl` (written separately by
   /// [updateAvatar]) every single time, since this method has no avatarUrl
   /// of its own to preserve.
-  Future<void> _registerUserProfile(String uid, String name, String about) async {
+  Future<void> _registerUserProfile(
+      String uid, String name, String about) async {
     if (name.isEmpty) {
       return;
     }
@@ -259,7 +260,8 @@ class FirebaseAuthRepository implements AuthRepository {
   /// Registers this user's phone number so device contacts can be matched
   /// against real accounts. Best-effort: a failure here shouldn't block
   /// profile save, since the user is already signed in either way.
-  Future<void> _registerInPhoneDirectory(String uid, String? phoneNumber) async {
+  Future<void> _registerInPhoneDirectory(
+      String uid, String? phoneNumber) async {
     if (phoneNumber == null || phoneNumber.trim().isEmpty) {
       return;
     }

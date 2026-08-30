@@ -290,8 +290,8 @@ class FirestoreCallSignalingService implements CallSignalingService {
     final now = Timestamp.fromDate(DateTime.now());
     final batch = _firestore.batch();
     for (final inviteeUid in participantUids) {
-      final inviteRef =
-          _calls.doc(_groupInviteCallId(roomName: roomName, inviteeUid: inviteeUid));
+      final inviteRef = _calls
+          .doc(_groupInviteCallId(roomName: roomName, inviteeUid: inviteeUid));
       batch.update(inviteRef, <String, Object?>{
         'status': CallSignalStatus.ended.name,
         'updatedAt': now,
@@ -308,7 +308,8 @@ class FirestoreCallSignalingService implements CallSignalingService {
     final controller =
         StreamController<Map<String, CallSignalStatus>>.broadcast();
     final statuses = <String, CallSignalStatus>{};
-    final subscriptions = <StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>>[];
+    final subscriptions =
+        <StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>>[];
 
     void emit() {
       if (controller.isClosed) {

@@ -49,38 +49,38 @@ class AttachmentViewerScreen extends StatelessWidget {
       label: '${attachment.compactLabel} from $threadName',
       container: true,
       child: Stack(
-      fit: StackFit.expand,
-      children: [
-        _AttachmentCanvas(attachment: attachment),
-        Positioned(
-          top: 0,
-          left: 0,
-          right: 0,
-          child: SafeArea(
-            bottom: false,
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: LiquidGlassIconButton(
-                  key: const Key('attachment_viewer_close_button'),
-                  icon: Icons.close_rounded,
-                  tooltip: 'Close',
-                  size: 40,
-                  onTap: () => Navigator.of(context).pop(),
-                  // A fixed dark-glass chrome regardless of app theme --
-                  // this floats over media/black canvases, not the app's
-                  // own surface, so it must stay legible in both light and
-                  // dark mode (same reasoning as the video control bar's
-                  // buttons and in-call controls).
-                  color: Colors.black.withValues(alpha: 0.42),
-                  iconColor: Colors.white,
+        fit: StackFit.expand,
+        children: [
+          _AttachmentCanvas(attachment: attachment),
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: SafeArea(
+              bottom: false,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: LiquidGlassIconButton(
+                    key: const Key('attachment_viewer_close_button'),
+                    icon: Icons.close_rounded,
+                    tooltip: 'Close',
+                    size: 40,
+                    onTap: () => Navigator.of(context).pop(),
+                    // A fixed dark-glass chrome regardless of app theme --
+                    // this floats over media/black canvases, not the app's
+                    // own surface, so it must stay legible in both light and
+                    // dark mode (same reasoning as the video control bar's
+                    // buttons and in-call controls).
+                    color: Colors.black.withValues(alpha: 0.42),
+                    iconColor: Colors.white,
+                  ),
                 ),
               ),
             ),
           ),
-        ),
-      ],
+        ],
       ),
     );
   }
@@ -131,8 +131,8 @@ class _AttachmentCanvas extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final localPath = attachment.localMediaPath;
-    final isImageLike =
-        attachment.type == ChatAttachmentType.photo || attachment.isImageDocument;
+    final isImageLike = attachment.type == ChatAttachmentType.photo ||
+        attachment.isImageDocument;
     final hasRealMedia = localPath != null &&
         statusMediaSourceExists(localPath) &&
         (isImageLike || attachment.type == ChatAttachmentType.video);
@@ -234,8 +234,7 @@ class _DocumentPreviewCanvas extends StatefulWidget {
   final ChatAttachment attachment;
 
   @override
-  State<_DocumentPreviewCanvas> createState() =>
-      _DocumentPreviewCanvasState();
+  State<_DocumentPreviewCanvas> createState() => _DocumentPreviewCanvasState();
 }
 
 class _DocumentPreviewCanvasState extends State<_DocumentPreviewCanvas> {
@@ -285,8 +284,8 @@ class _DocumentPreviewCanvasState extends State<_DocumentPreviewCanvas> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final (icon, color) =
-        documentKindVisual(widget.attachment.documentKind, widget.attachment.tintColor);
+    final (icon, color) = documentKindVisual(
+        widget.attachment.documentKind, widget.attachment.tintColor);
 
     return ColoredBox(
       color: Colors.black,
@@ -1006,7 +1005,8 @@ class _AttachmentPlaceholderCanvas extends StatelessWidget {
 
   IconData _iconForType(ChatAttachmentType type) {
     if (type == ChatAttachmentType.file) {
-      return documentKindVisual(attachment.documentKind, attachment.tintColor).$1;
+      return documentKindVisual(attachment.documentKind, attachment.tintColor)
+          .$1;
     }
     return switch (type) {
       ChatAttachmentType.photo => Icons.photo_outlined,

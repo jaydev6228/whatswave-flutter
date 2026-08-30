@@ -182,12 +182,14 @@ class _VideoCallLayout extends StatelessWidget {
         final textColor = scheme.primaryText;
         final isConnected = session.phase == CallSessionPhase.connected;
         final isGroupVideo = session.contact.isGroup;
-        final groupParticipants =
-            isGroupVideo ? controller.groupCallParticipants : const <GroupCallParticipantView>[];
+        final groupParticipants = isGroupVideo
+            ? controller.groupCallParticipants
+            : const <GroupCallParticipantView>[];
         // A 2-person group call gets the same full-screen-remote +
         // PiP-local chrome as a real 1:1 call instead of a cramped 2-tile
         // grid -- it *is* effectively a 1:1 call at that point.
-        final isTwoPersonGroupVideo = isGroupVideo && groupParticipants.length == 2;
+        final isTwoPersonGroupVideo =
+            isGroupVideo && groupParticipants.length == 2;
         final showOneOnOneChrome = !isGroupVideo || isTwoPersonGroupVideo;
         final headerName = isTwoPersonGroupVideo
             ? _otherGroupParticipant(groupParticipants)?.displayName ??
@@ -420,14 +422,16 @@ class _VideoAmbientStage extends StatelessWidget {
     final accentColor = session.contact.accentColor;
     final secondaryGlow = Color.lerp(AppPalette.sky, AppPalette.purple, 0.55)!;
     final isGroupVideo = session.contact.isGroup;
-    final groupParticipants =
-        isGroupVideo ? controller.groupCallParticipants : const <GroupCallParticipantView>[];
+    final groupParticipants = isGroupVideo
+        ? controller.groupCallParticipants
+        : const <GroupCallParticipantView>[];
     // A 2-person group call reads as a real 1:1 call: full-screen the
     // other participant (with their own camera-off fallback) instead of
     // splitting the screen into a cramped 2-tile grid.
     final isTwoPersonGroupVideo = isGroupVideo && groupParticipants.length == 2;
-    final otherParticipant =
-        isTwoPersonGroupVideo ? _otherGroupParticipant(groupParticipants) : null;
+    final otherParticipant = isTwoPersonGroupVideo
+        ? _otherGroupParticipant(groupParticipants)
+        : null;
     final showGroupVideoGrid = isGroupVideo && !isTwoPersonGroupVideo;
     final remoteTrack = session.isReal ? controller.remoteVideoTrack : null;
     final showRemoteVideo = !isGroupVideo &&

@@ -37,7 +37,8 @@ void main() {
       );
 
       // Newest 50 (m70..m119), chronological, more history behind them.
-      final page1 = await repo.fetchThreadMessagesPage(threadId: 't', limit: 50);
+      final page1 =
+          await repo.fetchThreadMessagesPage(threadId: 't', limit: 50);
       expect(page1.messages.length, 50);
       expect(page1.messages.first.id, 'm70');
       expect(page1.messages.last.id, 'm119');

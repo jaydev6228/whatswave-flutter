@@ -41,10 +41,10 @@ class _CallSignalingTestScreenState extends State<CallSignalingTestScreen> {
     final uid = _myUid;
     if (uid != null) {
       _incomingSubscription = _service.watchIncomingCall(uid).listen(
-        (signal) => setState(() => _incomingCall = signal),
-        onError: (Object error) =>
-            setState(() => _errorMessage = 'Incoming-call watch failed: $error'),
-      );
+            (signal) => setState(() => _incomingCall = signal),
+            onError: (Object error) => setState(
+                () => _errorMessage = 'Incoming-call watch failed: $error'),
+          );
     }
   }
 
@@ -75,8 +75,8 @@ class _CallSignalingTestScreenState extends State<CallSignalingTestScreen> {
       );
       _outgoingSubscription?.cancel();
       _outgoingSubscription = _service.watchCall(signal.id).listen(
-        (updated) => setState(() => _outgoingCall = updated),
-      );
+            (updated) => setState(() => _outgoingCall = updated),
+          );
       setState(() {
         _outgoingCall = signal;
         _isPlacingCall = false;
