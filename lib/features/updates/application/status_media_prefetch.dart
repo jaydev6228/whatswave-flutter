@@ -20,7 +20,9 @@ import '../presentation/widgets/status_media_source.dart';
 /// prefetch just means the viewer falls back to its normal cold-load
 /// spinner, not a broken post.
 Future<void> prefetchStatusMedia(StatusStorySegment? segment) async {
-  final path = segment?.localMediaPath?.trim();
+  // displayMediaPath: once the on-device original is remembered there is
+  // nothing to warm, so posting no longer pulls its own upload back down.
+  final path = segment?.displayMediaPath?.trim();
   if (segment == null || path == null || path.isEmpty) {
     return;
   }
@@ -104,7 +106,7 @@ class StatusVideoPreloadCache {
 
     await _disposeCurrent();
 
-    final controller = buildStatusMediaVideoController(path);
+    final controller = await buildStatusMediaVideoControllerAsync(path);
     final initialization = controller.initialize();
     _path = path;
     _controller = controller;

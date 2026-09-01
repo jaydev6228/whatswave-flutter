@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:whatswave/features/updates/presentation/widgets/status_media_source.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 void main() {
   group('isRemoteStatusMediaPath', () {
@@ -40,12 +41,16 @@ void main() {
   });
 
   group('imageProviderForStatusMediaPath', () {
-    test('a remote URL resolves to a NetworkImage', () {
+    test('a remote URL resolves to a disk-cached provider', () async {
+      // Was NetworkImage, whose cache is memory-only -- every cold start
+      // re-downloaded the same status photo. Only used once the cache has
+      // proven itself, hence the await.
+      await ensureStatusMediaDiskCacheReady();
       final provider = imageProviderForStatusMediaPath(
         'https://firebasestorage.example/x.jpg',
       );
-      expect(provider, isA<NetworkImage>());
-      expect((provider as NetworkImage).url,
+      expect(provider, isA<CachedNetworkImageProvider>());
+      expect((provider as CachedNetworkImageProvider).url,
           'https://firebasestorage.example/x.jpg');
     });
 

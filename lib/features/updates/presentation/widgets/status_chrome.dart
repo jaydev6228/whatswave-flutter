@@ -78,11 +78,22 @@ class StatusChromeButton extends StatelessWidget {
     required this.onTap,
     this.bare = false,
     this.blurred = false,
+    this.busy = false,
+    this.size = defaultSize,
     super.key,
   });
 
-  /// Matches the capsule's own corner rounding at this size.
-  static const double size = 44;
+  /// Composer chrome: full 44pt tap target
+  /// (docs/ui_layout_guidelines.md rule 7).
+  static const double defaultSize = 44;
+
+  /// Story viewer chrome: the smaller standalone buttons that float over a
+  /// posted story, where the media is the subject and the controls should
+  /// stay out of its way.
+  static const double compactSize = 32;
+
+  /// Edge length of the button. See [defaultSize] and [compactSize].
+  final double size;
 
   final String tooltip;
   final IconData icon;
@@ -97,6 +108,11 @@ class StatusChromeButton extends StatelessWidget {
   /// [StatusChromeButtonGroup] which supplies one for the whole row.
   final bool bare;
 
+  /// Swaps the glyph for a spinner and ignores taps, for an action already
+  /// running -- deleting a status, say. Keeps the button's footprint
+  /// identical so the row it sits in doesn't reflow mid-action.
+  final bool busy;
+
   @override
   Widget build(BuildContext context) {
     const radius = BorderRadius.all(Radius.circular(999));
@@ -104,20 +120,29 @@ class StatusChromeButton extends StatelessWidget {
       color: Colors.transparent,
       borderRadius: radius,
       child: InkWell(
-        onTap: onTap,
+        onTap: busy ? null : onTap,
         borderRadius: radius,
         child: SizedBox(
-          // Clears the platform minimum tap target even though the glyph is
-          // small (docs/ui_layout_guidelines.md rule 7).
           width: size,
           height: size,
-          child: Icon(
-            icon,
-            size: 20,
-            color: onTap == null
-                ? Colors.white.withValues(alpha: 0.4)
-                : Colors.white,
-          ),
+          child: busy
+              ? Center(
+                  child: SizedBox(
+                    width: size * 0.36,
+                    height: size * 0.36,
+                    child: const CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  ),
+                )
+              : Icon(
+                  icon,
+                  size: size * 0.45,
+                  color: onTap == null
+                      ? Colors.white.withValues(alpha: 0.4)
+                      : Colors.white,
+                ),
         ),
       ),
     );

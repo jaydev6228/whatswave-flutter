@@ -11,6 +11,7 @@ import '../../../core/models/story_viewer.dart';
 import '../../../core/utils/user_profile_lookup.dart';
 import 'status_media_store.dart';
 import 'updates_repository.dart';
+import 'status_media_local_cache.dart';
 
 /// Firestore-backed [UpdatesRepository].
 ///
@@ -46,13 +47,16 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
     FirebaseFirestore? firestore,
     fb_auth.FirebaseAuth? firebaseAuth,
     StatusMediaStore? mediaStore,
+    StatusMediaLocalCache? mediaLocalCache,
   })  : _firestore = firestore ?? FirebaseFirestore.instance,
         _firebaseAuth = firebaseAuth ?? fb_auth.FirebaseAuth.instance,
-        _mediaStore = mediaStore ?? FirebaseStatusMediaStore();
+        _mediaStore = mediaStore ?? FirebaseStatusMediaStore(),
+        _mediaLocalCache = mediaLocalCache ?? StatusMediaLocalCache();
 
   final FirebaseFirestore _firestore;
   final fb_auth.FirebaseAuth _firebaseAuth;
   final StatusMediaStore _mediaStore;
+  final StatusMediaLocalCache _mediaLocalCache;
 
   CollectionReference<Map<String, dynamic>> get _storiesRef =>
       _firestore.collection('statusStories');
@@ -255,10 +259,16 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
       final storedMediaPath =
           await _maybeImportMedia(type: type, localMediaPath: localMediaPath);
       final postedAt = DateTime.now();
+      final segmentId = 'status-${postedAt.microsecondsSinceEpoch}';
+      // The upload above repoints this segment at a Storage URL, which is
+      // what other devices need -- but this device already has the bytes.
+      // Remembering the original means opening your own status renders from
+      // disk instead of downloading your own upload back.
+      await _mediaLocalCache.remember(segmentId, localMediaPath);
       final nextSegments = List<StatusStorySegment>.unmodifiable([
         ...priorLiveSegments,
         StatusStorySegment(
-          id: 'status-${postedAt.microsecondsSinceEpoch}',
+          id: segmentId,
           type: type,
           previewText: previewText,
           localMediaPath: storedMediaPath,
@@ -627,6 +637,24 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
       return DateTime.now().difference(postedAt) < const Duration(hours: 24);
     }).toList(growable: false);
 
+    // Reattach the on-device originals for statuses this device posted, so
+    // the viewer renders them off disk. Only ever resolves on the posting
+    // device -- everyone else gets nothing back and reads the Storage URL,
+    // exactly as before. One preferences read for the whole story.
+    final cachedPaths = isMine
+        ? await _mediaLocalCache
+            .pathsFor(liveSegments.map((segment) => segment.id))
+        : const <String, String>{};
+    final resolvedSegments = cachedPaths.isEmpty
+        ? liveSegments
+        : liveSegments
+            .map(
+              (segment) => cachedPaths[segment.id] == null
+                  ? segment
+                  : segment.copyWith(cachedMediaPath: cachedPaths[segment.id]),
+            )
+            .toList(growable: false);
+
     // Per-viewer seen-progress lives in each viewer's own views doc --
     // including the owner viewing their own story ring on "My Status".
     var seenSegments = story.seenSegments;
@@ -654,7 +682,7 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
     }
 
     final freshStory = story.copyWith(
-      segments: liveSegments,
+      segments: resolvedSegments,
       totalSegments: liveSegments.length,
       seenSegments: liveSegments.isEmpty
           ? 0

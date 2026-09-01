@@ -131,6 +131,34 @@ Rect _composerOverlaySafeRectForFrame(Size frameSize) {
   );
 }
 
+/// Seconds a video occupies, at millisecond precision.
+///
+/// Deliberately not `Duration.inSeconds`, which truncates: a 5.8s clip read
+/// through `.inSeconds` becomes 5, and every trim rule built on it then stops
+/// short of the clip's real end.
+@visibleForTesting
+double statusVideoSeconds(Duration? duration) =>
+    (duration?.inMilliseconds ?? 0) / 1000;
+
+/// Longest trim a video status allows: the whole clip, but never under the
+/// 15s floor (so short clips still get a draggable range) nor over the 30s
+/// status cap.
+@visibleForTesting
+double statusVideoMaxTrimSeconds(Duration? duration) =>
+    statusVideoSeconds(duration).clamp(15, 30).toDouble();
+
+/// Trim window a freshly picked video opens with: the entire clip, clamped to
+/// the allowed range. Anything less leaves an unselected tail in the filmstrip
+/// the moment the editor opens.
+@visibleForTesting
+double statusVideoDefaultTrimSeconds(
+  Duration duration, {
+  required double minSeconds,
+}) =>
+    statusVideoSeconds(
+      duration,
+    ).clamp(minSeconds, statusVideoMaxTrimSeconds(duration)).toDouble();
+
 class MediaStatusComposerScreen extends StatefulWidget {
   const MediaStatusComposerScreen({
     required this.type,
@@ -349,6 +377,7 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
   Future<void>? _videoInitialization;
   VideoPlayerController? _musicPreviewController;
   bool _isVideoPlaying = false;
+  bool _isRewindingToTrimStart = false;
 
   /// Playback position, for the filmstrip's playhead.
   ///
@@ -380,8 +409,10 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
   // never moves or scales on screen; only this window does, to choose
   // which part of the media ends up in the final crop, matching
   // WhatsApp's own crop tool.
+  /// Crop mode pans the crop window; everywhere else the same gesture only
+  /// zooms (see [_onMediaScaleUpdate]). Both are off while another tool owns
+  /// the canvas.
   bool get _allowMediaTransformGestures =>
-      _isCropMode &&
       !_isEditingTextOverlay &&
       _selectedOverlayId == null &&
       _gestureAnchorOverlay == null &&
@@ -390,11 +421,9 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
 
   double get _minDurationSeconds => _isVideo ? 3 : 4;
 
-  double get _maxDurationSeconds {
-    final videoSeconds = _videoController?.value.duration.inSeconds ?? 0;
-    final safeVideoMax = math.max(videoSeconds.toDouble(), 15);
-    return _isVideo ? safeVideoMax.clamp(15, 30).toDouble() : 15.0;
-  }
+  double get _maxDurationSeconds => _isVideo
+      ? statusVideoMaxTrimSeconds(_videoController?.value.duration)
+      : 15.0;
 
   bool _matchesAspectRatio(double? lhs, double? rhs) {
     if (lhs == null || rhs == null) {
@@ -417,7 +446,7 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
   int get _trimStartMillis => (_trimStartSeconds * 1000).round();
 
   double get _videoFullDurationSeconds =>
-      (_videoController?.value.duration.inMilliseconds ?? 0) / 1000;
+      statusVideoSeconds(_videoController?.value.duration);
 
   StatusMediaOverlayItem? get _selectedOverlay {
     final selectedId = _selectedOverlayId;
@@ -684,9 +713,10 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
       _adoptOriginalMediaFrameIfNeeded(controller.value.size);
 
       if (controller.value.duration > Duration.zero) {
-        _durationSeconds = controller.value.duration.inSeconds
-            .clamp(_minDurationSeconds.round(), _maxDurationSeconds.round())
-            .toDouble();
+        _durationSeconds = statusVideoDefaultTrimSeconds(
+          controller.value.duration,
+          minSeconds: _minDurationSeconds,
+        );
       }
 
       if (mounted) {
@@ -704,14 +734,103 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
     if (controller == null || !controller.value.isInitialized) {
       return;
     }
-    final trimEnd = _trimStartSeconds + _durationSeconds;
-    final positionSeconds = controller.value.position.inMilliseconds / 1000;
-    _videoPosition.value = positionSeconds;
-    if (positionSeconds >= trimEnd) {
-      unawaited(
-        controller.seekTo(Duration(milliseconds: _trimStartMillis)),
-      );
+    // A rewind is already in flight. Reporting the intermediate positions it
+    // passes through is what made the playhead crawl backwards across the
+    // strip; everything moves at once when the rewind lands instead.
+    if (_isRewindingToTrimStart) {
+      return;
     }
+
+    final value = controller.value;
+    final trimEnd = _trimStartSeconds + _durationSeconds;
+    final positionSeconds = value.position.inMilliseconds / 1000;
+
+    // isCompleted is set synchronously with the end-of-clip event, while the
+    // pause and seek VideoPlayerController performs in response land a frame
+    // or two later. Reacting to it here -- rather than to the pause -- is
+    // what keeps the play button from appearing before the rewind.
+    if (value.isCompleted || positionSeconds >= trimEnd) {
+      unawaited(
+        _rewindToTrimStart(
+          controller,
+          resume: _isVideoPlaying && !value.isCompleted,
+        ),
+      );
+      return;
+    }
+
+    _videoPosition.value = positionSeconds;
+    _syncPlayingFlagFrom(controller);
+  }
+
+  /// Returns to the start of the trimmed range.
+  ///
+  /// [resume] keeps a trimmed range looping: the player is still running
+  /// when the range ends short of the clip, so it only needs rewinding. At
+  /// the clip's own end the player has already stopped and staying stopped
+  /// is correct -- what matters there is that the rewind and the play button
+  /// appear together.
+  ///
+  /// The playhead and the button are both updated in the one synchronous
+  /// block below, so they land in the same frame and read as a single reset
+  /// rather than a button that appears and a video that catches up.
+  Future<void> _rewindToTrimStart(
+    VideoPlayerController controller, {
+    required bool resume,
+  }) async {
+    _isRewindingToTrimStart = true;
+    try {
+      await controller.seekTo(Duration(milliseconds: _trimStartMillis));
+      if (resume && !controller.value.isPlaying) {
+        await controller.play();
+      }
+    } catch (_) {
+      // A failed rewind must not wedge the flag below.
+    } finally {
+      _isRewindingToTrimStart = false;
+    }
+
+    if (!mounted) {
+      return;
+    }
+    // One synchronous block: the playhead lands at the start and the play
+    // button appears in the same frame, so it reads as a single reset.
+    _videoPosition.value = _trimStartSeconds;
+    final isPlaying = controller.value.isPlaying;
+    if (isPlaying != _isVideoPlaying) {
+      setState(() => _isVideoPlaying = isPlaying);
+    }
+  }
+
+  /// Keeps the play/pause overlay honest.
+  ///
+  /// [_isVideoPlaying] used to be written only by the tap handler, so it
+  /// recorded what the user asked for rather than what the player is doing.
+  /// Anything that stopped playback on its own -- reaching the end, an
+  /// error, the audio session being taken away -- left the flag stuck at
+  /// true and the play button hidden, with no way to start the video again.
+  void _syncPlayingFlagFrom(VideoPlayerController controller) {
+    final isPlaying = controller.value.isPlaying;
+    if (!mounted || isPlaying == _isVideoPlaying) {
+      return;
+    }
+
+    if (!isPlaying) {
+      // Stopped without being asked -- the clip ended, an error, the audio
+      // session was taken away. Show the play button only once the rewind
+      // has landed, so the reset is one event rather than a button that
+      // appears and a video that catches up a few frames later.
+      //
+      // Deliberately not keyed off `isCompleted`: VideoPlayerController
+      // pauses (which notifies, with isCompleted still false) *before* it
+      // marks the clip complete, so anything watching that flag reacts a
+      // beat too late. A manual pause never reaches here -- the tap handler
+      // sets the flag itself, so this only sees stops nobody asked for.
+      unawaited(_rewindToTrimStart(controller, resume: false));
+      return;
+    }
+
+    setState(() => _isVideoPlaying = true);
   }
 
   /// A music track always overrides the video's own audio, same as the
@@ -1574,6 +1693,21 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
         startFocalPoint == null ||
         canvasSize.width <= 0 ||
         canvasSize.height <= 0) {
+      return;
+    }
+
+    if (!_isCropMode) {
+      // Outside the crop tool the media zooms but never moves. Framing is
+      // decided in crop mode against the crop window; letting a stray drag
+      // shift the media here would leave the preview showing something
+      // other than what was cropped.
+      final nextScale =
+          (anchorTransform.scale * details.scale).clamp(1.0, 4.0).toDouble();
+      if (nextScale != _mediaTransform.scale) {
+        setState(() {
+          _mediaTransform = _mediaTransform.copyWith(scale: nextScale);
+        });
+      }
       return;
     }
 
@@ -3896,10 +4030,19 @@ class _MuteToggle extends StatelessWidget {
           onTap: onTap,
           borderRadius: BorderRadius.circular(10),
           child: SizedBox(
-            // Clears the platform minimum tap target even though the glyph
-            // is small (docs/ui_layout_guidelines.md rule 7).
+            // Full 44pt wide, but only as tall as the filmstrip it sits
+            // beside. The two share one translucent surface, and that
+            // surface is sized by its tallest child -- leaving this at 44
+            // against a 40pt strip would band the capsule above and below
+            // the strip, showing the media through exactly the way the
+            // trim view used to.
+            //
+            // 40 rather than 44 keeps the tap target 4pt under the minimum
+            // in docs/ui_layout_guidelines.md rule 7. Deliberate, and
+            // called out rather than quietly relitigated: the alternative
+            // is a capsule that cannot get shorter than 44 at all.
             width: 44,
-            height: 44,
+            height: 40,
             child: Icon(
               isMuted ? Icons.volume_off_rounded : Icons.volume_up_rounded,
               color: Colors.white,

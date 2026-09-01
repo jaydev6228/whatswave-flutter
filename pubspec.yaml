@@ -31,6 +31,9 @@ dependencies:
   firebase_messaging: ^16.4.3
   livekit_client: ^2.9.0
   http: ^1.6.0
+  # Disk cache for remote status/chat media -- see status_media_source.dart.
+  cached_network_image: ^3.4.1
+  flutter_cache_manager: ^3.4.1
   flutter_ringtone_player: ^4.0.0+4
   geolocator: ^14.0.2
   url_launcher: ^6.3.2
@@ -88,6 +91,12 @@ dev_dependencies:
   flutter_lints: ^5.0.0
   image_picker_platform_interface: ^2.11.1
   path_provider_platform_interface: ^2.1.2
+  # Only so tests can construct flutter_cache_manager's own FileInfo, whose
+  # file field is this package's File rather than dart:io's.
+  file: ^7.0.1
+  # Lets tests stand in a fake video_player platform (test/support), so
+  # playback behaviour is coverable without a device.
+  video_player_platform_interface: ^6.9.0
 
 flutter:
   uses-material-design: true

@@ -9,7 +9,7 @@ import '../../shared/widgets/liquid_glass.dart';
 import '../application/updates_controller.dart';
 import 'media_status_composer_screen.dart';
 import 'text_status_composer_screen.dart';
-import 'status_motion.dart';
+import '../../shared/sheet_route.dart';
 
 enum _StatusComposeChoice { text, media }
 
@@ -60,7 +60,7 @@ Future<void> openTextStatusComposer(
   UpdatesController controller,
 ) async {
   final draft = await Navigator.of(context).push<TextStatusComposerDraft>(
-    statusSheetRoute<TextStatusComposerDraft>(
+    appSheetRoute<TextStatusComposerDraft>(
       name: 'status/compose/text',
       builder: (_) => const TextStatusComposerScreen(),
     ),
@@ -119,7 +119,7 @@ Future<void> pickStatusMedia(
     }
 
     final draft = await Navigator.of(context).push<MediaStatusComposerDraft>(
-      statusSheetRoute<MediaStatusComposerDraft>(
+      appSheetRoute<MediaStatusComposerDraft>(
         name: 'status/compose/media',
         builder: (_) => MediaStatusComposerScreen(
           type: statusType,
