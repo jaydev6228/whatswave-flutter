@@ -51,7 +51,29 @@ class StatusModeSwitcher extends StatelessWidget {
         return Stack(
           alignment: alignment,
           children: <Widget>[
-            ...previousChildren,
+            // Positioned, so the outgoing child cannot contribute to the
+            // Stack's size -- a Stack measures itself against its
+            // non-positioned children only. Left unpositioned, a taller
+            // outgoing row (e.g. the text tool's) held this Stack 2pt taller
+            // for the whole crossfade, pushing every sibling below it down
+            // and then snapping them back up when the fade ended. Align
+            // keeps the child at its own intrinsic size and in the same spot
+            // it occupied before, so only its opacity changes as it leaves.
+            for (final previousChild in previousChildren)
+              Positioned.fill(
+                child: OverflowBox(
+                  alignment: alignment,
+                  // Height only. Positioned.fill would otherwise squeeze the
+                  // departing child into the incoming child's box, so a
+                  // taller row visibly collapsed as it faded. Width stays
+                  // inherited (null passes the parent's constraint straight
+                  // through) because these rows are Rows of buttons, which
+                  // cannot lay out unbounded horizontally.
+                  minHeight: 0,
+                  maxHeight: double.infinity,
+                  child: previousChild,
+                ),
+              ),
             if (currentChild != null) currentChild,
           ],
         );
@@ -59,46 +81,4 @@ class StatusModeSwitcher extends StatelessWidget {
       child: child,
     );
   }
-}
-
-/// A modal route that rises from the bottom like an iOS sheet.
-///
-/// [MaterialPageRoute] with `fullscreenDialog` only does this on iOS; the
-/// composers are presentations on every platform, so the transition is
-/// defined here rather than left to the host platform's default.
-Route<T> statusSheetRoute<T>({
-  required WidgetBuilder builder,
-  String? name,
-}) {
-  return PageRouteBuilder<T>(
-    settings: RouteSettings(name: name),
-    fullscreenDialog: true,
-    transitionDuration: kStatusMotionDuration,
-    reverseTransitionDuration: kStatusMotionDuration,
-    pageBuilder: (context, animation, secondaryAnimation) => builder(context),
-    transitionsBuilder: (context, animation, secondaryAnimation, child) {
-      final slide = Tween<Offset>(
-        begin: const Offset(0, 1),
-        end: Offset.zero,
-      ).animate(
-        CurvedAnimation(
-          parent: animation,
-          curve: kStatusMotionCurve,
-          reverseCurve: kStatusMotionReverseCurve,
-        ),
-      );
-      return SlideTransition(
-        position: slide,
-        // A touch of fade alongside the slide keeps the black composer from
-        // reading as a hard wipe over the list behind it.
-        child: FadeTransition(
-          opacity: CurvedAnimation(
-            parent: animation,
-            curve: kStatusMotionCurve,
-          ),
-          child: child,
-        ),
-      );
-    },
-  );
 }

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -13,6 +14,7 @@ import '../../shared/widgets/liquid_glass.dart';
 import '../../updates/presentation/widgets/status_media_source.dart';
 import '../domain/chat_attachment.dart';
 import 'widgets/location_map_preview.dart';
+import '../../shared/swipe_down_to_dismiss.dart';
 
 /// Shown as an in-place overlay over the current screen (see
 /// [showAttachmentPreview]) rather than pushed as a separate route -- a
@@ -48,39 +50,44 @@ class AttachmentViewerScreen extends StatelessWidget {
       // from the surrounding conversation.
       label: '${attachment.compactLabel} from $threadName',
       container: true,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          _AttachmentCanvas(attachment: attachment),
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: SafeArea(
-              bottom: false,
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: LiquidGlassIconButton(
-                    key: const Key('attachment_viewer_close_button'),
-                    icon: Icons.close_rounded,
-                    tooltip: 'Close',
-                    size: 40,
-                    onTap: () => Navigator.of(context).pop(),
-                    // A fixed dark-glass chrome regardless of app theme --
-                    // this floats over media/black canvases, not the app's
-                    // own surface, so it must stay legible in both light and
-                    // dark mode (same reasoning as the video control bar's
-                    // buttons and in-call controls).
-                    color: Colors.black.withValues(alpha: 0.42),
-                    iconColor: Colors.white,
+      // Swipe down to close, the same gesture the story viewer uses -- the
+      // standard way out of any full-screen media presentation.
+      child: SwipeDownToDismiss(
+        key: const Key('attachment_viewer_swipe_dismiss'),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            _AttachmentCanvas(attachment: attachment),
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: SafeArea(
+                bottom: false,
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: LiquidGlassIconButton(
+                      key: const Key('attachment_viewer_close_button'),
+                      icon: Icons.close_rounded,
+                      tooltip: 'Close',
+                      size: 40,
+                      onTap: () => Navigator.of(context).pop(),
+                      // A fixed dark-glass chrome regardless of app theme --
+                      // this floats over media/black canvases, not the app's
+                      // own surface, so it must stay legible in both light and
+                      // dark mode (same reasoning as the video control bar's
+                      // buttons and in-call controls).
+                      color: Colors.black.withValues(alpha: 0.42),
+                      iconColor: Colors.white,
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -707,48 +714,73 @@ class _AttachmentVideoCanvas extends StatefulWidget {
 }
 
 class _AttachmentVideoCanvasState extends State<_AttachmentVideoCanvas> {
-  late final VideoPlayerController _controller;
-  late final Future<void> _initialization;
+  // Nullable, unlike the eager `late final` this replaced: building the
+  // controller now probes the media cache first, so it resolves a frame or
+  // two later rather than synchronously in initState.
+  VideoPlayerController? _controller;
+  Future<void>? _initialization;
   double _volumeBeforeMute = 1;
 
   @override
   void initState() {
     super.initState();
-    _controller = buildStatusMediaVideoController(widget.localMediaPath);
-    _initialization = _controller.initialize().then((_) {
-      _controller
-        ..setLooping(true)
-        ..play();
-      if (mounted) setState(() {});
+    unawaited(_prepareController());
+  }
+
+  Future<void> _prepareController() async {
+    final controller =
+        await buildStatusMediaVideoControllerAsync(widget.localMediaPath);
+    if (!mounted) {
+      await controller.dispose();
+      return;
+    }
+    setState(() {
+      _controller = controller;
+      _initialization = controller.initialize().then((_) {
+        controller
+          ..setLooping(true)
+          ..play();
+        if (mounted) setState(() {});
+      });
     });
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    _controller?.dispose();
     super.dispose();
   }
 
   void _togglePlayback() {
-    _controller.value.isPlaying ? _controller.pause() : _controller.play();
+    final controller = _controller;
+    if (controller == null) {
+      return;
+    }
+    controller.value.isPlaying ? controller.pause() : controller.play();
   }
 
   void _toggleMute() {
-    if (_controller.value.volume > 0) {
-      _volumeBeforeMute = _controller.value.volume;
-      _controller.setVolume(0);
+    final controller = _controller;
+    if (controller == null) {
+      return;
+    }
+    if (controller.value.volume > 0) {
+      _volumeBeforeMute = controller.value.volume;
+      controller.setVolume(0);
     } else {
-      _controller.setVolume(_volumeBeforeMute > 0 ? _volumeBeforeMute : 1);
+      controller.setVolume(_volumeBeforeMute > 0 ? _volumeBeforeMute : 1);
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final controller = _controller;
     return FutureBuilder<void>(
       future: _initialization,
       builder: (context, snapshot) {
-        if (snapshot.connectionState != ConnectionState.done ||
-            !_controller.value.isInitialized) {
+        if (controller == null ||
+            snapshot.connectionState != ConnectionState.done ||
+            !controller.value.isInitialized) {
           return const ColoredBox(
             color: Colors.black,
             child: Center(
@@ -768,8 +800,8 @@ class _AttachmentVideoCanvasState extends State<_AttachmentVideoCanvas> {
                 children: [
                   Center(
                     child: AspectRatio(
-                      aspectRatio: _controller.value.aspectRatio,
-                      child: VideoPlayer(_controller),
+                      aspectRatio: controller.value.aspectRatio,
+                      child: VideoPlayer(controller),
                     ),
                   ),
                   Positioned(
@@ -777,7 +809,7 @@ class _AttachmentVideoCanvasState extends State<_AttachmentVideoCanvas> {
                     right: 0,
                     bottom: 0,
                     child: _VideoControlBar(
-                      controller: _controller,
+                      controller: controller,
                       onPlayPause: _togglePlayback,
                       onToggleMute: _toggleMute,
                     ),

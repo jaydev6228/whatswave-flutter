@@ -1760,13 +1760,11 @@ class _ConversationScreenState extends State<ConversationScreen> {
                 onPressed: () => Navigator.of(dialogContext).pop(true),
                 child: const Text('Delete for everyone'),
               ),
-            FilledButton(
+            LiquidGlassDialogAction(
               key: const Key('confirm_bulk_delete_me_button'),
-              style: FilledButton.styleFrom(
-                backgroundColor: Theme.of(dialogContext).colorScheme.error,
-              ),
+              label: 'Delete for me',
+              isDestructive: true,
               onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('Delete for me'),
             ),
           ],
         );

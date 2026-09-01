@@ -17,6 +17,7 @@ import '../../settings/presentation/settings_screen.dart';
 import '../../updates/application/updates_controller.dart';
 import 'floating_tab_bar.dart';
 import 'tab_crossfade_stack.dart';
+import '../../shared/sheet_route.dart';
 
 enum AppTab { chats, communities, calls, settings }
 
@@ -186,8 +187,12 @@ class _AppShellState extends State<AppShell> {
   }
 
   Future<void> _openNewChat(BuildContext context) async {
+    // Presented, not navigated to: WhatsApp raises the new-chat picker from
+    // the bottom, and MaterialPageRoute's sideways push read as going
+    // "deeper" into the chat list rather than opening a chooser over it.
     final threadId = await Navigator.of(context).push<String>(
-      MaterialPageRoute<String>(
+      appSheetRoute<String>(
+        name: 'new_chat',
         builder: (_) => NewChatScreen(
           communitiesController: widget.communitiesController,
           chatsController: widget.chatsController,

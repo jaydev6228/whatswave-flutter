@@ -582,13 +582,11 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
               onPressed: () => Navigator.of(dialogContext).pop(false),
               child: const Text('Cancel'),
             ),
-            FilledButton(
+            LiquidGlassDialogAction(
               key: const Key('contact_info_confirm_clear_chat_button'),
-              style: FilledButton.styleFrom(
-                backgroundColor: Theme.of(dialogContext).colorScheme.error,
-              ),
+              label: 'Clear chat',
+              isDestructive: true,
               onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('Clear chat'),
             ),
           ],
         );
@@ -895,13 +893,11 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
               onPressed: () => Navigator.of(dialogContext).pop(false),
               child: const Text('Cancel'),
             ),
-            FilledButton(
+            LiquidGlassDialogAction(
               key: const Key('confirm_remove_participant_button'),
-              style: FilledButton.styleFrom(
-                backgroundColor: Theme.of(dialogContext).colorScheme.error,
-              ),
+              label: 'Remove',
+              isDestructive: true,
               onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('Remove'),
             ),
           ],
         );
@@ -929,13 +925,11 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
               onPressed: () => Navigator.of(dialogContext).pop(false),
               child: const Text('Cancel'),
             ),
-            FilledButton(
+            LiquidGlassDialogAction(
               key: const Key('confirm_exit_group_button'),
-              style: FilledButton.styleFrom(
-                backgroundColor: Theme.of(dialogContext).colorScheme.error,
-              ),
+              label: 'Exit group',
+              isDestructive: true,
               onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('Exit group'),
             ),
           ],
         );

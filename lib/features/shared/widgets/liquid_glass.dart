@@ -503,10 +503,18 @@ class LiquidGlassDialog extends StatelessWidget {
                   // FilledButton children and still get capsules.
                   child: TextButtonTheme(
                     data: TextButtonThemeData(
+                      // Outline only: the dialog already sits on its own
+                      // glass panel, so a filled button on top of it reads
+                      // as a second material stacked on the first.
                       style: TextButton.styleFrom(
-                        shape: const StadiumBorder(),
-                        backgroundColor:
-                            theme.colorScheme.onSurface.withValues(alpha: 0.08),
+                        shape: StadiumBorder(
+                          side: BorderSide(
+                            color: theme.colorScheme.onSurface
+                                .withValues(alpha: 0.22),
+                          ),
+                        ),
+                        backgroundColor: Colors.transparent,
+                        foregroundColor: theme.colorScheme.onSurface,
                         padding: const EdgeInsets.symmetric(
                           horizontal: 20,
                           vertical: 12,
@@ -515,8 +523,20 @@ class LiquidGlassDialog extends StatelessWidget {
                     ),
                     child: FilledButtonTheme(
                       data: FilledButtonThemeData(
+                        // Matches the outlined buttons beside it. A strong
+                        // action is signalled by its label colour (see
+                        // [LiquidGlassDialogAction]), not by filling the
+                        // button -- a solid slab of red next to hairline
+                        // capsules dominated every dialog it appeared in.
                         style: FilledButton.styleFrom(
-                          shape: const StadiumBorder(),
+                          shape: StadiumBorder(
+                            side: BorderSide(
+                              color: theme.colorScheme.onSurface
+                                  .withValues(alpha: 0.22),
+                            ),
+                          ),
+                          backgroundColor: Colors.transparent,
+                          foregroundColor: theme.colorScheme.onSurface,
                           elevation: 0,
                           padding: const EdgeInsets.symmetric(
                             horizontal: 20,
@@ -538,6 +558,40 @@ class LiquidGlassDialog extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// A dialog action.
+///
+/// One outlined capsule for every dialog in the app; the only variation is
+/// [isDestructive], which colours the label rather than filling the button.
+/// Each dialog used to spell out its own `FilledButton.styleFrom` with an
+/// error background, so the destructive treatment drifted between screens
+/// and shouted over the dialogs it appeared in.
+class LiquidGlassDialogAction extends StatelessWidget {
+  const LiquidGlassDialogAction({
+    required this.label,
+    required this.onPressed,
+    this.isDestructive = false,
+    super.key,
+  });
+
+  final String label;
+  final VoidCallback? onPressed;
+
+  /// Deleting, blocking, leaving -- anything the user cannot undo.
+  final bool isDestructive;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return TextButton(
+      onPressed: onPressed,
+      style: isDestructive
+          ? TextButton.styleFrom(foregroundColor: theme.colorScheme.error)
+          : null,
+      child: Text(label),
     );
   }
 }
