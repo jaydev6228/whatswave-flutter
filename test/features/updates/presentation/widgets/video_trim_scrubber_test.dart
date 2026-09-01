@@ -47,11 +47,36 @@ void main() {
 
     // It tracks the position rather than sitting still.
     await pump(tester, position: 14);
-    await tester.pump();
+    await tester.pumpAndSettle();
     expect(
       tester.getRect(find.byKey(playhead)).left - strip.left,
       closeTo(210, 1),
     );
+  });
+
+  testWidgets('the playhead coasts between position updates', (tester) async {
+    // `video_player` reports its position only every 100ms, so a playhead
+    // that jumps straight to each new value visibly lurches ten times a
+    // second. It has to travel the gap instead of teleporting across it.
+    await pump(tester, position: 10);
+    await tester.pumpAndSettle();
+    final strip = tester.getRect(find.byType(VideoTrimScrubber));
+    expect(tester.getRect(find.byKey(playhead)).left - strip.left,
+        closeTo(150, 1));
+
+    await pump(tester, position: 14);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    // Mid-gap: strictly between the old spot and the new one, having covered
+    // roughly half the distance.
+    final midway = tester.getRect(find.byKey(playhead)).left - strip.left;
+    expect(midway, greaterThan(151));
+    expect(midway, lessThan(209));
+
+    await tester.pumpAndSettle();
+    expect(tester.getRect(find.byKey(playhead)).left - strip.left,
+        closeTo(210, 1));
   });
 
   testWidgets('no playhead outside the trimmed window, or with no position',
@@ -91,10 +116,12 @@ void main() {
                 onScrubStart: () {},
                 onScrubUpdate: (_, __) {},
                 onScrubEnd: () {},
+                // Matches the real mute toggle: as tall as the strip, so
+                // the shared surface has no band above or below it.
                 leading: const SizedBox(
                   key: Key('leading'),
                   width: 44,
-                  height: 44,
+                  height: 40,
                 ),
               ),
             ),

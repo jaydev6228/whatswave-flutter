@@ -161,7 +161,18 @@ class VideoTrimScrubber extends StatefulWidget {
 }
 
 class _VideoTrimScrubberState extends State<VideoTrimScrubber> {
-  static const double _barHeight = 52;
+  // Down from 52. The filmstrip is a scrubbing aid, not the subject of the
+  // screen, and it was taking vertical space away from the media it
+  // describes.
+  //
+  // 40: on the 8pt grid the rest of the chrome is spaced on, and close
+  // enough to the 44pt tap target that the mute toggle sharing this row
+  // stays comfortable.
+  static const double _barHeight = 40;
+
+  /// True when the latest position update moved the playhead backwards, so
+  /// this build snaps it rather than animating.
+  bool _playheadRewound = false;
   static const double _handleHitWidth = 30;
 
   late Future<List<Uint8List?>> _framesFuture;
@@ -183,6 +194,9 @@ class _VideoTrimScrubberState extends State<VideoTrimScrubber> {
   @override
   void didUpdateWidget(covariant VideoTrimScrubber oldWidget) {
     super.didUpdateWidget(oldWidget);
+    final wasAt = oldWidget.positionSeconds;
+    final nowAt = widget.positionSeconds;
+    _playheadRewound = wasAt != null && nowAt != null && nowAt < wasAt;
     if (oldWidget.videoPath != widget.videoPath ||
         (oldWidget.fullDurationSeconds - widget.fullDurationSeconds).abs() >
             0.5) {
@@ -320,6 +334,41 @@ class _VideoTrimScrubberState extends State<VideoTrimScrubber> {
     );
   }
 
+  /// The playhead, coasting forward and snapping back.
+  ///
+  /// `video_player` only reports its position every 100ms, so a plainly
+  /// positioned playhead lurches ten times a second; animating between polls
+  /// turns those steps into the continuous sweep the eye expects.
+  ///
+  /// A rewind is different in kind -- a jump, not a journey. Animating it
+  /// sent the playhead crawling backwards across the whole strip at the end
+  /// of a clip. A zero-duration [AnimatedPositioned] is not enough either:
+  /// it still needs a tick to reach its new value, so the playhead lagged
+  /// the reset by a frame. Snapping means a plain [Positioned].
+  Widget _buildPlayhead({required double left}) {
+    const bar = IgnorePointer(child: ColoredBox(color: Colors.white));
+    if (_playheadRewound) {
+      return Positioned(
+        key: const Key('updates_media_trim_playhead'),
+        left: left,
+        top: 0,
+        bottom: 0,
+        width: 2,
+        child: bar,
+      );
+    }
+    return AnimatedPositioned(
+      key: const Key('updates_media_trim_playhead'),
+      duration: const Duration(milliseconds: 100),
+      curve: Curves.linear,
+      left: left,
+      top: 0,
+      bottom: 0,
+      width: 2,
+      child: bar,
+    );
+  }
+
   Widget _buildScrubberBar() {
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -381,17 +430,10 @@ class _VideoTrimScrubberState extends State<VideoTrimScrubber> {
               if (widget.positionSeconds case final position?)
                 if (position >= widget.trimStartSeconds &&
                     position <= widget.trimEndSeconds)
-                  Positioned(
-                    key: const Key('updates_media_trim_playhead'),
+                  _buildPlayhead(
                     left: (position / fullDuration * width)
                         .clamp(0.0, width - 2)
                         .toDouble(),
-                    top: 0,
-                    bottom: 0,
-                    width: 2,
-                    child: const IgnorePointer(
-                      child: ColoredBox(color: Colors.white),
-                    ),
                   ),
               // Darken the trimmed-out portions -- WhatsApp's own trimmer
               // dims everything outside the selected range.

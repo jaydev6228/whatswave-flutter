@@ -17,8 +17,8 @@ import 'widgets/status_media_source.dart';
 import 'widgets/status_ring_avatar.dart';
 import 'widgets/status_story_media_surface.dart';
 import 'widgets/text_status_canvas.dart';
-import 'status_motion.dart';
 import 'package:whatswave/features/shared/widgets/liquid_glass.dart';
+import '../../shared/sheet_route.dart';
 
 const double _kUpdatesScreenHorizontalPadding = 16;
 const double _kUpdatesRowHorizontalPadding = 18;
@@ -206,7 +206,7 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
 
   Future<void> _openTextStatusComposer() async {
     final draft = await Navigator.of(context).push<TextStatusComposerDraft>(
-      statusSheetRoute<TextStatusComposerDraft>(
+      appSheetRoute<TextStatusComposerDraft>(
         name: 'status/compose/text',
         builder: (_) => const TextStatusComposerScreen(),
       ),
@@ -261,7 +261,7 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
       }
 
       final draft = await Navigator.of(context).push<MediaStatusComposerDraft>(
-        statusSheetRoute<MediaStatusComposerDraft>(
+        appSheetRoute<MediaStatusComposerDraft>(
           name: 'status/compose/media',
           builder: (_) => MediaStatusComposerScreen(
             type: statusType,
@@ -456,15 +456,10 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
                       onPressed: () => Navigator.of(dialogContext).pop(false),
                       child: const Text('Cancel'),
                     ),
-                    FilledButton(
+                    LiquidGlassDialogAction(
+                      label: 'Delete all',
+                      isDestructive: true,
                       onPressed: () => Navigator.of(dialogContext).pop(true),
-                      style: FilledButton.styleFrom(
-                        backgroundColor:
-                            Theme.of(dialogContext).colorScheme.error,
-                        foregroundColor:
-                            Theme.of(dialogContext).colorScheme.onError,
-                      ),
-                      child: const Text('Delete all'),
                     ),
                   ],
                 );
@@ -964,7 +959,7 @@ class _StatusSegmentPreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final mediaPath = segment.localMediaPath?.trim();
+    final mediaPath = segment.displayMediaPath?.trim();
     // statusMediaSourceExists (not a raw File.existsSync check) so a
     // Firebase-backed segment's https:// localMediaPath counts as present
     // -- a plain existsSync() is always false for a URL, which silently
