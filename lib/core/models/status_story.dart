@@ -542,6 +542,7 @@ class StatusStorySegment {
     required this.type,
     required this.previewText,
     this.localMediaPath,
+    this.cachedMediaPath,
     this.mediaTransform = const StatusMediaTransform(),
     this.durationMillis,
     this.trimStartMillis = 0,
@@ -558,6 +559,14 @@ class StatusStorySegment {
   final StatusStoryType type;
   final String previewText;
   final String? localMediaPath;
+
+  /// The device-local file this segment's media was posted from, reattached
+  /// at read time by [StatusMediaLocalCache] on the posting device only.
+  ///
+  /// Never serialized -- see that class for why a device path must not enter
+  /// the shared document. Null on every other viewer's device, and on this
+  /// one once the file is gone.
+  final String? cachedMediaPath;
   final StatusMediaTransform mediaTransform;
   final int? durationMillis;
 
@@ -575,6 +584,21 @@ class StatusStorySegment {
   final DateTime? postedAt;
 
   bool get hasLocalMedia => localMediaPath?.trim().isNotEmpty == true;
+
+  /// The path to actually render or play.
+  ///
+  /// Prefers the on-device original over the uploaded copy, so the poster
+  /// never downloads their own status back. [cachedMediaPath] is only ever
+  /// set when the file was confirmed to exist, so there is no fallback to
+  /// re-check here.
+  String? get displayMediaPath {
+    final cached = cachedMediaPath?.trim();
+    if (cached != null && cached.isNotEmpty) {
+      return cached;
+    }
+    return localMediaPath;
+  }
+
   bool get hasRichOverlays => overlayItems.isNotEmpty;
 
   /// Live relative time for this segment alone -- each status item keeps
@@ -586,6 +610,7 @@ class StatusStorySegment {
     StatusStoryType? type,
     String? previewText,
     String? localMediaPath,
+    String? cachedMediaPath,
     StatusMediaTransform? mediaTransform,
     int? durationMillis,
     int? trimStartMillis,
@@ -605,6 +630,7 @@ class StatusStorySegment {
       type: type ?? this.type,
       previewText: previewText ?? this.previewText,
       localMediaPath: localMediaPath ?? this.localMediaPath,
+      cachedMediaPath: cachedMediaPath ?? this.cachedMediaPath,
       mediaTransform: mediaTransform ?? this.mediaTransform,
       durationMillis: durationMillis ?? this.durationMillis,
       trimStartMillis: trimStartMillis ?? this.trimStartMillis,

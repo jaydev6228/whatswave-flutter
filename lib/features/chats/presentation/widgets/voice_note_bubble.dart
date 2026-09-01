@@ -63,8 +63,9 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
     // setState (not a bare field write) so the play button can show a
     // loading spinner for that stretch instead of looking unresponsive.
     setState(() => _isInitializing = true);
-    final controller = buildStatusMediaVideoController(widget.localMediaPath)
-      ..addListener(_handleUpdate);
+    final controller =
+        (await buildStatusMediaVideoControllerAsync(widget.localMediaPath))
+          ..addListener(_handleUpdate);
     try {
       await controller.initialize();
       if (!mounted) {
