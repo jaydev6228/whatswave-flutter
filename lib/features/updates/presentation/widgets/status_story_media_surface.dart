@@ -7,7 +7,6 @@ import 'package:video_player/video_player.dart';
 import '../../../../app/theme/app_palette.dart';
 import '../../../../core/models/status_story.dart';
 import 'status_media_source.dart';
-import '../status_motion.dart';
 
 Size statusStoryFrameSizeFor(Size canvasSize, double? aspectRatio) {
   if (aspectRatio == null || !aspectRatio.isFinite || aspectRatio <= 0) {
@@ -51,6 +50,93 @@ double statusCropRatioFor(Size canvasSize, double? frameAspectRatio) {
 /// letterbox bars on the remaining two sides. The crop window is confined
 /// to this rect rather than the whole canvas, since dragging the window
 /// out over a letterbox bar would select empty space, not media.
+/// The crop frame: fixed, centred, and the shape of the selected ratio.
+///
+/// The media pans and zooms *under* this, the way WhatsApp's crop tool
+/// works -- rather than a window sliding over media pinned to the canvas.
+/// Inset from the edges so the surrounding picture stays visible, which is
+/// what tells you where the selection sits in the whole frame.
+/// How far a [width]x[height] box must be magnified before a rotation of
+/// [degrees] still covers it completely.
+///
+/// Rotating a rectangle inside a fixed frame pulls its corners in and leaves
+/// wedges of empty space at the frame's own corners. Scaling by this factor
+/// pushes them back out. The standard result: the rotated box's half-extents
+/// grow to `w/2*|cos| + h/2*|sin|` across and `w/2*|sin| + h/2*|cos|` down,
+/// and the frame has to fit inside both.
+double statusRotationCoverScale(double width, double height, double degrees) {
+  if (degrees == 0 || width <= 0 || height <= 0) {
+    return 1;
+  }
+  final radians = degrees * math.pi / 180;
+  final cos = math.cos(radians).abs();
+  final sin = math.sin(radians).abs();
+  return math.max(
+    (width * cos + height * sin) / width,
+    (width * sin + height * cos) / height,
+  );
+}
+
+/// How the crop selection is projected onto the screen.
+///
+/// The media is transformed so the selection lands on the fixed frame. While
+/// a corner is being dragged, [anchorWindow] freezes that transform at the
+/// window the drag started from: the picture then holds still and the
+/// selection rect shrinks over it, instead of the media magnifying under the
+/// finger as the selection tightens.
+({Matrix4? fit, Rect screenWindow, double zoom}) statusCropProjection({
+  required Size canvasSize,
+  required Rect window,
+  required Rect? anchorWindow,
+  required double? ratio,
+  double insetFactor = 1,
+}) {
+  final source = anchorWindow ?? window;
+  if (source.width <= 0 || window.width <= 0) {
+    return (fit: null, screenWindow: window, zoom: 1);
+  }
+  final frame =
+      statusCropFrameRectFor(canvasSize, ratio, insetFactor: insetFactor);
+  final zoom = frame.width / source.width;
+  if (!zoom.isFinite || zoom <= 0) {
+    return (fit: null, screenWindow: window, zoom: 1);
+  }
+  final fit = Matrix4.identity()
+    ..translateByDouble(frame.center.dx, frame.center.dy, 0, 1)
+    ..scaleByDouble(zoom, zoom, 1, 1)
+    ..translateByDouble(-source.center.dx, -source.center.dy, 0, 1);
+  return (
+    fit: fit,
+    screenWindow: MatrixUtils.transformRect(fit, window),
+    zoom: zoom,
+  );
+}
+
+/// [insetFactor] eases the frame between filling the canvas (0, which is
+/// how the preview shows the same selection) and its inset crop-mode size
+/// (1). Animating it is what turns entering and leaving the tool into a
+/// movement instead of a swap.
+Rect statusCropFrameRectFor(
+  Size canvasSize,
+  double? ratio, {
+  double insetFactor = 1,
+}) {
+  final inset = 28.0 * insetFactor.clamp(0.0, 1.0);
+  final available = Size(
+    math.max(canvasSize.width - inset * 2, 1),
+    math.max(canvasSize.height - inset * 2, 1),
+  );
+  final size = statusStoryFrameSizeFor(
+    available,
+    statusCropRatioFor(canvasSize, ratio),
+  );
+  return Rect.fromCenter(
+    center: Offset(canvasSize.width / 2, canvasSize.height / 2),
+    width: size.width,
+    height: size.height,
+  );
+}
+
 Rect statusMediaBoundsFor(Size canvasSize, double? mediaAspectRatio) {
   final size = statusStoryFrameSizeFor(canvasSize, mediaAspectRatio);
   return Rect.fromCenter(
@@ -128,6 +214,8 @@ class StatusStoryMediaSurface extends StatefulWidget {
     this.videoInitialization,
     this.backgroundColor = Colors.black,
     this.showFrameOutline = false,
+    this.cropResizeAnchorWindow,
+    this.cropInsetFactor = 1,
     this.unavailableMessage,
     this.drawingStrokes = const <StatusDrawingStroke>[],
     this.onSourceSizeResolved,
@@ -146,6 +234,18 @@ class StatusStoryMediaSurface extends StatefulWidget {
   final Future<void>? videoInitialization;
   final Color backgroundColor;
   final bool showFrameOutline;
+
+  /// The crop window a corner drag started from, while one is in progress.
+  ///
+  /// Freezes the media in place for the duration, so resizing the selection
+  /// does not magnify the picture under the finger. See
+  /// [statusCropProjection].
+  final Rect? cropResizeAnchorWindow;
+
+  /// 0 while the crop frame still matches the preview, 1 once it has settled
+  /// into the tool. Animating it turns entering and leaving the crop tool
+  /// into a movement instead of a swap. See [statusCropFrameRectFor].
+  final double cropInsetFactor;
   final String? unavailableMessage;
 
   /// Freehand doodle strokes, painted on top of the media and clipped to
@@ -347,124 +447,148 @@ class _StatusStoryMediaSurfaceState extends State<StatusStoryMediaSurface> {
               )
             : Offset.zero & displaySize;
 
+        // Crop mode pins the frame and moves the media under it. The
+        // selection is still stored as a window over the media (see
+        // cropWindowRectFor); what changes here is only how it is drawn --
+        // the media layer is transformed so that window lands exactly on
+        // the fixed frame. The media used to sit still while the window
+        // slid over it, which is the opposite of how a crop tool behaves.
+        final projection = isCropPreview
+            ? statusCropProjection(
+                canvasSize: canvasSize,
+                window: cropWindow,
+                anchorWindow: widget.cropResizeAnchorWindow,
+                ratio: ratio,
+                insetFactor: widget.cropInsetFactor,
+              )
+            : null;
+        final Matrix4? cropFit = projection?.fit;
+
         return Stack(
           fit: StackFit.expand,
           children: [
             ColoredBox(color: widget.backgroundColor),
-            Center(
-              child: SizedBox(
-                key: const Key('updates_media_story_frame'),
-                width: displaySize.width,
-                height: displaySize.height,
-                child: ClipRect(
-                  child: ColoredBox(
-                    color: widget.backgroundColor,
-                    child: hasMediaSource
-                        ? Stack(
-                            fit: StackFit.expand,
-                            children: [
-                              widget.mediaTransform.blurSigma > 0
-                                  ? ImageFiltered(
-                                      key:
-                                          const Key('updates_story_blur_layer'),
-                                      imageFilter: ImageFilter.blur(
-                                        sigmaX: widget.mediaTransform.blurSigma,
-                                        sigmaY: widget.mediaTransform.blurSigma,
-                                      ),
-                                      child: _buildTransformedMedia(
+            _MaybeTransform(
+              transform: cropFit,
+              child: Center(
+                child: SizedBox(
+                  key: const Key('updates_media_story_frame'),
+                  width: displaySize.width,
+                  height: displaySize.height,
+                  child: ClipRect(
+                    child: ColoredBox(
+                      color: widget.backgroundColor,
+                      child: hasMediaSource
+                          ? Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                widget.mediaTransform.blurSigma > 0
+                                    ? ImageFiltered(
+                                        key: const Key(
+                                            'updates_story_blur_layer'),
+                                        imageFilter: ImageFilter.blur(
+                                          sigmaX:
+                                              widget.mediaTransform.blurSigma,
+                                          sigmaY:
+                                              widget.mediaTransform.blurSigma,
+                                        ),
+                                        child: _buildTransformedMedia(
+                                          mediaPath: mediaPath,
+                                          frameSize: displaySize,
+                                          coverFrameSize: frameSize,
+                                          transform: effectiveTransform,
+                                          fit: isCropPreview
+                                              ? BoxFit.contain
+                                              : BoxFit.cover,
+                                        ),
+                                      )
+                                    : _buildTransformedMedia(
                                         mediaPath: mediaPath,
                                         frameSize: displaySize,
+                                        coverFrameSize: frameSize,
                                         transform: effectiveTransform,
                                         fit: isCropPreview
                                             ? BoxFit.contain
                                             : BoxFit.cover,
                                       ),
-                                    )
-                                  : _buildTransformedMedia(
-                                      mediaPath: mediaPath,
-                                      frameSize: displaySize,
-                                      transform: effectiveTransform,
-                                      fit: isCropPreview
-                                          ? BoxFit.contain
-                                          : BoxFit.cover,
-                                    ),
-                              if (widget.drawingStrokes.isNotEmpty)
-                                // Pinned to the media's own rect, not the
-                                // whole box: strokes are stored normalised
-                                // to the media frame, so painting them over
-                                // a larger canvas would stretch them across
-                                // the letterbox bars in crop mode.
-                                Positioned.fromRect(
-                                  rect: cropWindow,
-                                  child: IgnorePointer(
-                                    // Clipped as well as positioned -- a
-                                    // stroke whose points stray outside the
-                                    // frame must not paint over the bars.
-                                    child: ClipRect(
-                                      child: CustomPaint(
-                                        key: const Key(
-                                            'updates_story_drawing_layer'),
-                                        painter: _StatusDrawingPainter(
-                                          strokes: widget.drawingStrokes,
-                                          frameSize: cropWindow.size,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              // Painted as its own top layer, outside the
-                              // blur/transform subtree above -- a spinner
-                              // nested inside `_buildTransformedMedia` got
-                              // scaled by pinch/zoom and blurred by the blur
-                              // tool right along with the (not yet loaded)
-                              // media underneath it, which is what made it
-                              // look faint/"behind" a blurry view instead of
-                              // a crisp loading state on top.
-                              if (widget.type == StatusStoryType.photo &&
-                                  _photoIntrinsicSize == null &&
-                                  !_photoLoadFailed)
-                                const IgnorePointer(
-                                  child: ColoredBox(
-                                    color: Colors.black,
-                                    child: Center(
-                                      child: CircularProgressIndicator(
-                                        color: Colors.white,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              if (widget.type == StatusStoryType.video)
-                                IgnorePointer(
-                                  child: FutureBuilder<void>(
-                                    future: widget.videoInitialization,
-                                    builder: (context, snapshot) {
-                                      // Settled, whether it succeeded or
-                                      // failed -- checking isInitialized too
-                                      // would leave this spinning forever
-                                      // on a video that fails to initialize
-                                      // (the future still completes, just
-                                      // with an error).
-                                      if (snapshot.connectionState ==
-                                          ConnectionState.done) {
-                                        return const SizedBox.shrink();
-                                      }
-                                      return const ColoredBox(
-                                        color: Colors.black,
-                                        child: Center(
-                                          child: CircularProgressIndicator(
-                                            color: Colors.white,
+                                if (widget.drawingStrokes.isNotEmpty)
+                                  // Pinned to the media's own rect, not the
+                                  // whole box: strokes are stored normalised
+                                  // to the media frame, so painting them over
+                                  // a larger canvas would stretch them across
+                                  // the letterbox bars in crop mode.
+                                  Positioned.fromRect(
+                                    rect: cropWindow,
+                                    child: IgnorePointer(
+                                      // Clipped as well as positioned -- a
+                                      // stroke whose points stray outside the
+                                      // frame must not paint over the bars.
+                                      child: ClipRect(
+                                        child: CustomPaint(
+                                          key: const Key(
+                                              'updates_story_drawing_layer'),
+                                          painter: _StatusDrawingPainter(
+                                            strokes: widget.drawingStrokes,
+                                            frameSize: cropWindow.size,
                                           ),
                                         ),
-                                      );
-                                    },
+                                      ),
+                                    ),
                                   ),
-                                ),
-                            ],
-                          )
-                        : _StatusMediaUnavailableState(
-                            message: widget.unavailableMessage ??
-                                'This media is no longer available on this device.',
-                          ),
+                                // Painted as its own top layer, outside the
+                                // blur/transform subtree above -- a spinner
+                                // nested inside `_buildTransformedMedia` got
+                                // scaled by pinch/zoom and blurred by the blur
+                                // tool right along with the (not yet loaded)
+                                // media underneath it, which is what made it
+                                // look faint/"behind" a blurry view instead of
+                                // a crisp loading state on top.
+                                if (widget.type == StatusStoryType.photo &&
+                                    _photoIntrinsicSize == null &&
+                                    !_photoLoadFailed)
+                                  const IgnorePointer(
+                                    child: ColoredBox(
+                                      color: Colors.black,
+                                      child: Center(
+                                        child: CircularProgressIndicator(
+                                          color: Colors.white,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                if (widget.type == StatusStoryType.video)
+                                  IgnorePointer(
+                                    child: FutureBuilder<void>(
+                                      future: widget.videoInitialization,
+                                      builder: (context, snapshot) {
+                                        // Settled, whether it succeeded or
+                                        // failed -- checking isInitialized too
+                                        // would leave this spinning forever
+                                        // on a video that fails to initialize
+                                        // (the future still completes, just
+                                        // with an error).
+                                        if (snapshot.connectionState ==
+                                            ConnectionState.done) {
+                                          return const SizedBox.shrink();
+                                        }
+                                        return const ColoredBox(
+                                          color: Colors.black,
+                                          child: Center(
+                                            child: CircularProgressIndicator(
+                                              color: Colors.white,
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  ),
+                              ],
+                            )
+                          : _StatusMediaUnavailableState(
+                              message: widget.unavailableMessage ??
+                                  'This media is no longer available on this device.',
+                            ),
+                    ),
                   ),
                 ),
               ),
@@ -472,15 +596,18 @@ class _StatusStoryMediaSurfaceState extends State<StatusStoryMediaSurface> {
             // Faded rather than snapped in: entering crop mode already
             // re-lays the media out, and having the dimming and grid pop
             // on in the same frame is what made the switch feel abrupt.
-            AnimatedOpacity(
-              opacity: isCropPreview ? 1 : 0,
-              duration: kStatusMotionDuration,
-              curve: kStatusMotionCurve,
+            Opacity(
+              // Tracks the same transition as the frame, so the dimming and
+              // grid arrive with the inset rather than on their own clock.
+              opacity:
+                  isCropPreview ? widget.cropInsetFactor.clamp(0.0, 1.0) : 0,
               child: IgnorePointer(
                 child: _CropSelectionOverlay(
                   key: const Key('updates_media_crop_selection_overlay'),
                   canvasSize: canvasSize,
-                  window: cropWindow,
+                  // Where the selection actually lands on screen once the
+                  // media has been transformed under it.
+                  window: projection?.screenWindow ?? cropWindow,
                 ),
               ),
             ),
@@ -510,6 +637,15 @@ class _StatusStoryMediaSurfaceState extends State<StatusStoryMediaSurface> {
     required String mediaPath,
     required Size frameSize,
     required StatusMediaTransform transform,
+
+    /// The story frame the tilt has to keep covered.
+    ///
+    /// Deliberately not [frameSize], which is the box this render happens to
+    /// paint into -- the whole canvas in crop mode, the ratio'd frame
+    /// everywhere else. The cover factor depends on that box's *aspect*, so
+    /// reading it from two differently shaped boxes gave the same picture
+    /// two different magnifications, and the gap grew with the angle.
+    Size? coverFrameSize,
     BoxFit fit = BoxFit.cover,
   }) {
     final quarterTurns = _normalizedQuarterTurns(
@@ -552,7 +688,8 @@ class _StatusStoryMediaSurfaceState extends State<StatusStoryMediaSurface> {
           minHeight: sourceSize.height,
           maxHeight: sourceSize.height,
           child: Transform.rotate(
-            angle: quarterTurns * (math.pi / 2),
+            angle: quarterTurns * (math.pi / 2) +
+                transform.rotationDegrees * math.pi / 180,
             child: SizedBox(
               width: sourceSize.width,
               height: sourceSize.height,
@@ -566,10 +703,22 @@ class _StatusStoryMediaSurfaceState extends State<StatusStoryMediaSurface> {
       ),
     );
 
+    // Straightening tilts the media inside a frame that stays square to the
+    // screen, which pulls the media's corners inward and would leave wedges
+    // of background at the frame's own corners. Magnifying by the cover
+    // factor pushes them back out, so a tilt never exposes anything behind
+    // the picture.
+    final coverBox = coverFrameSize ?? frameSize;
+    final coverScale = statusRotationCoverScale(
+      coverBox.width,
+      coverBox.height,
+      transform.rotationDegrees,
+    );
+
     return Transform.translate(
       offset: translation,
       child: Transform.scale(
-        scale: transform.scale,
+        scale: transform.scale * coverScale,
         child: media,
       ),
     );
@@ -908,4 +1057,23 @@ class _CropGridPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _CropGridPainter oldDelegate) => false;
+}
+
+/// Applies [transform] when there is one, and gets out of the way when
+/// there isn't -- so the non-crop render path keeps exactly the widget tree
+/// it had before crop mode gained its own transform.
+class _MaybeTransform extends StatelessWidget {
+  const _MaybeTransform({required this.transform, required this.child});
+
+  final Matrix4? transform;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final matrix = transform;
+    if (matrix == null) {
+      return child;
+    }
+    return Transform(transform: matrix, child: child);
+  }
 }

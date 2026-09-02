@@ -12,6 +12,7 @@ class StatusMediaTransform {
     this.rotationQuarterTurns = 0,
     this.frameAspectRatio,
     this.blurSigma = 0,
+    this.rotationDegrees = 0,
   });
 
   final double scale;
@@ -23,6 +24,14 @@ class StatusMediaTransform {
   /// Whole-media blur strength (0 = off), matching WhatsApp's "blur" tool.
   final double blurSigma;
 
+  /// Free-angle straightening, in degrees, on top of
+  /// [rotationQuarterTurns] -- the dial under WhatsApp's crop tool.
+  ///
+  /// Kept small deliberately: this levels a horizon, it does not re-orient
+  /// the picture. Beyond about 45 degrees the media has to be magnified so
+  /// far to keep the frame covered that it stops being the same photo.
+  final double rotationDegrees;
+
   StatusMediaTransform copyWith({
     double? scale,
     double? offsetDx,
@@ -31,6 +40,7 @@ class StatusMediaTransform {
     double? frameAspectRatio,
     bool clearFrameAspectRatio = false,
     double? blurSigma,
+    double? rotationDegrees,
   }) {
     return StatusMediaTransform(
       scale: scale ?? this.scale,
@@ -41,6 +51,7 @@ class StatusMediaTransform {
           ? null
           : (frameAspectRatio ?? this.frameAspectRatio),
       blurSigma: blurSigma ?? this.blurSigma,
+      rotationDegrees: rotationDegrees ?? this.rotationDegrees,
     );
   }
 
@@ -52,6 +63,7 @@ class StatusMediaTransform {
       'rotationQuarterTurns': rotationQuarterTurns,
       'frameAspectRatio': frameAspectRatio,
       'blurSigma': blurSigma,
+      'rotationDegrees': rotationDegrees,
     };
   }
 
@@ -71,6 +83,8 @@ class StatusMediaTransform {
               ? (_doubleValueFromRaw(raw['frameAspectRatio'])!).clamp(0.5, 2.2)
               : null,
       blurSigma: (_doubleValueFromRaw(raw['blurSigma']) ?? 0).clamp(0.0, 20.0),
+      rotationDegrees:
+          (_doubleValueFromRaw(raw['rotationDegrees']) ?? 0).clamp(-45.0, 45.0),
     );
   }
 }
@@ -94,9 +108,10 @@ const List<FontWeight> kStatusTextFontWeights = <FontWeight>[
   FontWeight.w900,
 ];
 
-/// The weight statuses have always rendered at, so existing content and
-/// anything that does not choose keeps looking exactly as it did.
-const int kStatusTextDefaultWeightIndex = 2;
+/// Regular. Text arrives plain and the weight row is where you make it
+/// heavier -- statuses used to open at w800, so every one started shouting
+/// and the only choices left were louder still.
+const int kStatusTextDefaultWeightIndex = 0;
 
 /// The size-scale range the slider offers, and the floor the resulting
 /// font size is held to.

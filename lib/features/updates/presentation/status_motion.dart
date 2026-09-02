@@ -45,6 +45,27 @@ class StatusModeSwitcher extends StatelessWidget {
       duration: kStatusMotionDuration,
       switchInCurve: kStatusMotionCurve,
       switchOutCurve: kStatusMotionReverseCurve,
+      // Staggered, not overlapped: the outgoing chrome is gone before the
+      // incoming chrome starts.
+      //
+      // These rows put round buttons in the same corners -- the crop tool's
+      // tick sits exactly where the toolbar capsule's last tool does -- so
+      // cross-fading them left two different controls superimposed for the
+      // whole transition, which reads as a circle blooming over the capsule.
+      //
+      // One Interval does both halves. The incoming child's animation runs
+      // 0 to 1 and so stays invisible until halfway; the outgoing child's
+      // runs 1 to 0 through the same mapping and is therefore gone by
+      // halfway.
+      transitionBuilder: (child, animation) {
+        return FadeTransition(
+          opacity: CurvedAnimation(
+            parent: animation,
+            curve: const Interval(0.5, 1),
+          ),
+          child: child,
+        );
+      },
       // Outgoing chrome fades under the incoming one instead of the two
       // reflowing the layout while both are alive.
       layoutBuilder: (currentChild, previousChildren) {

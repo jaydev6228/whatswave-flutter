@@ -73,4 +73,55 @@ void main() {
       60,
     );
   });
+
+  testWidgets('the outgoing chrome is gone before the incoming arrives',
+      (tester) async {
+    Widget host(String label) => MaterialApp(
+          home: Scaffold(
+            body: Align(
+              alignment: Alignment.topCenter,
+              child: StatusModeSwitcher(
+                alignment: Alignment.topCenter,
+                child: Text(label, key: ValueKey<String>(label)),
+              ),
+            ),
+          ),
+        );
+
+    await tester.pumpWidget(host('crop'));
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(host('tools'));
+    await tester.pump();
+
+    double opacityOf(String label) {
+      final finder = find.ancestor(
+        of: find.byKey(ValueKey<String>(label)),
+        matching: find.byType(FadeTransition),
+      );
+      if (finder.evaluate().isEmpty) {
+        return 0;
+      }
+      return tester.widgetList<FadeTransition>(finder).first.opacity.value;
+    }
+
+    // Walked across the whole transition: these rows put round buttons in
+    // the same corners, so any frame where both are visible shows two
+    // controls superimposed -- which is what read as a ripple over the
+    // toolbar capsule.
+    var worstOverlap = 0.0;
+    for (var i = 0; i < 20; i++) {
+      await tester.pump(kStatusMotionDuration ~/ 20);
+      final both = opacityOf('crop') * opacityOf('tools');
+      if (both > worstOverlap) {
+        worstOverlap = both;
+      }
+    }
+
+    expect(
+      worstOverlap,
+      lessThan(0.02),
+      reason: 'the two chrome sets were visible at the same time',
+    );
+    await tester.pumpAndSettle();
+  });
 }
