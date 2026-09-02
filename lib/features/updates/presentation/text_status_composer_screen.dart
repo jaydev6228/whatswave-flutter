@@ -11,6 +11,7 @@ import 'widgets/status_chrome.dart';
 import 'widgets/status_media_decoration_overlay.dart';
 import 'widgets/text_status_canvas.dart';
 import 'widgets/status_text_editing_tools.dart';
+import 'widgets/overlay_delete_target.dart';
 
 class TextStatusComposerDraft {
   const TextStatusComposerDraft({
@@ -70,6 +71,13 @@ class _TextStatusComposerScreenState extends State<TextStatusComposerScreen> {
   late final FocusNode _focusNode;
   late StatusTextStyle _style;
   final List<StatusMediaOverlayItem> _overlayItems = <StatusMediaOverlayItem>[];
+
+  /// Drag-to-delete, the same gesture the media composer offers. The badge
+  /// on a selected item stays as the quick way out; this is the one that
+  /// works while you are already dragging.
+  final GlobalKey _deleteTargetKey = GlobalKey();
+  bool _isDraggingOverlay = false;
+  bool _isDeleteTargetActive = false;
   String? _selectedOverlayId;
   int _nextOverlaySeed = 0;
   double? _pinchStartSizeScale;
@@ -164,6 +172,46 @@ class _TextStatusComposerScreenState extends State<TextStatusComposerScreen> {
                   right: 0,
                   child: StatusStoryEdgeScrim(),
                 ),
+                // Drag an emoji down onto this to remove it -- the same
+                // gesture and the same pill the media composer uses.
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 40,
+                  child: Center(
+                    key: const Key('updates_text_delete_target_host'),
+                    child: KeyedSubtree(
+                      key: _deleteTargetKey,
+                      child: IgnorePointer(
+                        ignoring: !_isDraggingOverlay,
+                        child: AnimatedSlide(
+                          duration: const Duration(milliseconds: 160),
+                          curve: Curves.easeOutCubic,
+                          offset: _isDraggingOverlay
+                              ? Offset.zero
+                              : const Offset(0, 0.08),
+                          child: AnimatedOpacity(
+                            duration: const Duration(milliseconds: 160),
+                            curve: Curves.easeOutCubic,
+                            opacity: _isDraggingOverlay ? 1 : 0,
+                            child: StatusOverlayDeleteTarget(
+                              key: const Key(
+                                'updates_text_delete_overlay_button',
+                              ),
+                              isActive: _isDeleteTargetActive,
+                              onTap: () {
+                                final id = _selectedOverlayId;
+                                if (id != null) {
+                                  _endOverlayDrag(id);
+                                }
+                              },
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
                 // Editing chrome cross-fades in and out on the feature's
                 // shared timing instead of popping the instant the keyboard
                 // moves, and AnimatedPositioned carries the slide as the
@@ -188,7 +236,10 @@ class _TextStatusComposerScreenState extends State<TextStatusComposerScreen> {
                                 controller: _captionController,
                                 focusNode: _focusNode,
                                 textStyleModel: _style,
-                                hintText: 'Type your status',
+                                // Same words the canvas shows when empty,
+                                // so the prompt does not change as the
+                                // keyboard comes and goes.
+                                hintText: kTextStatusCanvasPlaceholder,
                                 // Exactly the style the canvas will render once the
                                 // keyboard is down -- a text status scales its type
                                 // with the canvas and the amount typed, so a fixed
@@ -468,6 +519,13 @@ class _TextStatusComposerScreenState extends State<TextStatusComposerScreen> {
                   item: item,
                   canvasSize: canvasSize,
                   isSelected: _selectedOverlayId == item.id,
+                  onDragStart: () => setState(() {
+                    _isDraggingOverlay = true;
+                    _isDeleteTargetActive = false;
+                    _selectedOverlayId = item.id;
+                  }),
+                  onDragUpdate: _updateDeleteTargetHover,
+                  onDragEnd: () => _endOverlayDrag(item.id),
                   onTap: () => setState(() => _selectedOverlayId = item.id),
                   onDelete: () => setState(() {
                     _overlayItems.removeWhere((o) => o.id == item.id);
@@ -630,6 +688,41 @@ class _TextStatusComposerScreenState extends State<TextStatusComposerScreen> {
     });
   }
 
+  /// Lights the target while the finger is over it.
+  void _updateDeleteTargetHover(Offset globalFocalPoint) {
+    final deleteContext = _deleteTargetKey.currentContext;
+    if (!_isDraggingOverlay || deleteContext == null) {
+      if (_isDeleteTargetActive) {
+        setState(() => _isDeleteTargetActive = false);
+      }
+      return;
+    }
+    final box = deleteContext.findRenderObject();
+    if (box is! RenderBox || !box.hasSize) {
+      return;
+    }
+    final rect = box.localToGlobal(Offset.zero) & box.size;
+    final isHovering = rect.inflate(12).contains(globalFocalPoint);
+    if (isHovering == _isDeleteTargetActive) {
+      return;
+    }
+    setState(() => _isDeleteTargetActive = isHovering);
+  }
+
+  void _endOverlayDrag(String itemId) {
+    final shouldDelete = _isDeleteTargetActive;
+    setState(() {
+      _isDraggingOverlay = false;
+      _isDeleteTargetActive = false;
+      if (shouldDelete) {
+        _overlayItems.removeWhere((o) => o.id == itemId);
+        if (_selectedOverlayId == itemId) {
+          _selectedOverlayId = null;
+        }
+      }
+    });
+  }
+
   void _shuffleLook() {
     final random = math.Random();
     final font =
@@ -687,6 +780,9 @@ class _TextStatusOverlayItem extends StatefulWidget {
     required this.onTap,
     required this.onDelete,
     required this.onChanged,
+    required this.onDragStart,
+    required this.onDragUpdate,
+    required this.onDragEnd,
     super.key,
   });
 
@@ -697,6 +793,11 @@ class _TextStatusOverlayItem extends StatefulWidget {
   final VoidCallback onDelete;
   final ValueChanged<StatusMediaOverlayItem> onChanged;
 
+  /// Drag lifecycle, so the screen can light and hit-test its delete target.
+  final VoidCallback onDragStart;
+  final ValueChanged<Offset> onDragUpdate;
+  final VoidCallback onDragEnd;
+
   @override
   State<_TextStatusOverlayItem> createState() => _TextStatusOverlayItemState();
 }
@@ -704,6 +805,7 @@ class _TextStatusOverlayItem extends StatefulWidget {
 class _TextStatusOverlayItemState extends State<_TextStatusOverlayItem> {
   StatusMediaOverlayItem? _gestureAnchor;
   Offset? _gestureStartFocalPoint;
+  StatusMediaOverlayItem? _resizeAnchor;
 
   @override
   Widget build(BuildContext context) {
@@ -728,6 +830,7 @@ class _TextStatusOverlayItemState extends State<_TextStatusOverlayItem> {
               onScaleStart: (details) {
                 _gestureAnchor = item;
                 _gestureStartFocalPoint = details.focalPoint;
+                widget.onDragStart();
               },
               onScaleUpdate: (details) {
                 final anchor = _gestureAnchor;
@@ -753,10 +856,12 @@ class _TextStatusOverlayItemState extends State<_TextStatusOverlayItem> {
                     rotation: anchor.rotation + details.rotation,
                   ),
                 );
+                widget.onDragUpdate(details.focalPoint);
               },
               onScaleEnd: (_) {
                 _gestureAnchor = null;
                 _gestureStartFocalPoint = null;
+                widget.onDragEnd();
               },
               child: Transform.rotate(
                 angle: item.rotation,
@@ -784,23 +889,49 @@ class _TextStatusOverlayItemState extends State<_TextStatusOverlayItem> {
             ),
           ),
         ),
+        // A corner handle, where the close badge used to sit. Deleting is
+        // the drag-to-target gesture now, the same as the media composer's,
+        // so a second way out on the item itself was one affordance too
+        // many -- and pinching to resize had none at all, which is the part
+        // that was actually undiscoverable.
         if (widget.isSelected)
           Center(
             child: Transform.translate(
-              offset: offset + Offset(20 * item.scale, -20 * item.scale),
+              offset: offset + Offset(22 * item.scale, 22 * item.scale),
               child: GestureDetector(
-                key: const Key('updates_text_overlay_delete_button'),
-                onTap: widget.onDelete,
+                key: const Key('updates_text_overlay_resize_handle'),
+                behavior: HitTestBehavior.opaque,
+                onPanStart: (_) => _resizeAnchor = item,
+                onPanUpdate: (details) {
+                  final anchor = _resizeAnchor;
+                  if (anchor == null) {
+                    return;
+                  }
+                  // Dragging away from the middle grows it. Both axes count,
+                  // so a diagonal drag -- the natural one for a corner --
+                  // moves at the rate it looks like it should.
+                  final growth = (details.delta.dx + details.delta.dy) / 90;
+                  widget.onChanged(
+                    anchor.copyWith(
+                      scale: (item.scale + growth).clamp(0.5, 3.0),
+                    ),
+                  );
+                },
+                onPanEnd: (_) => _resizeAnchor = null,
                 child: Container(
                   width: 26,
                   height: 26,
-                  decoration: const BoxDecoration(
-                    color: Colors.black87,
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.72),
                     shape: BoxShape.circle,
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.7),
+                      width: 1.2,
+                    ),
                   ),
                   child: const Icon(
-                    Icons.close_rounded,
-                    size: 16,
+                    Icons.open_in_full_rounded,
+                    size: 13,
                     color: Colors.white,
                   ),
                 ),

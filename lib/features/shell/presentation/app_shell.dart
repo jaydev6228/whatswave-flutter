@@ -101,6 +101,12 @@ class _AppShellState extends State<AppShell> {
     ];
 
     return Scaffold(
+      // The tab bar and compose button float over the page at the bottom of
+      // the screen, and they belong there whether or not a keyboard is up.
+      // Scaffold's default shrinks the whole body by the keyboard's height,
+      // which carried both of them up with it the moment the chat search
+      // field took focus.
+      resizeToAvoidBottomInset: false,
       body: Stack(
         children: [
           TabCrossfadeStack(

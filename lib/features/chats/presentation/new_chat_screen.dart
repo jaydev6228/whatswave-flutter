@@ -447,17 +447,26 @@ class _ContactTile extends StatelessWidget {
                 ),
               ),
               if (canReach) ...[
-                IconButton(
-                  key: Key('new_chat_call_audio_${contact.id}'),
+                // The app's glass buttons rather than bare Material icons,
+                // so this list matches the chrome used everywhere else.
+                LiquidGlassIconButton(
+                  actionKey: Key('new_chat_call_audio_${contact.id}'),
                   tooltip: 'Voice call',
-                  onPressed: isBusy ? null : () => onCall(CallType.audio),
-                  icon: const Icon(Icons.call_outlined),
+                  icon: Icons.call_outlined,
+                  // visualSize, not size: size floors to a 48pt tap target,
+                  // so anything smaller passed there draws identically.
+                  visualSize: 40,
+                  iconSize: 19,
+                  onTap: isBusy ? null : () => onCall(CallType.audio),
                 ),
-                IconButton(
-                  key: Key('new_chat_call_video_${contact.id}'),
+                const SizedBox(width: 6),
+                LiquidGlassIconButton(
+                  actionKey: Key('new_chat_call_video_${contact.id}'),
                   tooltip: 'Video call',
-                  onPressed: isBusy ? null : () => onCall(CallType.video),
-                  icon: const Icon(Icons.videocam_outlined),
+                  icon: Icons.videocam_outlined,
+                  visualSize: 40,
+                  iconSize: 19,
+                  onTap: isBusy ? null : () => onCall(CallType.video),
                 ),
               ],
             ],
@@ -517,13 +526,28 @@ class _InviteContactTile extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          FilledButton.tonal(
+          // Outlined capsule, the same treatment the dialogs use for their
+          // secondary actions -- a filled tonal button was the last piece of
+          // stock Material styling left on this screen.
+          TextButton(
             key: Key('new_chat_invite_${contact.id}'),
             onPressed: isBusy || contact.appInviteSent ? null : onInvite,
-            style: FilledButton.styleFrom(
+            style: TextButton.styleFrom(
               visualDensity: VisualDensity.compact,
               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              // The chrome recipe: a translucent fill under a hairline, not
+              // an outline on nothing -- an outline alone read as a different
+              // material from the glass controls beside it.
+              foregroundColor: theme.colorScheme.onSurface,
+              backgroundColor:
+                  theme.colorScheme.onSurface.withValues(alpha: 0.08),
+              textStyle: theme.textTheme.labelLarge,
+              shape: StadiumBorder(
+                side: BorderSide(
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.16),
+                ),
+              ),
             ),
             child: Text(contact.appInviteSent ? 'Invited' : 'Invite'),
           ),

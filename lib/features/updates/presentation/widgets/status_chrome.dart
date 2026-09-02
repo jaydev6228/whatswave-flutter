@@ -122,6 +122,13 @@ class StatusChromeButton extends StatelessWidget {
       child: InkWell(
         onTap: busy ? null : onTap,
         borderRadius: radius,
+        // No spreading ink. This chrome floats directly on the media, so a
+        // ripple washes across the picture -- and the buttons that change
+        // screen (crop's Done, the viewer's close) leave one running as the
+        // screen moves out from under it. A contained highlight gives the
+        // same acknowledgement without painting over the photo.
+        splashFactory: NoSplash.splashFactory,
+        highlightColor: Colors.white.withValues(alpha: 0.12),
         child: SizedBox(
           width: size,
           height: size,
@@ -218,6 +225,9 @@ class StatusChromeSendButton extends StatelessWidget {
             key: actionKey,
             onTap: onTap,
             borderRadius: radius,
+            // Same reasoning as StatusChromeButton above.
+            splashFactory: NoSplash.splashFactory,
+            highlightColor: Colors.white.withValues(alpha: 0.12),
             child: SizedBox(
               width: 48,
               height: 48,
