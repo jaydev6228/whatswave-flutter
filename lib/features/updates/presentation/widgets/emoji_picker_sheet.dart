@@ -292,10 +292,14 @@ List<Widget> buildStatusEmojiCategories(
         shrinkWrap: true,
         physics: const NeverScrollableScrollPhysics(),
         itemCount: category.emoji.length,
+        // No tile behind each glyph. The platform's own emoji are already
+        // full-colour artwork, and boxing each one in a rounded square read
+        // as chrome competing with the picture it frames -- it also forced a
+        // wider cell, so fewer fitted per row.
         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 6,
-          mainAxisSpacing: 10,
-          crossAxisSpacing: 10,
+          crossAxisCount: 8,
+          mainAxisSpacing: 4,
+          crossAxisSpacing: 4,
           childAspectRatio: 1,
         ),
         itemBuilder: (context, i) {
@@ -304,26 +308,19 @@ List<Widget> buildStatusEmojiCategories(
           return InkWell(
             key: Key('updates_media_emoji_option_$index'),
             onTap: () => Navigator.of(context).pop(emoji),
-            borderRadius: BorderRadius.circular(16),
-            child: Container(
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerHighest
-                    .withValues(alpha: 0.52),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Center(
-                child: usesTwemoji(theme.platform)
-                    ? Semantics(
-                        label: emoji,
-                        child: ExcludeSemantics(
-                          child: Twemoji(emoji: emoji, width: 26, height: 26),
-                        ),
-                      )
-                    : Text(
-                        emoji,
-                        style: emojiPreviewTextStyle(context, fontSize: 26),
+            borderRadius: BorderRadius.circular(12),
+            child: Center(
+              child: usesTwemoji(theme.platform)
+                  ? Semantics(
+                      label: emoji,
+                      child: ExcludeSemantics(
+                        child: Twemoji(emoji: emoji, width: 30, height: 30),
                       ),
-              ),
+                    )
+                  : Text(
+                      emoji,
+                      style: emojiPreviewTextStyle(context, fontSize: 30),
+                    ),
             ),
           );
         },

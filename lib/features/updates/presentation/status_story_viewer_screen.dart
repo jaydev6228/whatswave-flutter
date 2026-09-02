@@ -1039,6 +1039,13 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
         updatedStory.totalSegments - 1,
       );
       _reportedSeenSegments = updatedStory.clampedSeenSegments;
+      // Release the hold the confirmation dialog took, before restarting.
+      // Cancelling and failing both did this; deleting successfully did not,
+      // so _restartSegmentPlayback saw the viewer as still paused and parked
+      // the remaining story's bar at zero, where it stayed.
+      if (shouldResumeAfterDialog) {
+        _isPausedByHold = false;
+      }
     });
     _startCurrentSegmentPlayback();
     WidgetsBinding.instance.addPostFrameCallback((_) {

@@ -8,6 +8,7 @@ import 'package:whatswave/features/updates/presentation/widgets/status_text_edit
 import 'package:whatswave/features/updates/presentation/widgets/text_status_canvas.dart';
 
 import '../../../support/device_matrix.dart';
+import 'package:whatswave/features/updates/presentation/widgets/overlay_delete_target.dart';
 
 void main() {
   testWidgets(
@@ -120,8 +121,18 @@ void main() {
     expect(after.dx, greaterThan(before.dx));
     expect(after.dy, lessThan(before.dy));
 
-    await tester
-        .tap(find.byKey(const Key('updates_text_overlay_delete_button')));
+    // Removing is a drag onto the delete target now -- the same gesture the
+    // media composer uses -- rather than a close badge on the item.
+    final target = tester.getCenter(find.byType(StatusOverlayDeleteTarget));
+    final gesture = await tester.startGesture(after);
+    await tester.pump();
+    for (var i = 0; i < 4; i++) {
+      await gesture.moveTo(
+        Offset.lerp(after, target, (i + 1) / 4)!,
+      );
+      await tester.pump();
+    }
+    await gesture.up();
     await tester.pumpAndSettle();
 
     expect(find.text('😀'), findsNothing);
@@ -374,8 +385,10 @@ void main() {
       tester.widget<TextStatusCanvas>(find.byType(TextStatusCanvas)).showText,
       isFalse,
     );
-    // The placeholder lives in the editor card, not duplicated on the canvas.
-    expect(find.text('Type your status'), findsOneWidget);
+    // The placeholder lives in the editor card, not duplicated on the canvas
+    // -- and it is the same wording the canvas shows when empty, so the
+    // prompt does not change as the keyboard comes and goes.
+    expect(find.text(kTextStatusCanvasPlaceholder), findsOneWidget);
 
     await tester.enterText(
       find.byKey(const Key('updates_composer_field')),
@@ -466,17 +479,19 @@ void main() {
     await tester.pumpAndSettle();
     expect(editorStyle()?.fontSize, greaterThan(beforeSize!));
 
-    // Cycle the weight round to the lightest option. Deliberately not just
-    // one tap: the next weight up happens to match what some font looks
-    // apply themselves, so a single step cannot tell "the user's choice
-    // won" apart from "the look's default happened to agree".
+    // Cycle the weight two steps up from the regular a status now starts
+    // at. Deliberately not just one tap: the next weight up happens to
+    // match what some font looks apply themselves, so a single step cannot
+    // tell "the user's choice won" apart from "the look's default happened
+    // to agree".
     await tester.tap(find.byKey(const Key('updates_text_weight_button')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('updates_text_weight_button')));
     await tester.pumpAndSettle();
     final afterWeight = editorStyle()?.fontWeight;
+    expect(beforeWeight, kStatusTextFontWeights.first);
     expect(afterWeight, isNot(beforeWeight));
-    expect(afterWeight, kStatusTextFontWeights.first);
+    expect(afterWeight, kStatusTextFontWeights[2]);
 
     // Both survive into the posted rendering.
     final cardRect = tester.getRect(find.byType(StatusTextEditorCard));

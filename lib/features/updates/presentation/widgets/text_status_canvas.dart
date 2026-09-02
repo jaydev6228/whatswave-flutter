@@ -514,7 +514,11 @@ TextStatusBackgroundPreset resolveTextStatusBackgroundForStyle(
 
 /// The copy shown on an empty canvas. Exposed so a composer can measure
 /// the same string the canvas will lay out when sizing its own editor.
-const String kTextStatusCanvasPlaceholder = 'Write something worth pausing for';
+/// Shortest line height that still contains a font's descenders. Below
+/// this the line box clips the tail of glyphs like 'y' and 'g'.
+const double _kMinLineHeight = 1.15;
+
+const String kTextStatusCanvasPlaceholder = 'Type something';
 
 class TextStatusCanvas extends StatelessWidget {
   const TextStatusCanvas({
@@ -552,11 +556,18 @@ class TextStatusCanvas extends StatelessWidget {
     final theme = Theme.of(context);
     final background = resolveTextStatusBackgroundForStyle(style, accentColor);
     final fontLook = resolveTextStatusFontLook(style.fontId);
-    final visibleText = text.trim().isEmpty ? placeholder : text.trim();
-    final textColor =
+    final isPlaceholder = text.trim().isEmpty;
+    final visibleText = isPlaceholder ? placeholder : text.trim();
+    final resolvedTextColor =
         style.layout == StatusTextLayout.note && style.textColor == null
             ? AppPalette.ink
             : (style.textColor ?? background.suggestedTextColor);
+    // Held back while it is still the prompt: at full strength the hint read
+    // as typed text, so an untouched status looked like it already said
+    // something.
+    final textColor = isPlaceholder
+        ? resolvedTextColor.withValues(alpha: 0.45)
+        : resolvedTextColor;
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -709,7 +720,17 @@ class TextStatusCanvas extends StatelessWidget {
     );
     // Re-applied after the font look, which sets a weight of its own --
     // the user's explicit choice has to win over the look's default.
-    return fontLook.apply(baseStyle).copyWith(fontWeight: style.fontWeight);
+    final looked =
+        fontLook.apply(baseStyle).copyWith(fontWeight: style.fontWeight);
+
+    // Floored line height. The looks set heights as tight as 0.94 for their
+    // own rhythm, but below about 1.15 the line box is shorter than the
+    // font's own ascent plus descent, so descenders fall outside it and get
+    // clipped -- the tail of a 'y' cut off along the bottom edge.
+    final height = looked.height ?? 1;
+    return height >= _kMinLineHeight
+        ? looked
+        : looked.copyWith(height: _kMinLineHeight);
   }
 
   static EdgeInsets _paddingForLayout(StatusTextLayout layout, Size size) {

@@ -934,12 +934,16 @@ void main() {
       reason: 'shrinking the window should zoom the final crop in',
     );
 
-    // Dragging inside the (now smaller-than-canvas) window repositions it
-    // -- this is how you pick which part of the never-moving media the
-    // resized window selects.
+    // Dragging inside the (now smaller-than-canvas) window repositions the
+    // selection -- this is how you pick which part of the media it covers.
+    //
+    // The drag moves the *media* and the window travels the other way, so
+    // the direction here is the opposite of what it was when the window
+    // itself was dragged. The corner drag above left the window against the
+    // media's top-left, so pushing further that way would only clamp.
     await tester.drag(
       find.byType(StatusStoryMediaSurface),
-      const Offset(40, 30),
+      const Offset(-40, -30),
     );
     await tester.pumpAndSettle();
 
@@ -1209,11 +1213,14 @@ void main() {
 
     final cropOverlay =
         find.byKey(const Key('updates_media_crop_selection_overlay'));
+    // A plain Opacity now: the crop chrome fades on the same controller
+    // that carries the frame in and out, rather than running its own
+    // implicit animation on a separate clock.
     double overlayOpacity() => tester
-        .widget<AnimatedOpacity>(
-          find.ancestor(
-              of: cropOverlay, matching: find.byType(AnimatedOpacity)),
+        .widgetList<Opacity>(
+          find.ancestor(of: cropOverlay, matching: find.byType(Opacity)),
         )
+        .first
         .opacity;
 
     // Hidden, but present -- so it has something to animate from.

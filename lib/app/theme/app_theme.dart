@@ -102,6 +102,46 @@ abstract final class AppTheme {
         ),
       ),
       dividerColor: const Color(0xFFE5EBE8),
+      // One place decides how every stock Material button looks, so a screen
+      // that reaches for FilledButton or OutlinedButton lands in the same
+      // language as the app's own glass controls instead of standing out as
+      // untouched Material.
+      //
+      // Capsules throughout, and outlines rather than fills wherever the
+      // control is not the single primary action -- a filled slab reads as
+      // heavier than anything else on these surfaces.
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          shape: const StadiumBorder(),
+          elevation: 0,
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          shape: const StadiumBorder(),
+          foregroundColor: colorScheme.onSurface,
+          side: BorderSide(
+            color: colorScheme.onSurface.withValues(alpha: 0.22),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          shape: const StadiumBorder(),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        ),
+      ),
+      iconButtonTheme: IconButtonThemeData(
+        style: IconButton.styleFrom(
+          // No spreading ink: these sit on cards and media alike, and a
+          // splash washing across either reads as a smear rather than a
+          // press.
+          splashFactory: NoSplash.splashFactory,
+          highlightColor: colorScheme.onSurface.withValues(alpha: 0.10),
+        ),
+      ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: const Color(0xFFFCFEFD),
@@ -114,23 +154,18 @@ abstract final class AppTheme {
           horizontal: 18,
           vertical: 16,
         ),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(
-            color: Color(0xFFD7E3DF),
-            width: 1.2,
-          ),
+        // Capsules with a hairline, like every other control.
+        border: const OutlineInputBorder(
+          borderRadius: BorderRadius.all(Radius.circular(999)),
+          borderSide: BorderSide(color: Color(0xFFD7E3DF)),
         ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(
-            color: Color(0xFFD7E3DF),
-            width: 1.2,
-          ),
+        enabledBorder: const OutlineInputBorder(
+          borderRadius: BorderRadius.all(Radius.circular(999)),
+          borderSide: BorderSide(color: Color(0xFFD7E3DF)),
         ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(color: AppPalette.emerald, width: 1.5),
+        focusedBorder: const OutlineInputBorder(
+          borderRadius: BorderRadius.all(Radius.circular(999)),
+          borderSide: BorderSide(color: AppPalette.emerald, width: 1.5),
         ),
       ),
     );
@@ -228,6 +263,46 @@ abstract final class AppTheme {
         ),
       ),
       dividerColor: const Color(0xFF22323B),
+      // One place decides how every stock Material button looks, so a screen
+      // that reaches for FilledButton or OutlinedButton lands in the same
+      // language as the app's own glass controls instead of standing out as
+      // untouched Material.
+      //
+      // Capsules throughout, and outlines rather than fills wherever the
+      // control is not the single primary action -- a filled slab reads as
+      // heavier than anything else on these surfaces.
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          shape: const StadiumBorder(),
+          elevation: 0,
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          shape: const StadiumBorder(),
+          foregroundColor: colorScheme.onSurface,
+          side: BorderSide(
+            color: colorScheme.onSurface.withValues(alpha: 0.22),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          shape: const StadiumBorder(),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        ),
+      ),
+      iconButtonTheme: IconButtonThemeData(
+        style: IconButton.styleFrom(
+          // No spreading ink: these sit on cards and media alike, and a
+          // splash washing across either reads as a smear rather than a
+          // press.
+          splashFactory: NoSplash.splashFactory,
+          highlightColor: colorScheme.onSurface.withValues(alpha: 0.10),
+        ),
+      ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: const Color(0xFF101A20),
@@ -240,23 +315,18 @@ abstract final class AppTheme {
           horizontal: 18,
           vertical: 16,
         ),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(
-            color: Color(0xFF2C3B44),
-            width: 1.2,
-          ),
+        // Capsules with a hairline, like every other control.
+        border: const OutlineInputBorder(
+          borderRadius: BorderRadius.all(Radius.circular(999)),
+          borderSide: BorderSide(color: Color(0xFF2C3B44)),
         ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(
-            color: Color(0xFF2C3B44),
-            width: 1.2,
-          ),
+        enabledBorder: const OutlineInputBorder(
+          borderRadius: BorderRadius.all(Radius.circular(999)),
+          borderSide: BorderSide(color: Color(0xFF2C3B44)),
         ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(color: AppPalette.green, width: 1.5),
+        focusedBorder: const OutlineInputBorder(
+          borderRadius: BorderRadius.all(Radius.circular(999)),
+          borderSide: BorderSide(color: AppPalette.green, width: 1.5),
         ),
       ),
     );

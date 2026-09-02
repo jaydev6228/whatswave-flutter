@@ -1386,7 +1386,9 @@ class _StatusOverlayTextCard extends StatelessWidget {
     final theme = Theme.of(context);
     final textStyleModel = item.textStyle ?? _defaultMediaCaptionStyle;
     final look = resolveTextStatusFontLook(textStyleModel.fontId);
-    final baseFontSize = compact ? 18.0 : 24.0;
+    // 20 at full size: the size a text overlay starts at before the slider
+    // is touched.
+    final baseFontSize = compact ? 16.0 : 20.0;
     final style = look.apply(
       (theme.textTheme.titleMedium ?? const TextStyle()).copyWith(
         color: textStyleModel.textColor ?? Colors.white,

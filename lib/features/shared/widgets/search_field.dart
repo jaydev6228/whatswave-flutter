@@ -52,8 +52,11 @@ class SearchField extends StatelessWidget {
             hintText: hintText,
             isDense: true,
             filled: true,
-            fillColor: theme.colorScheme.surfaceContainerHighest.withValues(
-              alpha: theme.brightness == Brightness.dark ? 0.24 : 0.56,
+            // Same translucent fill and hairline the glass capsules use, so
+            // the field reads as one of them rather than a stock Material
+            // input sitting among them.
+            fillColor: theme.colorScheme.onSurface.withValues(
+              alpha: theme.brightness == Brightness.dark ? 0.08 : 0.05,
             ),
             contentPadding: const EdgeInsets.symmetric(
               horizontal: 14,
@@ -64,18 +67,19 @@ class SearchField extends StatelessWidget {
               minWidth: 40,
               minHeight: 40,
             ),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
+            // Capsule, like every other control in this language.
+            border: const OutlineInputBorder(
+              borderRadius: BorderRadius.all(Radius.circular(999)),
               borderSide: BorderSide.none,
             ),
             enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: const BorderRadius.all(Radius.circular(999)),
               borderSide: BorderSide(
-                color: theme.colorScheme.outlineVariant.withValues(alpha: 0.3),
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.16),
               ),
             ),
             focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: const BorderRadius.all(Radius.circular(999)),
               borderSide: BorderSide(
                 color: theme.colorScheme.primary.withValues(alpha: 0.68),
               ),

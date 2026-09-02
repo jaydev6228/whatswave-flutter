@@ -18,6 +18,8 @@ import 'status_motion.dart';
 import 'widgets/status_text_editing_tools.dart';
 import 'status_system_chrome.dart';
 import 'widgets/status_chrome.dart';
+import 'widgets/rotation_dial.dart';
+import 'widgets/overlay_delete_target.dart';
 
 class MediaStatusComposerDraft {
   const MediaStatusComposerDraft({
@@ -183,7 +185,8 @@ class MediaStatusComposerScreen extends StatefulWidget {
       _MediaStatusComposerScreenState();
 }
 
-class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
+class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen>
+    with TickerProviderStateMixin {
   static const double _minOverlayPosition = 0.04;
   static const double _maxOverlayPosition = 0.96;
 
@@ -397,6 +400,26 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
   // gesture above, since a corner drag reshapes the window (changing
   // frameAspectRatio/scale) rather than just repositioning it.
   Rect? _cropResizeAnchorWindow;
+
+  /// Eases the media back into the frame after a corner drag.
+  ///
+  /// Releasing a corner un-freezes the media, and the new selection then
+  /// re-fits the fixed frame -- which, done in a single frame, snapped the
+  /// picture into place. This runs that same re-fit as a movement.
+  late final AnimationController _cropSettleController;
+  RectTween? _cropSettleTween;
+
+  /// Carries the crop tool in and out.
+  ///
+  /// 0 is the preview's framing, 1 is the tool's. Entering and leaving used
+  /// to swap between the two in a single frame; driving the frame inset off
+  /// this makes both a movement, matching the settle after a resize.
+  late final AnimationController _cropModeController;
+  late final Animation<double> _cropModeCurve;
+
+  /// The canvas the crop handles were last laid out against, so the settle
+  /// can work out where the selection is going without a BuildContext.
+  Size? _lastCropCanvasSize;
   _CropCorner? _cropResizeActiveCorner;
   Offset? _cropResizeCurrentPoint;
 
@@ -409,10 +432,8 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
   // never moves or scales on screen; only this window does, to choose
   // which part of the media ends up in the final crop, matching
   // WhatsApp's own crop tool.
-  /// Crop mode pans the crop window; everywhere else the same gesture only
-  /// zooms (see [_onMediaScaleUpdate]). Both are off while another tool owns
-  /// the canvas.
   bool get _allowMediaTransformGestures =>
+      _isCropMode &&
       !_isEditingTextOverlay &&
       _selectedOverlayId == null &&
       _gestureAnchorOverlay == null &&
@@ -518,6 +539,38 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
   @override
   void initState() {
     super.initState();
+    _cropModeController = AnimationController(
+      vsync: this,
+      // Shorter than the shared status timing. Entering and leaving move the
+      // media across far more distance than the settle after a resize does,
+      // and at 300ms that reads as sluggish next to it.
+      duration: const Duration(milliseconds: 220),
+    )..addListener(() {
+        if (mounted) {
+          setState(() {});
+        }
+      });
+    // Eased out going in and in coming back. Running the forward curve in
+    // both directions left the tail of the exit crawling.
+    _cropModeCurve = CurvedAnimation(
+      parent: _cropModeController,
+      curve: kStatusMotionCurve,
+      reverseCurve: kStatusMotionReverseCurve,
+    );
+    _cropSettleController = AnimationController(
+      vsync: this,
+      duration: kStatusMotionDuration,
+    )
+      ..addListener(() {
+        if (mounted) {
+          setState(() {});
+        }
+      })
+      ..addStatusListener((status) {
+        if (status == AnimationStatus.completed && mounted) {
+          setState(() => _cropSettleTween = null);
+        }
+      });
     _durationSeconds = widget.type == StatusStoryType.photo ? 7 : 12;
     _inlineTextController = TextEditingController()
       ..addListener(_handleInlineTextChanged);
@@ -536,6 +589,8 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
 
   @override
   void dispose() {
+    _cropSettleController.dispose();
+    _cropModeController.dispose();
     _overlayGuideTimer?.cancel();
     _inlineTextController
       ..removeListener(_handleInlineTextChanged)
@@ -1383,7 +1438,11 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
   Future<void> _openStickerAndEmojiPicker() async {
     final result = await showModalBottomSheet<Object>(
       context: context,
-      useSafeArea: true,
+      // The sheet's glass runs to the screen edge; its content pads itself
+      // for the home indicator instead. With useSafeArea the sheet stopped
+      // short of the bottom, leaving a strip of story showing beneath it and
+      // the last row clipped against the gap.
+      useSafeArea: false,
       isScrollControlled: true,
       // Transparent so the sheet's own glass shows the story behind it.
       // Explicitly off, overriding the app theme's global
@@ -1458,7 +1517,11 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
     final tracksFuture = _loadMusicTracksAndCache();
     final selectedTrack = await showModalBottomSheet<StatusMusicTrack?>(
       context: context,
-      useSafeArea: true,
+      // The sheet's glass runs to the screen edge; its content pads itself
+      // for the home indicator instead. With useSafeArea the sheet stopped
+      // short of the bottom, leaving a strip of story showing beneath it and
+      // the last row clipped against the gap.
+      useSafeArea: false,
       isScrollControlled: true,
       // Explicitly off, overriding the app theme's global
       // showDragHandle: true. StatusChromeSheet draws its own handle
@@ -1522,6 +1585,9 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
     }
 
     if (selectedTrack == null) {
+      // Dismissed without picking: the preview must not keep playing behind
+      // the closed sheet, which is the only place it can be stopped from.
+      unawaited(_stopMusicPreview());
       return;
     }
 
@@ -1696,43 +1762,52 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
       return;
     }
 
-    if (!_isCropMode) {
-      // Outside the crop tool the media zooms but never moves. Framing is
-      // decided in crop mode against the crop window; letting a stray drag
-      // shift the media here would leave the preview showing something
-      // other than what was cropped.
-      final nextScale =
-          (anchorTransform.scale * details.scale).clamp(1.0, 4.0).toDouble();
-      if (nextScale != _mediaTransform.scale) {
-        setState(() {
-          _mediaTransform = _mediaTransform.copyWith(scale: nextScale);
-        });
-      }
-      return;
-    }
-
-    // Dragging moves the crop *window*, never the media itself -- the
-    // media renders full-size and fixed throughout crop mode (see
-    // StatusStoryMediaSurface's isCropPreview branch); this just derives
-    // the offsetDx/offsetDy that puts the window under the finger, using
-    // cropWindowRectFor as the single source of truth for where the
-    // window sits (including its current free-form size) and how far it's
-    // allowed to move -- which is within the media's own painted bounds,
-    // never out over a letterbox bar.
+    // The media moves and zooms under a fixed frame, the way WhatsApp's
+    // crop tool works. The selection is still *stored* as a window over the
+    // media, so the gesture is translated rather than the model changed:
+    // dragging the media one way slides the window the other, and pinching
+    // the media larger makes the window enclose less of it.
+    //
+    // Deltas arrive in screen points and the window lives in media points,
+    // so they are divided by the on-screen zoom -- otherwise the media
+    // would race ahead of the finger at high magnification.
     final mediaBounds = _cropMediaBoundsFor(canvasSize);
+    final ratio =
+        statusCropRatioFor(canvasSize, anchorTransform.frameAspectRatio);
     final anchorWindow = cropWindowRectFor(
       mediaBounds,
-      statusCropRatioFor(canvasSize, anchorTransform.frameAspectRatio),
+      ratio,
       anchorTransform.scale,
       anchorTransform.offsetDx,
       anchorTransform.offsetDy,
     );
-    final windowSize = anchorWindow.size;
+    if (anchorWindow.width <= 0 || anchorWindow.height <= 0) {
+      return;
+    }
+
+    final cropFrame = statusCropFrameRectFor(
+      canvasSize,
+      anchorTransform.frameAspectRatio,
+    );
+    final zoom = cropFrame.width / anchorWindow.width;
+    if (!zoom.isFinite || zoom <= 0) {
+      return;
+    }
+
+    // Zooming in shrinks the window; it can never grow past the media.
+    final nextScale =
+        (anchorTransform.scale * details.scale).clamp(1.0, 8.0).toDouble();
+    final fitSize = statusStoryFrameSizeFor(mediaBounds.size, ratio);
+    final windowSize = Size(
+      fitSize.width / nextScale,
+      fitSize.height / nextScale,
+    );
     if (windowSize.width <= 0 || windowSize.height <= 0) {
       return;
     }
+
     final delta = details.focalPoint - startFocalPoint;
-    final desiredCenter = anchorWindow.center + delta;
+    final desiredCenter = anchorWindow.center - delta / zoom;
     final minCenterX = mediaBounds.left + windowSize.width / 2;
     final maxCenterX =
         math.max(mediaBounds.right - windowSize.width / 2, minCenterX);
@@ -1746,6 +1821,7 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
 
     setState(() {
       _mediaTransform = anchorTransform.copyWith(
+        scale: nextScale,
         offsetDx: (mediaBounds.center.dx - clampedCenter.dx) / windowSize.width,
         offsetDy:
             (mediaBounds.center.dy - clampedCenter.dy) / windowSize.height,
@@ -1787,6 +1863,45 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
   // [displayPoint] seeds the running drag point from wherever the user's
   // finger actually grabbed the handle, so the box tracks the finger 1:1
   // with no jump.
+  /// Screen points per media point while the crop frame is on screen.
+  ///
+  /// The frame is fixed and the media is scaled to put the selection inside
+  /// it, so a finger travelling one point on glass moves the selection by
+  /// less than a point across the media whenever it is magnified.
+  double _cropScreenToWindowZoom(Size canvasSize) {
+    return statusCropProjection(
+      canvasSize: canvasSize,
+      window: cropWindowRectFor(
+        _cropMediaBoundsFor(canvasSize),
+        statusCropRatioFor(canvasSize, _mediaTransform.frameAspectRatio),
+        _mediaTransform.scale,
+        _mediaTransform.offsetDx,
+        _mediaTransform.offsetDy,
+      ),
+      // Frozen mid-resize, so the corner keeps tracking the finger 1:1
+      // rather than accelerating as the selection tightens.
+      anchorWindow: _cropResizeAnchorWindow,
+      ratio: _mediaTransform.frameAspectRatio,
+    ).zoom;
+  }
+
+  /// Maps a point on glass to the media-space point under it.
+  Offset _cropScreenPointToWindow(Offset screenPoint, Size canvasSize) {
+    final zoom = _cropScreenToWindowZoom(canvasSize);
+    final frame = statusCropFrameRectFor(
+      canvasSize,
+      _mediaTransform.frameAspectRatio,
+    );
+    final window = cropWindowRectFor(
+      _cropMediaBoundsFor(canvasSize),
+      statusCropRatioFor(canvasSize, _mediaTransform.frameAspectRatio),
+      _mediaTransform.scale,
+      _mediaTransform.offsetDx,
+      _mediaTransform.offsetDy,
+    );
+    return window.center + (screenPoint - frame.center) / zoom;
+  }
+
   void _onCropCornerPanStart(
     _CropCorner corner,
     Size canvasSize,
@@ -1802,9 +1917,15 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
       _mediaTransform.offsetDx,
       _mediaTransform.offsetDy,
     );
-    _cropResizeAnchorWindow = window;
+    setState(() {
+      // Rebuild so the media freezes for the duration of the drag.
+      _cropResizeAnchorWindow = window;
+    });
     _cropResizeActiveCorner = corner;
-    _cropResizeCurrentPoint = displayPoint;
+    // The handle is handed a frame corner in screen space; the resize maths
+    // below all runs in media space.
+    _cropResizeCurrentPoint =
+        _cropScreenPointToWindow(displayPoint, canvasSize);
   }
 
   void _onCropCornerPanUpdate(DragUpdateDetails details, Size canvasSize) {
@@ -1817,7 +1938,8 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
 
     final mediaBounds = _cropMediaBoundsFor(canvasSize);
     final fixedCorner = _cropWindowOppositeCornerPoint(corner, anchorWindow);
-    final draggedPoint = currentPoint + details.delta;
+    final draggedPoint =
+        currentPoint + details.delta / _cropScreenToWindowZoom(canvasSize);
     _cropResizeCurrentPoint = draggedPoint;
 
     // Clamp to the *media's* bounds (not the canvas -- dragging out over a
@@ -1869,13 +1991,36 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
   }
 
   void _onCropCornerPanEnd(DragEndDetails details) {
+    _settleCropResize();
     _resetCropCornerGestureState();
   }
 
+  /// Runs the post-resize re-fit as an animation rather than a jump.
+  void _settleCropResize() => _animateCropSettleFrom(_cropResizeAnchorWindow);
+
+  /// The window handed to the surface: the live selection normally, the
+  /// frozen one mid-drag, and the settling one in between.
+  Rect? get _cropProjectionAnchor {
+    final tween = _cropSettleTween;
+    if (tween != null && _cropSettleController.isAnimating) {
+      return tween.evaluate(
+        CurvedAnimation(
+          parent: _cropSettleController,
+          curve: kStatusMotionCurve,
+        ),
+      );
+    }
+    return _cropResizeAnchorWindow;
+  }
+
   void _resetCropCornerGestureState() {
+    final wasResizing = _cropResizeAnchorWindow != null;
     _cropResizeAnchorWindow = null;
     _cropResizeActiveCorner = null;
     _cropResizeCurrentPoint = null;
+    if (wasResizing && mounted) {
+      setState(() {});
+    }
   }
 
   void _toggleDrawMode() {
@@ -2000,13 +2145,64 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
     return _mediaTransform.rotationQuarterTurns.isOdd ? 1 / original : original;
   }
 
-  void _toggleCropMode() {
+  /// Straightens the media. See [StatusMediaTransform.rotationDegrees].
+  void _setRotationDegrees(double degrees) {
+    if (degrees == _mediaTransform.rotationDegrees) {
+      return;
+    }
     setState(() {
-      _isCropMode = !_isCropMode;
+      _mediaTransform = _mediaTransform.copyWith(rotationDegrees: degrees);
     });
   }
 
+  /// The selection in media space, or null before the crop tool has been
+  /// laid out.
+  Rect? get _currentCropWindow {
+    final canvasSize = _lastCropCanvasSize;
+    if (canvasSize == null) {
+      return null;
+    }
+    return cropWindowRectFor(
+      _cropMediaBoundsFor(canvasSize),
+      statusCropRatioFor(canvasSize, _mediaTransform.frameAspectRatio),
+      _mediaTransform.scale,
+      _mediaTransform.offsetDx,
+      _mediaTransform.offsetDy,
+    );
+  }
+
+  /// Eases from [from] to wherever the selection has just been moved to.
+  void _animateCropSettleFrom(Rect? from) {
+    final to = _currentCropWindow;
+    if (from == null || to == null || to.width <= 0 || from == to) {
+      return;
+    }
+    _cropSettleTween = RectTween(begin: from, end: to);
+    _cropSettleController.forward(from: 0);
+  }
+
+  void _toggleCropMode() {
+    if (_isCropMode) {
+      // Leaving: keep rendering the tool until the frame has travelled back
+      // to the preview's framing, then drop it.
+      _cropModeController.reverse().whenComplete(() {
+        if (mounted) {
+          setState(() => _isCropMode = false);
+        }
+      });
+      return;
+    }
+    setState(() => _isCropMode = true);
+    _cropModeController.forward(from: 0);
+  }
+
+  /// How far into the crop tool the UI currently is, 0..1.
+  double get _cropTransition => _cropModeCurve.value.clamp(0.0, 1.0);
+
   void _selectCropAspectOption(_CropAspectOption option) {
+    // Where the selection sits right now, so the change of shape can be
+    // travelled rather than jumped.
+    final before = _currentCropWindow;
     setState(() {
       // Picking a preset always re-centers and un-zooms the window to a
       // clean box of that shape -- any previous free-form corner-drag
@@ -2044,6 +2240,7 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
         );
       }
     });
+    _animateCropSettleFrom(before);
   }
 
   /// Whether the crop frame differs from the media's own original frame in
@@ -2053,7 +2250,8 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
   bool get _hasCropEdits {
     if (_mediaTransform.scale != 1 ||
         _mediaTransform.offsetDx != 0 ||
-        _mediaTransform.offsetDy != 0) {
+        _mediaTransform.offsetDy != 0 ||
+        _mediaTransform.rotationDegrees != 0) {
       return true;
     }
     final current = _mediaTransform.frameAspectRatio;
@@ -2073,6 +2271,7 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
   /// own crop screen. Rotation is left alone: it has its own button and
   /// isn't part of the crop selection.
   void _resetMediaTransformOffset() {
+    final before = _currentCropWindow;
     setState(() {
       _isFitToScreenCrop = false;
       _cropResizeAnchorWindow = null;
@@ -2085,8 +2284,12 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
         scale: 1,
         offsetDx: 0,
         offsetDy: 0,
+        // Straightening is part of the crop selection, unlike the 90-degree
+        // rotate, which has its own button and its own meaning.
+        rotationDegrees: 0,
       );
     });
+    _animateCropSettleFrom(before);
   }
 
   void _toggleBlurMode() {
@@ -2229,6 +2432,11 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
       );
     }
     return Row(
+      // Close button on the leading edge, tool capsule on the trailing one.
+      // A Spacer cannot do this: it is a flex child, so it and the capsule's
+      // own Flexible split the free space between them, leaving the capsule
+      // half the row wide with its tools clipped.
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         StatusChromeButton(
           key: const Key('updates_media_close_composer_button'),
@@ -2237,7 +2445,10 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
           onTap: () => Navigator.of(context).maybePop(),
         ),
         const SizedBox(width: 10),
-        Expanded(
+        // Loose, not Expanded: the capsule sizes to its buttons rather than
+        // to whatever width is left beside the close button.
+        Flexible(
+          fit: FlexFit.loose,
           child: _ComposerToolbar(
             onAddText: _addTextOverlay,
             hasMusic: _musicTrack != null,
@@ -2274,6 +2485,58 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
                 child: tray,
               ),
       ),
+    );
+  }
+
+  /// The media, cross-faded between the preview's framing and the crop
+  /// tool's while the transition runs. See the call site for why the two
+  /// cannot simply be swapped.
+  Widget _buildComposerMediaLayer({required bool showFrameOutline}) {
+    final transition = _cropTransition;
+
+    Widget layer({required bool asCrop, required bool interactive}) {
+      return _ComposerMediaLayer(
+        type: widget.type,
+        localMediaPath: widget.localMediaPath,
+        mediaTransform: _mediaTransform,
+        videoController: _videoController,
+        videoInitialization: _videoInitialization,
+        allowTransformGestures: interactive && _allowMediaTransformGestures,
+        showFrameOutline: asCrop,
+        cropResizeAnchorWindow: _cropProjectionAnchor,
+        cropInsetFactor: transition,
+        drawingStrokes: _displayedDrawingStrokes,
+        onSourceSizeResolved: _adoptOriginalMediaFrameIfNeeded,
+        onScaleStart: interactive ? _onMediaScaleStart : (_) {},
+        onScaleUpdate: interactive ? _onMediaScaleUpdate : (_, __) {},
+        onScaleEnd: interactive ? _onMediaScaleEnd : (_) {},
+      );
+    }
+
+    // Settled at either end, only one framing exists -- so nothing is drawn
+    // twice except during the transition itself.
+    if (!showFrameOutline) {
+      return layer(asCrop: false, interactive: true);
+    }
+    if (transition >= 1) {
+      return layer(asCrop: true, interactive: true);
+    }
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Opacity(
+          opacity: (1 - transition).clamp(0.0, 1.0),
+          // Never the gesture target: the crop framing on top owns input for
+          // the whole transition, so a pinch cannot land on the copy that is
+          // fading out.
+          child: IgnorePointer(child: layer(asCrop: false, interactive: false)),
+        ),
+        Opacity(
+          opacity: transition.clamp(0.0, 1.0),
+          child: layer(asCrop: true, interactive: true),
+        ),
+      ],
     );
   }
 
@@ -2371,7 +2634,9 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
     // overlays became free to move across the whole frame, and it visually
     // doubled up with this same frame outline whenever both were active at
     // once (e.g. in crop mode).
-    final showPlacementGuide = _isCropMode;
+    // Rendered for the whole transition, not just while the tool is
+    // nominally open, so leaving it can animate out rather than vanish.
+    final showPlacementGuide = _isCropMode || _cropModeController.value > 0;
 
     // Keep the whole canvas pinned in place when the keyboard opens (e.g.
     // editing a text overlay) -- WhatsApp's own text tool never moves or
@@ -2401,20 +2666,21 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
             // does. Inset-ing the media here instead made every "Fit to
             // screen" preview a lie: it fit the media to a shorter box than
             // the screen it would actually fill once posted.
+            // Mid-transition both framings are drawn and cross-faded.
+            //
+            // The two render paths do not meet: crop mode contain-fits the
+            // media into the whole canvas and magnifies it with a matrix,
+            // while the preview cover-fits it into the ratio'd frame and
+            // magnifies it inside. Measured on an 0.8-ratio frame the two
+            // disagree by 84pt in height even at zero rotation, so switching
+            // between them in one frame is a visible jump however well the
+            // frame inset itself is animated. Fading across the gap is
+            // concealment, not a cure -- the geometries still disagree, and
+            // making them agree means changing what offsetDx/offsetDy mean,
+            // which every already-posted story is stored against.
             Positioned.fill(
-              child: _ComposerMediaLayer(
-                type: widget.type,
-                localMediaPath: widget.localMediaPath,
-                mediaTransform: _mediaTransform,
-                videoController: _videoController,
-                videoInitialization: _videoInitialization,
-                allowTransformGestures: _allowMediaTransformGestures,
+              child: _buildComposerMediaLayer(
                 showFrameOutline: showPlacementGuide,
-                drawingStrokes: _displayedDrawingStrokes,
-                onSourceSizeResolved: _adoptOriginalMediaFrameIfNeeded,
-                onScaleStart: _onMediaScaleStart,
-                onScaleUpdate: _onMediaScaleUpdate,
-                onScaleEnd: _onMediaScaleEnd,
               ),
             ),
             // Crop window corner handles -- a separate layer, in the exact
@@ -2429,16 +2695,27 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
                 child: LayoutBuilder(
                   builder: (context, constraints) {
                     final canvasSize = constraints.biggest;
-                    final window = cropWindowRectFor(
-                      _cropMediaBoundsFor(canvasSize),
-                      statusCropRatioFor(
-                        canvasSize,
-                        _mediaTransform.frameAspectRatio,
+                    _lastCropCanvasSize = canvasSize;
+                    // Where the selection lands on screen once the media
+                    // has been transformed under it -- which, mid corner
+                    // drag, is a shrinking rect over a picture that is
+                    // holding still.
+                    final window = statusCropProjection(
+                      canvasSize: canvasSize,
+                      window: cropWindowRectFor(
+                        _cropMediaBoundsFor(canvasSize),
+                        statusCropRatioFor(
+                          canvasSize,
+                          _mediaTransform.frameAspectRatio,
+                        ),
+                        _mediaTransform.scale,
+                        _mediaTransform.offsetDx,
+                        _mediaTransform.offsetDy,
                       ),
-                      _mediaTransform.scale,
-                      _mediaTransform.offsetDx,
-                      _mediaTransform.offsetDy,
-                    );
+                      anchorWindow: _cropProjectionAnchor,
+                      ratio: _mediaTransform.frameAspectRatio,
+                      insetFactor: _cropTransition,
+                    ).screenWindow;
                     return Stack(
                       clipBehavior: Clip.none,
                       children: [
@@ -2817,6 +3094,21 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
                         onSelectOption: _selectCropAspectOption,
                       ),
                     ),
+                    // Straightening, right above the ratio/reset row --
+                    // where WhatsApp puts it, and close enough to the media
+                    // that the horizon and the dial are in one glance.
+                    Positioned(
+                      left: 24,
+                      right: 24,
+                      // Clear of the Reset pill on the row below -- the
+                      // reading used to sit right on top of it.
+                      bottom: 196,
+                      child: RotationDial(
+                        key: const Key('updates_media_rotation_dial'),
+                        degrees: _mediaTransform.rotationDegrees,
+                        onChanged: _setRotationDegrees,
+                      ),
+                    ),
                     if (_hasCropEdits)
                       Positioned(
                         left: 0,
@@ -2961,7 +3253,7 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen> {
                                     duration: const Duration(milliseconds: 160),
                                     curve: Curves.easeOutCubic,
                                     opacity: _isDraggingOverlay ? 1 : 0,
-                                    child: _ComposerDeleteDropTarget(
+                                    child: StatusOverlayDeleteTarget(
                                       key: const Key(
                                         'updates_media_delete_overlay_button',
                                       ),
@@ -3039,6 +3331,8 @@ class _ComposerMediaLayer extends StatelessWidget {
     required this.allowTransformGestures,
     required this.showFrameOutline,
     required this.onSourceSizeResolved,
+    this.cropResizeAnchorWindow,
+    this.cropInsetFactor = 1,
     required this.onScaleStart,
     required this.onScaleUpdate,
     required this.onScaleEnd,
@@ -3052,6 +3346,12 @@ class _ComposerMediaLayer extends StatelessWidget {
   final StatusMediaTransform mediaTransform;
   final bool allowTransformGestures;
   final bool showFrameOutline;
+
+  /// See [StatusStoryMediaSurface.cropResizeAnchorWindow].
+  final Rect? cropResizeAnchorWindow;
+
+  /// See [StatusStoryMediaSurface.cropInsetFactor].
+  final double cropInsetFactor;
   final ValueChanged<Size> onSourceSizeResolved;
   final VideoPlayerController? videoController;
   final Future<void>? videoInitialization;
@@ -3074,6 +3374,8 @@ class _ComposerMediaLayer extends StatelessWidget {
           showFrameOutline: showFrameOutline,
           unavailableMessage: 'This media is no longer available.',
           drawingStrokes: drawingStrokes,
+          cropResizeAnchorWindow: cropResizeAnchorWindow,
+          cropInsetFactor: cropInsetFactor,
           onSourceSizeResolved: onSourceSizeResolved,
           onScaleStart: allowTransformGestures ? onScaleStart : null,
           onScaleUpdate: allowTransformGestures
@@ -3232,71 +3534,6 @@ class _ComposerTopBar extends StatelessWidget {
             ],
           ),
       ],
-    );
-  }
-}
-
-class _ComposerDeleteDropTarget extends StatelessWidget {
-  const _ComposerDeleteDropTarget({
-    required this.isActive,
-    required this.onTap,
-    super.key,
-  });
-
-  final bool isActive;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(999),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 140),
-          curve: Curves.easeOutCubic,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          decoration: BoxDecoration(
-            color: isActive
-                ? const Color(0xFFE5484D)
-                : Colors.black.withValues(alpha: 0.28),
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(
-              color: isActive
-                  ? Colors.white.withValues(alpha: 0.42)
-                  : Colors.white.withValues(alpha: 0.12),
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: isActive ? 0.28 : 0.18),
-                blurRadius: 18,
-                offset: const Offset(0, 10),
-              ),
-            ],
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                isActive
-                    ? Icons.delete_forever_rounded
-                    : Icons.delete_outline_rounded,
-                color: Colors.white,
-                size: 18,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                isActive ? 'Release to delete' : 'Drag here to delete',
-                style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w800,
-                    ),
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }
@@ -3796,64 +4033,92 @@ class _ComposerToolbar extends StatelessWidget {
     return StatusChromeSurface(
       borderRadius: const BorderRadius.all(Radius.circular(999)),
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          children: [
-            // Order matches WhatsApp's own photo/video status editor:
-            // text, stickers & emoji (one combined tool), draw, music,
-            // blur, crop/rotate.
-            _ToolbarToolButton(
-              key: const Key('updates_media_panel_fonts'),
-              tooltip: isTextSelected ? 'Edit text' : 'Add text',
-              icon: isTextSelected
-                  ? Icons.edit_outlined
-                  : Icons.text_fields_rounded,
-              onTap: onAddText,
-              isActive: isTextSelected,
-              expand: false,
-            ),
-            _ToolbarToolButton(
-              key: const Key('updates_media_add_emoji_button'),
-              tooltip: 'Stickers & emoji',
-              icon: Icons.emoji_emotions_outlined,
-              onTap: onAddStickerOrEmoji,
-              expand: false,
-            ),
-            _ToolbarToolButton(
-              key: const Key('updates_media_draw_button'),
-              tooltip: 'Draw',
-              icon: Icons.edit_note_rounded,
-              onTap: onDraw,
-              expand: false,
-            ),
-            _ToolbarToolButton(
-              key: const Key('updates_media_add_music_button'),
-              tooltip: hasMusic ? 'Change music' : 'Add music',
-              icon: hasMusic
-                  ? Icons.graphic_eq_rounded
-                  : Icons.music_note_rounded,
-              onTap: onAddMusic,
-              isActive: hasMusic,
-              expand: false,
-            ),
-            _ToolbarToolButton(
-              key: const Key('updates_media_blur_button'),
-              tooltip: 'Blur',
-              icon: Icons.blur_on_rounded,
-              onTap: onBlur,
-              expand: false,
-            ),
-            _ToolbarToolButton(
-              key: const Key('updates_media_crop_rotate_button'),
-              tooltip: 'Crop or rotate',
-              icon: Icons.crop_rotate_rounded,
-              onTap: onCropOrRotate,
-              expand: false,
-            ),
-          ],
-        ),
+      child: _ToolbarRow(
+        children: [
+          // Order matches WhatsApp's own photo/video status editor:
+          // text, stickers & emoji (one combined tool), draw, music,
+          // blur, crop/rotate.
+          _ToolbarToolButton(
+            key: const Key('updates_media_panel_fonts'),
+            tooltip: isTextSelected ? 'Edit text' : 'Add text',
+            icon: isTextSelected
+                ? Icons.edit_outlined
+                : Icons.text_fields_rounded,
+            onTap: onAddText,
+            isActive: isTextSelected,
+            expand: false,
+          ),
+          _ToolbarToolButton(
+            key: const Key('updates_media_add_emoji_button'),
+            tooltip: 'Stickers & emoji',
+            icon: Icons.emoji_emotions_outlined,
+            onTap: onAddStickerOrEmoji,
+            expand: false,
+          ),
+          _ToolbarToolButton(
+            key: const Key('updates_media_draw_button'),
+            tooltip: 'Draw',
+            icon: Icons.edit_note_rounded,
+            onTap: onDraw,
+            expand: false,
+          ),
+          _ToolbarToolButton(
+            key: const Key('updates_media_add_music_button'),
+            tooltip: hasMusic ? 'Change music' : 'Add music',
+            icon:
+                hasMusic ? Icons.graphic_eq_rounded : Icons.music_note_rounded,
+            onTap: onAddMusic,
+            isActive: hasMusic,
+            expand: false,
+          ),
+          _ToolbarToolButton(
+            key: const Key('updates_media_blur_button'),
+            tooltip: 'Blur',
+            icon: Icons.blur_on_rounded,
+            onTap: onBlur,
+            expand: false,
+          ),
+          _ToolbarToolButton(
+            key: const Key('updates_media_crop_rotate_button'),
+            tooltip: 'Crop or rotate',
+            icon: Icons.crop_rotate_rounded,
+            onTap: onCropOrRotate,
+            expand: false,
+          ),
+        ],
       ),
+    );
+  }
+}
+
+/// Lays the tool buttons out so the capsule hugs them.
+///
+/// The capsule is handed the whole width left over beside the close button,
+/// and a plain Row inside it stretches to fill that -- which left a bite of
+/// empty capsule after the last tool. Sizing to the buttons keeps the
+/// capsule tight to its contents, and it only becomes scrollable on a screen
+/// too narrow to hold them all.
+class _ToolbarRow extends StatelessWidget {
+  const _ToolbarRow({required this.children});
+
+  /// 42pt button plus its 2pt margins either side.
+  static const double _buttonExtent = 46;
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final row = Row(mainAxisSize: MainAxisSize.min, children: children);
+        if (children.length * _buttonExtent <= constraints.maxWidth) {
+          return row;
+        }
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: row,
+        );
+      },
     );
   }
 }
@@ -3881,6 +4146,12 @@ class _ToolbarToolButton extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(16),
+        // No spreading ink. These sit directly on the media, so a ripple
+        // washes across the picture -- and tapping crop leaves one running
+        // as the screen changes underneath it. A contained highlight gives
+        // the same acknowledgement without painting over the photo.
+        splashFactory: NoSplash.splashFactory,
+        highlightColor: Colors.white.withValues(alpha: 0.12),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 160),
           curve: Curves.easeOutCubic,
@@ -4172,10 +4443,13 @@ class _StickerAndEmojiPickerSheetState
             .where((preset) => preset.label.toLowerCase().contains(query))
             .toList(growable: false);
 
+    final bottomInset = MediaQuery.viewPaddingOf(context).bottom;
     return FractionallySizedBox(
       heightFactor: 0.72,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+        // See the music sheet: the inset belongs on the scrolling content,
+        // not on the sheet, or the whole grid floats above a band of glass.
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -4205,6 +4479,7 @@ class _StickerAndEmojiPickerSheetState
             Expanded(
               child: ListView(
                 key: const Key('updates_media_sticker_emoji_list'),
+                padding: EdgeInsets.only(bottom: bottomInset + 12),
                 children: [
                   Text(
                     'Stickers',
@@ -4289,16 +4564,21 @@ class _MusicPickerSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final bottomInset = MediaQuery.viewPaddingOf(context).bottom;
     return FractionallySizedBox(
       heightFactor: 0.68,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 8, 14, 12),
+        // No bottom inset here: padding the sheet itself pushed the whole
+        // list up and left a band of empty glass under it. The inset goes on
+        // the scrolling content below, so rows run to the screen edge and
+        // the last one can still scroll clear of the home indicator.
+        padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
               child: ListView.separated(
-                padding: EdgeInsets.zero,
+                padding: EdgeInsets.only(bottom: bottomInset + 12),
                 itemCount: tracks.length,
                 separatorBuilder: (_, __) => Divider(
                   height: 1,
@@ -4321,7 +4601,7 @@ class _MusicPickerSheet extends StatelessWidget {
                           curve: Curves.easeOutCubic,
                           padding: const EdgeInsets.symmetric(
                             horizontal: 4,
-                            vertical: 10,
+                            vertical: 6,
                           ),
                           decoration: BoxDecoration(
                             color: isSelected
@@ -4343,10 +4623,10 @@ class _MusicPickerSheet extends StatelessWidget {
                                       track.title,
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
-                                      style:
-                                          theme.textTheme.titleMedium?.copyWith(
-                                        fontWeight: FontWeight.w800,
-                                      ),
+                                      // Regular weight: a list of a dozen
+                                      // titles at w800 reads as a wall of
+                                      // bold rather than a list.
+                                      style: theme.textTheme.titleMedium,
                                     ),
                                     const SizedBox(height: 2),
                                     Text(
@@ -4363,28 +4643,27 @@ class _MusicPickerSheet extends StatelessWidget {
                                 ),
                               ),
                               const SizedBox(width: 8),
-                              IconButton(
-                                key: Key(
-                                    'updates_media_music_play_button_$index'),
-                                onPressed: () => onPlayPreview(track),
-                                style: IconButton.styleFrom(
-                                  minimumSize: const Size(40, 40),
-                                  padding: EdgeInsets.zero,
-                                  backgroundColor: isPreviewing
-                                      ? theme.colorScheme.primary
-                                          .withValues(alpha: 0.14)
-                                      : theme
-                                          .colorScheme.surfaceContainerHighest
-                                          .withValues(alpha: 0.52),
+                              // The app's own glass button rather than a
+                              // Material IconButton, so the sheet's controls
+                              // read as the same family as everything else.
+                              LiquidGlassIconButton(
+                                actionKey: Key(
+                                  'updates_media_music_play_button_$index',
                                 ),
-                                icon: Icon(
-                                  isPreviewing
-                                      ? Icons.pause_rounded
-                                      : Icons.play_arrow_rounded,
-                                  color: isPreviewing
-                                      ? theme.colorScheme.primary
-                                      : theme.colorScheme.onSurfaceVariant,
-                                ),
+                                icon: isPreviewing
+                                    ? Icons.pause_rounded
+                                    : Icons.play_arrow_rounded,
+                                tooltip: isPreviewing ? 'Pause' : 'Play',
+                                onTap: () => onPlayPreview(track),
+                                // visualSize, not size: size floors to a
+                                // 48pt tap target, so the button drew at 48
+                                // whatever was passed.
+                                visualSize: 34,
+                                iconSize: 17,
+                                selected: isPreviewing,
+                                iconColor: isPreviewing
+                                    ? theme.colorScheme.primary
+                                    : theme.colorScheme.onSurfaceVariant,
                               ),
                             ],
                           ),
