@@ -24,12 +24,19 @@ void main() {
         contactsStatus: ContactAccessStatus.granted,
       ),
     );
-    await tester.runAsync(controller.ensureLoaded);
+    await tester.runAsync(() async {
+      await controller.ensureLoaded();
+      await controller.createCommunity(
+        title: 'Test invite isolation',
+        description: 'Only the creator starts here.',
+      );
+    });
+    final communityId = controller.communities.first.id;
 
     await _pumpCommunityDetail(
       tester,
       controller: controller,
-      communityId: 'studio-community',
+      communityId: communityId,
     );
 
     await tester.tap(find.byKey(const Key('community_detail_invite_button')));
@@ -72,7 +79,10 @@ void main() {
       communityId: communityId,
     );
 
-    expect(find.text('0 members · 1 groups'), findsOneWidget);
+    expect(
+      controller.communityById(communityId)!.displayMemberCount,
+      1,
+    );
 
     await tester.tap(find.byKey(const Key('community_detail_invite_button')));
     await tester.pumpAndSettle();
@@ -81,7 +91,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('1 members · 1 groups'), findsOneWidget);
+    expect(
+      controller.communityById(communityId)!.displayMemberCount,
+      2,
+    );
   });
 }
 

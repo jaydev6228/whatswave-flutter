@@ -22,6 +22,7 @@ class CommunityHub {
     this.ownerUid,
     this.viewerUid,
     this.avatarUrl,
+    this.inviteToken,
   });
 
   /// Derives the initials badge from a community title -- same logic as
@@ -95,6 +96,10 @@ class CommunityHub {
   /// list and detail screens fall back to [avatarLabel].
   final String? avatarUrl;
 
+  /// Opaque token embedded in [buildCommunityJoinLink]. Seeded at create
+  /// time so admins can share a stable community link.
+  final String? inviteToken;
+
   /// Whether the viewer created this community. Distinct from
   /// [viewerIsAdmin]: a promoted admin manages members, but only the
   /// creator can deactivate or is barred from exiting.
@@ -107,6 +112,12 @@ class CommunityHub {
   int get groupCount => groups.length;
 
   bool get hasUnread => unreadCount > 0;
+
+  /// Total people on the roster, including the signed-in viewer. Prefer
+  /// this anywhere the UI lists [memberUids] so "3 members" in the header
+  /// matches a three-row roster instead of excluding the viewer.
+  int get displayMemberCount =>
+      memberUids.isNotEmpty ? memberUids.length : memberCount;
 
   bool get hasFreshAnnouncement =>
       DateTime.now().difference(announcement.publishedAt) <=
@@ -157,6 +168,7 @@ class CommunityHub {
     String? viewerUid,
     String? avatarUrl,
     bool clearAvatarUrl = false,
+    String? inviteToken,
   }) {
     return CommunityHub(
       id: id ?? this.id,
@@ -176,6 +188,7 @@ class CommunityHub {
       ownerUid: ownerUid ?? this.ownerUid,
       viewerUid: viewerUid ?? this.viewerUid,
       avatarUrl: clearAvatarUrl ? null : avatarUrl ?? this.avatarUrl,
+      inviteToken: inviteToken ?? this.inviteToken,
     );
   }
 }

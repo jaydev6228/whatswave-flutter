@@ -205,10 +205,8 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
         ..._communityToJson(draft),
         'ownerUid': uid,
         'memberUids': [uid],
-        // The creator starts as the only admin. Nothing else can seed this
-        // list (firestore.rules pins it to exactly [creator] at create), so
-        // every later admin is someone an admin promoted.
         'adminUids': [uid],
+        'inviteToken': docRef.id,
       });
     } on FirebaseException catch (e) {
       throw CommunitiesRepositoryException(
@@ -490,6 +488,146 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
   }
 
   @override
+  Future<CommunitiesOverview> removeCommunityMember({
+    required String communityId,
+    required String memberUid,
+  }) async {
+    final uid = _requireCurrentUid;
+    if (memberUid == uid) {
+      throw const CommunitiesRepositoryException(
+        'Use "Exit community" to remove yourself.',
+      );
+    }
+    try {
+      final doc = await _communitiesRef.doc(communityId).get();
+      final data = doc.data();
+      if (data == null) {
+        throw const CommunitiesRepositoryException(
+          'That community is no longer available.',
+        );
+      }
+      if (memberUid == data['ownerUid']) {
+        throw const CommunitiesRepositoryException(
+          'The person who created this community cannot be removed.',
+        );
+      }
+      await _communitiesRef.doc(communityId).update({
+        'memberUids': FieldValue.arrayRemove([memberUid]),
+        'adminUids': FieldValue.arrayRemove([memberUid]),
+      });
+      await _dropFromAnnouncementThread(data, memberUid);
+    } on FirebaseException catch (e) {
+      throw CommunitiesRepositoryException(
+        e.message ?? 'Could not remove that member.',
+      );
+    }
+    return fetchOverview();
+  }
+
+  /// WhatsApp also drops a removed member from the announcement group
+  /// (https://faq.whatsapp.com/2052820105033683). Best-effort: a promoted
+  /// admin may not be an announcement-thread admin, and that write is
+  /// gated on `groupAdminUids` -- the community roster change above is
+  /// what actually takes them out of the community.
+  Future<void> _dropFromAnnouncementThread(
+    Map<String, dynamic> data,
+    String memberUid,
+  ) async {
+    final threadId = data['announcementThreadId'] as String?;
+    if (threadId == null) {
+      return;
+    }
+    try {
+      await _firestore.collection('chatThreads').doc(threadId).update({
+        'participantUids': FieldValue.arrayRemove([memberUid]),
+        'groupAdminUids': FieldValue.arrayRemove([memberUid]),
+      });
+    } on FirebaseException {
+      return;
+    }
+  }
+
+  @override
+  Future<CommunitiesOverview> detachGroupFromCommunity({
+    required String communityId,
+    required String groupId,
+  }) async {
+    _requireCurrentUid;
+    try {
+      final doc = await _communitiesRef.doc(communityId).get();
+      final data = doc.data();
+      if (data == null) {
+        throw const CommunitiesRepositoryException(
+          'That community is no longer available.',
+        );
+      }
+      final groupsRaw = (data['groups'] as List<dynamic>?) ?? const [];
+      final remaining = <Map<String, dynamic>>[];
+      String? releasedThreadId;
+      for (final group in groupsRaw.whereType<Map<String, dynamic>>()) {
+        if (group['id'] == groupId) {
+          releasedThreadId = group['threadId'] as String?;
+          continue;
+        }
+        remaining.add(group);
+      }
+      await _communitiesRef.doc(communityId).update({'groups': remaining});
+      if (releasedThreadId != null) {
+        await _firestore
+            .collection('chatThreads')
+            .doc(releasedThreadId)
+            .update({'isCommunityGroup': false});
+      }
+    } on FirebaseException catch (e) {
+      throw CommunitiesRepositoryException(
+        e.message ?? 'Could not remove that group.',
+      );
+    }
+    return fetchOverview();
+  }
+
+  @override
+  Future<CommunitiesOverview> addGroupToCommunity({
+    required String communityId,
+    required String name,
+  }) async {
+    _requireCurrentUid;
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) {
+      throw const CommunitiesRepositoryException('Enter a group name.');
+    }
+    try {
+      final doc = await _communitiesRef.doc(communityId).get();
+      final data = doc.data();
+      if (data == null) {
+        throw const CommunitiesRepositoryException(
+          'That community is no longer available.',
+        );
+      }
+      final groupsRaw = (data['groups'] as List<dynamic>?) ?? const [];
+      final existing = groupsRaw.whereType<Map<String, dynamic>>().toList();
+      final groupId = '$communityId-${existing.length + 1}';
+      final memberUids =
+          (data['memberUids'] as List<dynamic>?)?.cast<String>() ??
+              const <String>[];
+      existing.add({
+        'id': groupId,
+        'name': trimmed,
+        'summary': 'Invite members to start chatting',
+        'memberCount': memberUids.length,
+        'lastActivityAt': Timestamp.now(),
+        'unreadCount': 0,
+      });
+      await _communitiesRef.doc(communityId).update({'groups': existing});
+    } on FirebaseException catch (e) {
+      throw CommunitiesRepositoryException(
+        e.message ?? 'Could not add that group.',
+      );
+    }
+    return fetchOverview();
+  }
+
+  @override
   Future<CommunitiesOverview> attachGroupThread({
     required String communityId,
     required String groupId,
@@ -682,14 +820,11 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
       description: (data['description'] as String?) ?? '',
       avatarLabel: (data['avatarLabel'] as String?) ?? '',
       accentColor: Color((data['accentColorArgb'] as int?) ?? 0xFF000000),
-      // `memberUids` is the read-access roster and is always seeded with the
-      // creator, so its raw length read one higher than every membership view
-      // in the app -- "3 members" over a two-person "Already added" list.
-      // Count the people who were actually added, and derive it from the
-      // roster rather than the stored `memberCount`, which was written once at
-      // create time and never recomputed as members joined.
-      memberCount:
-          memberUids.where((memberUid) => memberUid != currentUid).length,
+      // Count everyone on the read roster, viewer included -- the detail
+      // screen lists every uid in memberUids, so excluding the viewer here
+      // made the header read one lower than the roster ("2 members" over
+      // three rows).
+      memberCount: memberUids.length,
       announcement: announcement,
       groups: groups,
       unreadCount: (data['unreadCount'] as int?) ?? 0,
@@ -712,6 +847,7 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
       ownerUid: ownerUid,
       viewerUid: currentUid,
       avatarUrl: data['avatarUrl'] as String?,
+      inviteToken: data['inviteToken'] as String?,
     );
   }
 

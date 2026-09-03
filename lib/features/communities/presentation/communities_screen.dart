@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../calls/application/calls_controller.dart';
 import '../../chats/application/chats_controller.dart';
 import '../../shared/widgets/avatar_badge.dart';
+import '../../shared/widgets/create_action_row.dart';
 import '../../shared/widgets/empty_state_card.dart';
 import '../../shared/widgets/liquid_glass.dart';
 import '../../shared/widgets/search_field.dart';
@@ -199,57 +200,10 @@ class _CommunitiesPane extends StatelessWidget {
         // filled community avatar, one primary-coloured label instead of
         // title-over-preview, and a full-bleed section break instead of the
         // avatar-indented divider that visually joined it to the list.
-        Material(
-          color: Colors.transparent,
-          child: InkWell(
-            key: const Key('communities_create_button'),
-            onTap: onCreateCommunity,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: _kCommunitiesRowHorizontalPadding,
-                vertical: 14,
-              ),
-              child: Row(
-                children: [
-                  // LiquidGlassSurface, not LiquidGlassIconButton: the whole
-                  // row is the tap target, and nesting a second InkWell
-                  // inside it would swallow taps on the affordance itself.
-                  LiquidGlassSurface(
-                    // Nothing behind it but the app's own flat surface, so
-                    // a BackdropFilter here would only cost compositing.
-                    blurred: false,
-                    showShadow: false,
-                    child: SizedBox(
-                      width: 44,
-                      height: 44,
-                      child: Center(
-                        child: Icon(
-                          Icons.add_rounded,
-                          size: 22,
-                          color: theme.colorScheme.primary,
-                        ),
-                      ),
-                    ),
-                  ),
-                  // 44 + 20 lands the label on the same left rail as the
-                  // community titles (52 + 12) below, so the smaller circle
-                  // reads as deliberate rather than as a misaligned row.
-                  const SizedBox(width: 20),
-                  Expanded(
-                    child: Text(
-                      'New community',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.titleSmall?.copyWith(
-                        color: theme.colorScheme.primary,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
+        CreateActionRow(
+          rowKey: const Key('communities_create_button'),
+          label: 'New community',
+          onTap: onCreateCommunity,
         ),
         // Full-bleed (indent 0), unlike the avatar-indented dividers between
         // community rows -- an indented rule reads as "next item", a

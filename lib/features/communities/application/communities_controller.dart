@@ -587,6 +587,102 @@ class CommunitiesController extends ChangeNotifier {
     );
   }
 
+  /// Removes [memberUid] from [communityId]. Admin-only; the creator stays,
+  /// and nobody removes themselves this way (that is [exitCommunity]).
+  Future<bool> removeCommunityMember({
+    required String communityId,
+    required String memberUid,
+  }) async {
+    final community = communityById(communityId);
+    if (community == null) {
+      return false;
+    }
+
+    String? refusal;
+    if (!community.viewerIsAdmin) {
+      refusal = 'Only community admins can remove members.';
+    } else if (memberUid == community.viewerUid) {
+      refusal = 'You cannot remove yourself. Exit the community instead.';
+    } else if (memberUid == community.ownerUid) {
+      refusal = 'The person who created this community cannot be removed.';
+    }
+    if (refusal != null) {
+      _errorMessage = refusal;
+      notifyListeners();
+      return false;
+    }
+
+    return _runCommunityAction(
+      communityId,
+      () => _repository.removeCommunityMember(
+        communityId: communityId,
+        memberUid: memberUid,
+      ),
+      fallbackError: 'We could not remove that member right now.',
+    );
+  }
+
+  /// Disconnects [groupId] from [communityId]. Admin-only. The group chat
+  /// itself stays and shows up in Chats, matching deactivation.
+  Future<bool> detachGroupFromCommunity({
+    required String communityId,
+    required String groupId,
+  }) async {
+    final community = communityById(communityId);
+    if (community == null) {
+      return false;
+    }
+    if (!community.viewerIsAdmin) {
+      _errorMessage = 'Only community admins can remove a group.';
+      notifyListeners();
+      return false;
+    }
+
+    return _runCommunityAction(
+      communityId,
+      () => _repository.detachGroupFromCommunity(
+        communityId: communityId,
+        groupId: groupId,
+      ),
+      fallbackError: 'We could not remove that group right now.',
+    );
+  }
+
+  /// Adds a new member group to [communityId]. Admin-only.
+  Future<bool> addGroupToCommunity({
+    required String communityId,
+    required String name,
+  }) async {
+    final community = communityById(communityId);
+    if (community == null) {
+      return false;
+    }
+    if (!community.viewerIsAdmin) {
+      _errorMessage = 'Only community admins can add a group.';
+      notifyListeners();
+      return false;
+    }
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) {
+      _errorMessage = 'Enter a group name.';
+      notifyListeners();
+      return false;
+    }
+
+    final didAdd = await _runCommunityAction(
+      communityId,
+      () => _repository.addGroupToCommunity(
+        communityId: communityId,
+        name: trimmed,
+      ),
+      fallbackError: 'We could not add that group right now.',
+    );
+    if (didAdd) {
+      await _ensureAllGroupThreads(communityId);
+    }
+    return didAdd;
+  }
+
   /// The address-book entry behind a community member's uid, if this device
   /// has one -- what puts a name and avatar on a members-list row.
   ///
@@ -632,6 +728,13 @@ class CommunitiesController extends ChangeNotifier {
     required String communityId,
     required String contactId,
   }) async {
+    final community = communityById(communityId);
+    if (community != null && !community.viewerIsAdmin) {
+      _errorMessage = 'Only community admins can add members.';
+      notifyListeners();
+      return false;
+    }
+
     _busyCommunityIds.add(communityId);
     _busyContactIds.add(contactId);
     _errorMessage = null;
@@ -664,7 +767,7 @@ class CommunitiesController extends ChangeNotifier {
 
   Future<void> _ensureCommunityThreads(String communityId) async {
     await _ensureAnnouncementThreadIfPossible(communityId);
-    await _ensureGroupThreadIfPossible(communityId);
+    await _ensureAllGroupThreads(communityId);
   }
 
   Future<void> _ensureAnnouncementThreadIfPossible(String communityId) async {
@@ -708,14 +811,9 @@ class CommunitiesController extends ChangeNotifier {
     }
   }
 
-  /// Backs a community's first group with a real [ChatThread] as soon as it
-  /// has at least one invited-or-member contact who's actually on WhatsWave
-  /// (has a real uid) -- creating a thread with zero members isn't possible
-  /// (ChatRepository.createGroup requires at least one), so a brand-new
-  /// community's group starts with no thread until this fires. Failures
-  /// here are swallowed rather than surfaced as _errorMessage -- the invite
-  /// itself already succeeded, and messaging setup is best-effort.
-  Future<void> _ensureGroupThreadIfPossible(String communityId) async {
+  /// Backs every community group that still has no [ChatThread] once there
+  /// is at least one on-WhatsWave member to put in it.
+  Future<void> _ensureAllGroupThreads(String communityId) async {
     final createThread = _createGroupThread;
     if (createThread == null) {
       return;
@@ -725,34 +823,35 @@ class CommunitiesController extends ChangeNotifier {
     if (community == null || community.groups.isEmpty) {
       return;
     }
-    final group = community.groups.first;
-    if (group.threadId != null) {
-      return;
-    }
 
     final memberUids = _memberUidsForCommunity(communityId);
     if (memberUids.isEmpty) {
       return;
     }
 
-    try {
-      final threadId = await createThread(
-        name: group.name,
-        memberUids: memberUids,
-        isCommunityGroup: true,
-      );
-      if (threadId == null) {
-        return;
+    for (final group in community.groups) {
+      if (group.threadId != null) {
+        continue;
       }
-      final overview = await _repository.attachGroupThread(
-        communityId: communityId,
-        groupId: group.id,
-        threadId: threadId,
-      );
-      _communities = overview.communities;
-      _contacts = overview.contacts;
-    } catch (_) {
-      // Best-effort -- the invite itself already succeeded.
+      try {
+        final threadId = await createThread(
+          name: group.name,
+          memberUids: memberUids,
+          isCommunityGroup: true,
+        );
+        if (threadId == null) {
+          continue;
+        }
+        final overview = await _repository.attachGroupThread(
+          communityId: communityId,
+          groupId: group.id,
+          threadId: threadId,
+        );
+        _communities = overview.communities;
+        _contacts = overview.contacts;
+      } catch (_) {
+        // Best-effort per group.
+      }
     }
   }
 

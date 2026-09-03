@@ -1164,7 +1164,7 @@ class _CommunityLinkRow extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      '${community.memberCount} members · ${community.groupCount} groups',
+                      '${community.displayMemberCount} members · ${community.groupCount} groups',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodySmall?.copyWith(

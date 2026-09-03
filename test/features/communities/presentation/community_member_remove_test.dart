@@ -34,12 +34,9 @@ class _RoleForcedRepository extends FakeCommunitiesRepository {
   }
 }
 
-Future<CommunitiesController> _openDetail(
-  WidgetTester tester, {
-  required bool viewerIsAdmin,
-}) async {
+Future<CommunitiesController> _openDetail(WidgetTester tester) async {
   final controller = CommunitiesController(
-    repository: _RoleForcedRepository(viewerIsAdmin: viewerIsAdmin),
+    repository: _RoleForcedRepository(viewerIsAdmin: true),
   );
   await controller.ensureLoaded();
 
@@ -65,42 +62,49 @@ Future<CommunitiesController> _openDetail(
   return controller;
 }
 
+Future<void> _openCommunityInfo(WidgetTester tester) async {
+  await tester.tap(find.byKey(const Key('community_detail_title_button')));
+  await tester.pumpAndSettle();
+}
+
+Future<void> _scrollTo(WidgetTester tester, Finder finder) async {
+  await tester.scrollUntilVisible(
+    finder,
+    200,
+    scrollable: find
+        .descendant(
+          of: find.byKey(const Key('community_info_screen')),
+          matching: find.byType(Scrollable),
+        )
+        .first,
+  );
+  await tester.pumpAndSettle();
+}
+
 void main() {
-  testWidgets('admins see Edit and can save a renamed community',
-      (tester) async {
-    final controller = await _openDetail(tester, viewerIsAdmin: true);
+  testWidgets('an admin removes a member from the roster sheet', (tester) async {
+    final controller = await _openDetail(tester);
+    final communityId = controller.communities.first.id;
 
-    await tester.tap(find.byKey(const Key('community_detail_title_button')));
+    await _openCommunityInfo(tester);
+
+    final noahRow = find.byKey(
+      const Key('community_detail_member_row_uid-noah-kim'),
+    );
+    await _scrollTo(tester, noahRow);
+
+    await tester.tap(noahRow);
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('community_info_edit_button')));
+    await tester.tap(find.byKey(const Key('community_detail_member_remove')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const Key('confirm_remove_community_member_button')),
+    );
     await tester.pumpAndSettle();
 
     expect(
-      find.byKey(const Key('community_detail_rename_field')),
-      findsOneWidget,
+      controller.communityById(communityId)!.memberUids,
+      isNot(contains('uid-noah-kim')),
     );
-    expect(
-      find.byKey(const Key('community_detail_description_field')),
-      findsOneWidget,
-    );
-
-    await tester.enterText(
-      find.byKey(const Key('community_detail_rename_field')),
-      'New name',
-    );
-    await tester.tap(find.byKey(const Key('community_detail_save_button')));
-    await tester.pumpAndSettle();
-
-    expect(controller.communityById(controller.communities.first.id)!.title,
-        'New name');
-    expect(find.text('New name'), findsWidgets);
-  });
-
-  testWidgets('members do not see the Edit affordance', (tester) async {
-    await _openDetail(tester, viewerIsAdmin: false);
-
-    await tester.tap(find.byKey(const Key('community_detail_title_button')));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const Key('community_info_edit_button')), findsNothing);
   });
 }

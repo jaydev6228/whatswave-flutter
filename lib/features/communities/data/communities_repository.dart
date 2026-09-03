@@ -76,6 +76,30 @@ abstract class CommunitiesRepository {
 
   Future<CommunitiesOverview> deleteCommunityAvatar(String communityId);
 
+  /// Drops [memberUid] from [communityId]. Admin-only; never the owner,
+  /// and never the caller (they [exitCommunity] instead).
+  ///
+  /// WhatsApp removes that person from the community and its announcement
+  /// group, and leaves them in any other groups they were already in
+  /// (https://faq.whatsapp.com/2052820105033683).
+  Future<CommunitiesOverview> removeCommunityMember({
+    required String communityId,
+    required String memberUid,
+  });
+
+  /// Disconnects [groupId] from [communityId]. The backing chat, if any,
+  /// becomes an ordinary group -- the same release deactivation uses.
+  Future<CommunitiesOverview> detachGroupFromCommunity({
+    required String communityId,
+    required String groupId,
+  });
+
+  /// Adds a new member group to [communityId]. Admin-only.
+  Future<CommunitiesOverview> addGroupToCommunity({
+    required String communityId,
+    required String name,
+  });
+
   /// Records which real [ChatThread] backs a community group's messaging,
   /// once one has been created (see CommunitiesController).
   Future<CommunitiesOverview> attachGroupThread({

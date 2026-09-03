@@ -10,6 +10,7 @@ import '../../communities/domain/app_invite_link.dart';
 import '../../communities/domain/community_contact.dart';
 import '../../communities/domain/contact_access_status.dart';
 import '../../shared/widgets/avatar_badge.dart';
+import '../../shared/widgets/create_action_row.dart';
 import '../../shared/widgets/empty_state_card.dart';
 import '../../shared/widgets/error_dialog.dart';
 import '../../shared/widgets/search_field.dart';
@@ -152,7 +153,13 @@ class _NewChatScreenState extends State<NewChatScreen>
                   ),
                 ),
                 SliverToBoxAdapter(
-                  child: _NewGroupListTile(onTap: _openNewGroup),
+                  child: CreateActionRow(
+                    rowKey: const Key('new_chat_new_group'),
+                    label: 'New group',
+                    icon: Icons.groups_2_rounded,
+                    horizontalPadding: 16,
+                    onTap: _openNewGroup,
+                  ),
                 ),
                 SliverToBoxAdapter(
                   child: Divider(
@@ -352,34 +359,6 @@ class _NewChatScreenState extends State<NewChatScreen>
           ],
         );
       },
-    );
-  }
-}
-
-class _NewGroupListTile extends StatelessWidget {
-  const _NewGroupListTile({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return ListTile(
-      key: const Key('new_chat_new_group'),
-      onTap: onTap,
-      leading: CircleAvatar(
-        radius: 22,
-        backgroundColor: theme.colorScheme.primaryContainer,
-        child: Icon(
-          Icons.groups_2_rounded,
-          color: theme.colorScheme.onPrimaryContainer,
-        ),
-      ),
-      title: const Text(
-        'New group',
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
     );
   }
 }

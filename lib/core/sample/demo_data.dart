@@ -864,10 +864,8 @@ abstract final class DemoData {
       viewerUid: 'me',
       memberUids: const ['me'],
       adminUids: const ['me'],
-      // The count is the people you added, not the access roster you are
-      // already on -- counting the creator here is what made a community read
-      // one member higher than its own membership list.
-      memberCount: 0,
+      // The creator is on the roster from the start.
+      memberCount: 1,
       unreadCount: 0,
       announcement: CommunityAnnouncement(
         headline: 'Welcome to $title',

@@ -70,13 +70,18 @@ Future<CommunitiesController> _openDetail(
   return controller;
 }
 
+Future<void> _openCommunityInfo(WidgetTester tester) async {
+  await tester.tap(find.byKey(const Key('community_detail_title_button')));
+  await tester.pumpAndSettle();
+}
+
 Future<void> _scrollTo(WidgetTester tester, Finder finder) async {
   await tester.scrollUntilVisible(
     finder,
     200,
     scrollable: find
         .descendant(
-          of: find.byKey(const Key('community_detail_screen')),
+          of: find.byKey(const Key('community_info_screen')),
           matching: find.byType(Scrollable),
         )
         .first,
@@ -89,6 +94,10 @@ void main() {
       (tester) async {
     final controller = await _openDetail(tester, viewerIsAdmin: true);
     final communityId = controller.communities.first.id;
+
+    expect(find.byKey(const Key('community_detail_members_panel')), findsNothing);
+
+    await _openCommunityInfo(tester);
 
     final noahRow = find.byKey(const Key(
       'community_detail_member_row_uid-noah-kim',
@@ -132,6 +141,10 @@ void main() {
   testWidgets('a plain member sees the roster but cannot open a role sheet',
       (tester) async {
     await _openDetail(tester, viewerIsAdmin: false);
+
+    expect(find.byKey(const Key('community_detail_members_panel')), findsNothing);
+
+    await _openCommunityInfo(tester);
 
     final noahRow = find.byKey(const Key(
       'community_detail_member_row_uid-noah-kim',

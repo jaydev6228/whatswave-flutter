@@ -345,6 +345,42 @@ service cloud.firestore {
                                 && request.resource.data.diff(resource.data)
                                      .affectedKeys().hasOnly(['avatarUrl'])
                               )
+                           || (
+                                isCommunityAdmin()
+                                && !('deactivatedAt' in resource.data)
+                                && request.resource.data.diff(resource.data)
+                                     .affectedKeys()
+                                     .hasOnly(['memberUids', 'invitedContactIds'])
+                                && request.resource.data.memberUids
+                                     .hasAll(resource.data.memberUids)
+                              )
+                           || (
+                                isCommunityAdmin()
+                                && !('deactivatedAt' in resource.data)
+                                && request.auth.uid
+                                     in request.resource.data.memberUids
+                                && resource.data.ownerUid
+                                     in request.resource.data.memberUids
+                                && request.resource.data.diff(resource.data)
+                                     .affectedKeys()
+                                     .hasOnly(['memberUids', 'adminUids'])
+                                && resource.data.memberUids
+                                     .hasAll(request.resource.data.memberUids)
+                                && request.resource.data.memberUids.size()
+                                     == resource.data.memberUids.size() - 1
+                                && newAdmins()
+                                     == oldAdmins().removeAll(
+                                          resource.data.memberUids.removeAll(
+                                            request.resource.data.memberUids
+                                          )
+                                        )
+                              )
+                           || (
+                                isCommunityAdmin()
+                                && !('deactivatedAt' in resource.data)
+                                && request.resource.data.diff(resource.data)
+                                     .affectedKeys().hasOnly(['groups'])
+                              )
                          );
       // No delete at all. Deleting the document took the `groups` roster
       // with it -- the only record of which chat threads belonged to this

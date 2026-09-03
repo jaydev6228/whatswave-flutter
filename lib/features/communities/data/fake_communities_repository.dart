@@ -82,7 +82,7 @@ class FakeCommunitiesRepository implements CommunitiesRepository {
       description: normalizedDescription.isEmpty
           ? 'A community for $normalizedTitle'
           : normalizedDescription,
-    );
+    ).copyWith(inviteToken: 'community-${_createdCommunitySequence - 1}');
     _communities = List<CommunityHub>.unmodifiable([
       newCommunity,
       ..._communities,
@@ -233,6 +233,102 @@ class FakeCommunitiesRepository implements CommunitiesRepository {
   }
 
   @override
+  Future<CommunitiesOverview> removeCommunityMember({
+    required String communityId,
+    required String memberUid,
+  }) async {
+    await _wait();
+    _communities = List<CommunityHub>.unmodifiable(
+      _communities.map((community) {
+        if (community.id != communityId) {
+          return community;
+        }
+        final nextMembers = [
+          for (final uid in community.memberUids)
+            if (uid != memberUid) uid,
+        ];
+        return community.copyWith(
+          memberUids: List<String>.unmodifiable(nextMembers),
+          adminUids: List<String>.unmodifiable([
+            for (final uid in community.adminUids)
+              if (uid != memberUid) uid,
+          ]),
+          memberCount: nextMembers.length,
+        );
+      }),
+    );
+    _contacts = List<CommunityContact>.unmodifiable(
+      _contacts.map((contact) {
+        if (contact.matchedUid != memberUid && contact.id != memberUid) {
+          return contact;
+        }
+        return contact.copyWith(
+          memberCommunityIds: List<String>.unmodifiable([
+            for (final id in contact.memberCommunityIds)
+              if (id != communityId) id,
+          ]),
+        );
+      }),
+    );
+    return _buildOverview();
+  }
+
+  @override
+  Future<CommunitiesOverview> detachGroupFromCommunity({
+    required String communityId,
+    required String groupId,
+  }) async {
+    await _wait();
+    _communities = List<CommunityHub>.unmodifiable(
+      _communities.map((community) {
+        if (community.id != communityId) {
+          return community;
+        }
+        return community.copyWith(
+          groups: [
+            for (final group in community.groups)
+              if (group.id != groupId) group,
+          ],
+        );
+      }),
+    );
+    return _buildOverview();
+  }
+
+  @override
+  Future<CommunitiesOverview> addGroupToCommunity({
+    required String communityId,
+    required String name,
+  }) async {
+    await _wait();
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) {
+      throw const CommunitiesRepositoryException('Enter a group name.');
+    }
+    _communities = List<CommunityHub>.unmodifiable(
+      _communities.map((community) {
+        if (community.id != communityId) {
+          return community;
+        }
+        final groupId = '$communityId-${community.groups.length + 1}';
+        return community.copyWith(
+          groups: [
+            ...community.groups,
+            CommunityGroupPreview(
+              id: groupId,
+              name: trimmed,
+              summary: 'Invite members to start chatting',
+              memberCount: community.displayMemberCount,
+              lastActivityAt: DateTime.now(),
+            ),
+          ],
+        );
+      }),
+    );
+    return _buildOverview();
+  }
+
+  @override
   Future<CommunitiesOverview> attachGroupThread({
     required String communityId,
     required String groupId,
@@ -328,11 +424,11 @@ class FakeCommunitiesRepository implements CommunitiesRepository {
             ...community.memberUids,
             if (contact.matchedUid != null) contact.matchedUid!,
           ]),
-          // This store has no member roster to count, so the header count has
-          // to move with the invite -- otherwise it stays frozen at its
-          // create-time value while members join, which is the "3 members"
-          // over a 2-person list bug on the Firestore side.
-          memberCount: community.memberCount + 1,
+          memberCount: community.memberUids.length +
+              (contact.matchedUid != null &&
+                      !community.memberUids.contains(contact.matchedUid)
+                  ? 1
+                  : 0),
         );
       }),
     );
