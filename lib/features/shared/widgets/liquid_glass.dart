@@ -25,6 +25,7 @@ class LiquidGlassSurface extends StatelessWidget {
     this.padding,
     this.color,
     this.borderColor,
+    this.border,
     this.shadowColor,
     this.showShadow = true,
     super.key,
@@ -38,6 +39,11 @@ class LiquidGlassSurface extends StatelessWidget {
   final double tintOpacityDark;
   final EdgeInsetsGeometry? padding;
   final bool showShadow;
+
+  /// When set, overrides the default [Border.all] hairline. Bottom sheets
+  /// pass [Border] with a top [BorderSide] only so side/bottom edges stay
+  /// flush with the screen and do not fight the device's corner radius.
+  final Border? border;
 
   /// Explicit tint override, bypassing the automatic light/dark black-white
   /// pick. For chrome that intentionally stays visually fixed regardless of
@@ -53,6 +59,9 @@ class LiquidGlassSurface extends StatelessWidget {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
+    final defaultBorderColor =
+        borderColor ?? Colors.white.withValues(alpha: isDark ? 0.10 : 0.68);
+
     final decorated = Container(
       padding: padding,
       decoration: BoxDecoration(
@@ -61,10 +70,10 @@ class LiquidGlassSurface extends StatelessWidget {
               alpha: isDark ? tintOpacityDark : tintOpacityLight,
             ),
         borderRadius: borderRadius,
-        border: Border.all(
-          color: borderColor ??
-              Colors.white.withValues(alpha: isDark ? 0.10 : 0.68),
-        ),
+        border: border ??
+            Border.all(
+              color: defaultBorderColor,
+            ),
         boxShadow: showShadow
             ? [
                 BoxShadow(
@@ -608,4 +617,99 @@ class LiquidGlassDialogAction extends StatelessWidget {
       child: Text(label),
     );
   }
+}
+
+/// Frosted glass shell for modal sheets on app surfaces -- same language as
+/// story/chat sheets ([StatusChromeSheet]) but lives here so features that
+/// are not status-specific can share it without importing status chrome.
+class GlassBottomSheet extends StatelessWidget {
+  const GlassBottomSheet({required this.child, super.key});
+
+  final Widget child;
+
+  static BorderRadius get sheetBorderRadius =>
+      const BorderRadius.vertical(top: Radius.circular(28));
+
+  static Border sheetTopBorder(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Border(
+      top: BorderSide(
+        color: Colors.white.withValues(alpha: isDark ? 0.10 : 0.68),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: sheetBorderRadius,
+      child: LiquidGlassSurface(
+        borderRadius: sheetBorderRadius,
+        border: sheetTopBorder(context),
+        blurSigma: 30,
+        tintOpacityDark: 0.86,
+        tintOpacityLight: 0.9,
+        showShadow: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(top: 10, bottom: 6),
+              child: Container(
+                width: 32,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onSurfaceVariant
+                      .withValues(alpha: 0.4),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+            ),
+            Flexible(child: child),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Opens a modal bottom sheet whose panel is [GlassBottomSheet] instead of
+/// the theme's opaque [BottomSheetThemeData] slab.
+Future<T?> showGlassBottomSheet<T>({
+  required BuildContext context,
+  required WidgetBuilder builder,
+  bool isScrollControlled = false,
+  double? heightFactor,
+  bool isDismissible = true,
+  bool enableDrag = true,
+}) {
+  return showModalBottomSheet<T>(
+    context: context,
+    isScrollControlled: isScrollControlled,
+    isDismissible: isDismissible,
+    enableDrag: enableDrag,
+    useSafeArea: false,
+    backgroundColor: Colors.transparent,
+    showDragHandle: false,
+    builder: (sheetContext) {
+      Widget child = builder(sheetContext);
+      if (heightFactor != null) {
+        child = FractionallySizedBox(
+          heightFactor: heightFactor,
+          child: child,
+        );
+      }
+      return Align(
+        alignment: Alignment.bottomCenter,
+        child: GlassBottomSheet(
+          child: SizedBox(
+            width: MediaQuery.sizeOf(sheetContext).width,
+            child: child,
+          ),
+        ),
+      );
+    },
+  );
 }

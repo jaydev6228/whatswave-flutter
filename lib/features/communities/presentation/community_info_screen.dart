@@ -6,6 +6,7 @@ import '../../../core/media/avatar_photo_picker.dart';
 import '../../shared/widgets/avatar_badge.dart';
 import '../../shared/widgets/avatar_preview.dart';
 import '../../shared/widgets/error_dialog.dart';
+import '../../shared/widgets/glass_text_field.dart';
 import '../../shared/widgets/info_screen_chrome.dart';
 import '../../shared/widgets/liquid_glass.dart';
 import '../../shared/widgets/status_motion.dart';
@@ -489,10 +490,10 @@ class _IdentityCard extends StatelessWidget {
           maxLength: 200,
           textAlign: TextAlign.center,
           textCapitalization: TextCapitalization.sentences,
-          decoration: const InputDecoration(
-            isDense: true,
-            contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: glassFieldDecoration(
             hintText: 'What is this community about?',
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             counterText: '',
           ),
           style: theme.textTheme.bodyMedium?.copyWith(
@@ -540,7 +541,7 @@ class _IdentityCard extends StatelessWidget {
                           textAlign: TextAlign.center,
                           maxLength: 60,
                           textCapitalization: TextCapitalization.words,
-                          decoration: const InputDecoration(
+                          decoration: glassFieldDecoration(
                             hintText: 'Community name',
                             counterText: '',
                           ),
@@ -626,16 +627,15 @@ class _IdentityCard extends StatelessWidget {
             Positioned(
               right: -2,
               bottom: -2,
-              child: Container(
+              child: LiquidGlassSurface(
+                blurred: false,
+                showShadow: false,
+                borderRadius: const BorderRadius.all(Radius.circular(999)),
                 padding: const EdgeInsets.all(4),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primary,
-                  shape: BoxShape.circle,
-                ),
                 child: Icon(
                   Icons.photo_camera_outlined,
                   size: 16,
-                  color: Theme.of(context).colorScheme.onPrimary,
+                  color: Theme.of(context).colorScheme.onSurface,
                 ),
               ),
             ),

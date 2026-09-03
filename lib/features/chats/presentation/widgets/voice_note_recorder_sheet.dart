@@ -17,21 +17,12 @@ Future<ChatAttachment?> showVoiceNoteRecorderSheet(
   BuildContext context, {
   required String threadId,
 }) {
-  return showModalBottomSheet<ChatAttachment>(
+  return showGlassBottomSheet<ChatAttachment>(
     context: context,
     isDismissible: false,
     enableDrag: false,
     isScrollControlled: true,
-    // The app theme paints every modal sheet an opaque panel, which is what
-    // made the recorder read as a flat slab from a different design next to
-    // the app's glass chrome. Transparent here lets StatusChromeSheet supply
-    // the glass instead -- and its own handle replaces the themed one, which
-    // would otherwise float in the now-empty sheet area above the glass.
-    backgroundColor: Colors.transparent,
-    showDragHandle: false,
-    builder: (sheetContext) => StatusChromeSheet(
-      child: _VoiceNoteRecorderSheet(threadId: threadId),
-    ),
+    builder: (sheetContext) => _VoiceNoteRecorderSheet(threadId: threadId),
   );
 }
 

@@ -345,39 +345,5 @@ class StatusChromeSheet extends StatelessWidget {
   final Widget child;
 
   @override
-  Widget build(BuildContext context) {
-    return LiquidGlassSurface(
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-      blurSigma: 30,
-      // Heavier tint than the floating chrome: a long scrolling list has to
-      // stay readable, not just legible for a moment.
-      tintOpacityDark: 0.86,
-      tintOpacityLight: 0.9,
-      showShadow: false,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Our own handle, drawn inside the glass. Flutter's
-          // `showDragHandle` renders it in the sheet's own area, which is
-          // transparent here, so it floated above the sheet instead of
-          // sitting in it.
-          Padding(
-            padding: const EdgeInsets.only(top: 10, bottom: 6),
-            child: Container(
-              width: 32,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Theme.of(context)
-                    .colorScheme
-                    .onSurfaceVariant
-                    .withValues(alpha: 0.4),
-                borderRadius: BorderRadius.circular(999),
-              ),
-            ),
-          ),
-          Flexible(child: child),
-        ],
-      ),
-    );
-  }
+  Widget build(BuildContext context) => GlassBottomSheet(child: child);
 }

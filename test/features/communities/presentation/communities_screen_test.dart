@@ -69,7 +69,7 @@ void main() {
           find.byKey(const Key('community_detail_invite_contact_priya-rai')),
     );
     await tester.tap(
-      find.byKey(const Key('community_detail_invite_contact_priya-rai')),
+      find.byKey(const Key('community_detail_invite_action_priya-rai')),
     );
     await tester.pumpAndSettle();
 

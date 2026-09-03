@@ -1437,25 +1437,11 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen>
   /// isn't two separate tools, just one scroll with stickers on top and
   /// emoji below.
   Future<void> _openStickerAndEmojiPicker() async {
-    final result = await showModalBottomSheet<Object>(
+    final result = await showGlassBottomSheet<Object>(
       context: context,
-      // The sheet's glass runs to the screen edge; its content pads itself
-      // for the home indicator instead. With useSafeArea the sheet stopped
-      // short of the bottom, leaving a strip of story showing beneath it and
-      // the last row clipped against the gap.
-      useSafeArea: false,
       isScrollControlled: true,
-      // Transparent so the sheet's own glass shows the story behind it.
-      // Explicitly off, overriding the app theme's global
-      // showDragHandle: true. StatusChromeSheet draws its own handle
-      // inside the glass -- Flutter's renders in the sheet's own area,
-      // which is transparent here, so both showed at once.
-      showDragHandle: false,
-      backgroundColor: Colors.transparent,
       builder: (context) {
-        return StatusChromeSheet(
-          child: _StickerAndEmojiPickerSheet(stickerPresets: _stickerPresets),
-        );
+        return _StickerAndEmojiPickerSheet(stickerPresets: _stickerPresets);
       },
     );
     if (!mounted || result == null) {
@@ -1516,68 +1502,55 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen>
   Future<void> _openMusicPicker() async {
     final theme = Theme.of(context);
     final tracksFuture = _loadMusicTracksAndCache();
-    final selectedTrack = await showModalBottomSheet<StatusMusicTrack?>(
+    final selectedTrack = await showGlassBottomSheet<StatusMusicTrack?>(
       context: context,
-      // The sheet's glass runs to the screen edge; its content pads itself
-      // for the home indicator instead. With useSafeArea the sheet stopped
-      // short of the bottom, leaving a strip of story showing beneath it and
-      // the last row clipped against the gap.
-      useSafeArea: false,
       isScrollControlled: true,
-      // Explicitly off, overriding the app theme's global
-      // showDragHandle: true. StatusChromeSheet draws its own handle
-      // inside the glass -- Flutter's renders in the sheet's own area,
-      // which is transparent here, so both showed at once.
-      showDragHandle: false,
-      backgroundColor: Colors.transparent,
       builder: (context) {
         // The preview toggle updates this screen's state asynchronously
         // (after the player actually starts/stops), but a modal sheet's
         // `builder` only runs once -- without this StatefulBuilder the
         // play/pause icon in the list never reflected the new state, even
         // though the audio itself was toggling correctly underneath.
-        return StatusChromeSheet(
-          child: StatefulBuilder(
-            builder: (context, setSheetState) {
-              return FutureBuilder<List<StatusMusicTrack>>(
-                future: tracksFuture,
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState != ConnectionState.done) {
-                    return const SizedBox(
-                      height: 240,
-                      child: Center(
-                        key: Key('updates_media_music_loading'),
-                        child: CircularProgressIndicator(),
-                      ),
-                    );
-                  }
-                  if (snapshot.hasError || snapshot.data == null) {
-                    return SizedBox(
-                      height: 240,
-                      child: Center(
-                        child: Text(
-                          'Could not load music right now.',
-                          key: const Key('updates_media_music_load_error'),
-                          style: theme.textTheme.bodyMedium,
-                        ),
-                      ),
-                    );
-                  }
-                  return _MusicPickerSheet(
-                    tracks: snapshot.data!,
-                    selectedTrackId: _musicTrack?.id,
-                    previewingTrackId: _previewingMusicTrackId,
-                    onPlayPreview: (track) async {
-                      await _playMusicPreview(track, toggleWhenSameTrack: true);
-                      if (context.mounted) {
-                        setSheetState(() {});
-                      }
-                    },
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            return FutureBuilder<List<StatusMusicTrack>>(
+              future: tracksFuture,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState != ConnectionState.done) {
+                  return const SizedBox(
+                    height: 240,
+                    child: Center(
+                      key: Key('updates_media_music_loading'),
+                      child: CircularProgressIndicator(),
+                    ),
                   );
-                },
-              );
-            },
-          ),
+                }
+                if (snapshot.hasError || snapshot.data == null) {
+                  return SizedBox(
+                    height: 240,
+                    child: Center(
+                      child: Text(
+                        'Could not load music right now.',
+                        key: const Key('updates_media_music_load_error'),
+                        style: theme.textTheme.bodyMedium,
+                      ),
+                    ),
+                  );
+                }
+                return _MusicPickerSheet(
+                  tracks: snapshot.data!,
+                  selectedTrackId: _musicTrack?.id,
+                  previewingTrackId: _previewingMusicTrackId,
+                  onPlayPreview: (track) async {
+                    await _playMusicPreview(track, toggleWhenSameTrack: true);
+                    if (context.mounted) {
+                      setSheetState(() {});
+                    }
+                  },
+                );
+              },
+            );
+          },
         );
       },
     );

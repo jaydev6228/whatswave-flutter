@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../app/theme/app_palette.dart';
 import '../../../core/models/status_story.dart';
+import '../../shared/widgets/liquid_glass.dart';
 import '../../shared/widgets/status_motion.dart';
 import 'status_system_chrome.dart';
 import 'widgets/emoji_picker_sheet.dart';
@@ -654,18 +655,10 @@ class _TextStatusComposerScreenState extends State<TextStatusComposerScreen> {
   }
 
   Future<void> _openEmojiPicker() async {
-    final emoji = await showModalBottomSheet<String>(
+    final emoji = await showGlassBottomSheet<String>(
       context: context,
-      useSafeArea: true,
       isScrollControlled: true,
-      // Transparent so the sheet's own glass shows the story behind it.
-      // Explicitly off, overriding the app theme's global
-      // showDragHandle: true. StatusChromeSheet draws its own handle
-      // inside the glass -- Flutter's renders in the sheet's own area,
-      // which is transparent here, so both showed at once.
-      showDragHandle: false,
-      backgroundColor: Colors.transparent,
-      builder: (context) => const StatusChromeSheet(child: EmojiPickerSheet()),
+      builder: (context) => const EmojiPickerSheet(),
     );
     if (!mounted || emoji == null || emoji.isEmpty) {
       return;

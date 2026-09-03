@@ -7,9 +7,11 @@ import '../../calls/application/calls_controller.dart';
 import '../../chats/application/chats_controller.dart';
 import '../../chats/presentation/conversation_screen.dart';
 import '../../shared/widgets/avatar_badge.dart';
+import '../../shared/widgets/glass_text_field.dart';
 import '../../shared/widgets/create_action_row.dart';
 import '../../shared/widgets/empty_state_card.dart';
 import '../../shared/widgets/error_dialog.dart';
+import '../../shared/widgets/info_screen_chrome.dart';
 import '../../shared/widgets/search_field.dart';
 import '../../updates/application/updates_controller.dart';
 import '../application/communities_controller.dart';
@@ -194,19 +196,14 @@ Future<void> _showInviteSheet(
   CommunitiesController controller,
   CommunityHub community,
 ) async {
-  await showModalBottomSheet<void>(
+  await showGlassBottomSheet<void>(
     context: context,
-    showDragHandle: true,
     isScrollControlled: true,
-    builder: (_) {
-      return FractionallySizedBox(
-        heightFactor: 0.82,
-        child: _CommunityDetailInviteSheet(
-          controller: controller,
-          community: community,
-        ),
-      );
-    },
+    heightFactor: 0.82,
+    builder: (_) => _CommunityDetailInviteSheet(
+      controller: controller,
+      community: community,
+    ),
   );
 }
 
@@ -341,9 +338,8 @@ Future<void> _showAddGroupSheet(
   CommunitiesController controller,
   CommunityHub community,
 ) async {
-  final groupName = await showModalBottomSheet<String>(
+  final groupName = await showGlassBottomSheet<String>(
     context: context,
-    showDragHandle: true,
     isScrollControlled: true,
     builder: (sheetContext) {
       return Padding(
@@ -417,15 +413,11 @@ Future<void> _confirmAndExitCommunity(
             onPressed: () => Navigator.of(dialogContext).pop(false),
             child: const Text('Cancel'),
           ),
-          TextButton(
+          LiquidGlassDialogAction(
             key: const Key('community_detail_confirm_exit_button'),
+            label: 'Exit',
+            isDestructive: true,
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: Text(
-              'Exit',
-              style: TextStyle(
-                color: Theme.of(dialogContext).colorScheme.error,
-              ),
-            ),
           ),
         ],
       );
@@ -469,14 +461,10 @@ Future<void> _confirmAndDeleteCommunity(
             onPressed: () => Navigator.of(dialogContext).pop(false),
             child: const Text('Cancel'),
           ),
-          TextButton(
+          LiquidGlassDialogAction(
+            label: 'Deactivate',
+            isDestructive: true,
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: Text(
-              'Deactivate',
-              style: TextStyle(
-                color: Theme.of(dialogContext).colorScheme.error,
-              ),
-            ),
           ),
         ],
       );
@@ -805,7 +793,7 @@ class _CommunityDetailInviteSheetState
                     onTapOutside: (_) => FocusScope.of(context).unfocus(),
                   ),
                   const SizedBox(height: 16),
-                  _FlatInfoPanel(
+                  InfoFlatPanel(
                     child: Material(
                       type: MaterialType.transparency,
                       child: ListTile(
@@ -857,35 +845,34 @@ class _CommunityDetailInviteSheetState
                                 spacing: 12,
                                 runSpacing: 12,
                                 children: [
-                                  FilledButton.icon(
-                                    key: const Key(
+                                  GlassPrimaryButton(
+                                    actionKey: const Key(
                                       'community_detail_request_contacts_button',
                                     ),
-                                    onPressed:
-                                        controller.isRequestingContactsAccess
-                                            ? null
-                                            : () async {
-                                                await controller
-                                                    .requestContactsAccess();
-                                              },
-                                    icon:
-                                        const Icon(Icons.contact_phone_rounded),
-                                    label: Text(
-                                      controller.isRequestingContactsAccess
-                                          ? 'Checking...'
-                                          : 'Allow contacts',
-                                    ),
+                                    icon: Icons.contact_phone_rounded,
+                                    label: controller.isRequestingContactsAccess
+                                        ? 'Checking...'
+                                        : 'Allow contacts',
+                                    isLoading:
+                                        controller.isRequestingContactsAccess,
+                                    onPressed: controller
+                                            .isRequestingContactsAccess
+                                        ? null
+                                        : () async {
+                                            await controller
+                                                .requestContactsAccess();
+                                          },
                                   ),
                                   if (controller.contactAccessStatus ==
                                       ContactAccessStatus.denied)
-                                    OutlinedButton(
-                                      key: const Key(
+                                    GlassPrimaryButton(
+                                      actionKey: const Key(
                                         'community_detail_open_settings_button',
                                       ),
+                                      label: 'Open settings',
                                       onPressed: () async {
                                         await controller.openContactSettings();
                                       },
-                                      child: const Text('Open settings'),
                                     ),
                                 ],
                               ),
@@ -1119,74 +1106,55 @@ class _CommunityInviteListItem extends StatelessWidget {
     );
 
     return Padding(
+      key: Key('community_detail_invite_contact_${contact.id}'),
       padding: const EdgeInsets.only(bottom: 10),
-      child: Material(
-        color: theme.colorScheme.surface,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(18),
-          side: BorderSide(
-            color: theme.colorScheme.outlineVariant.withValues(alpha: 0.24),
-          ),
-        ),
-        child: InkWell(
-          key: Key('community_detail_invite_contact_${contact.id}'),
-          onTap: onPressed,
-          borderRadius: BorderRadius.circular(18),
-          child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                AvatarBadge(
-                  label: contact.avatarLabel,
-                  color: contact.accentColor,
-                  size: 48,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        contact.name,
-                        style: theme.textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        contact.phoneNumber,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurface
-                              .withValues(alpha: 0.72),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 12),
-                SizedBox(
-                  width: actionWidth,
-                  child: FilledButton.tonal(
-                    key: actionKey,
-                    onPressed: onPressed,
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                    ),
-                    child: Text(
-                      label,
-                      maxLines: 1,
-                      overflow: TextOverflow.fade,
-                      softWrap: false,
-                    ),
-                  ),
-                ),
-              ],
+      child: LiquidGlassSurface(
+        blurred: false,
+        showShadow: false,
+        borderRadius: const BorderRadius.all(Radius.circular(18)),
+        borderColor: theme.colorScheme.outlineVariant.withValues(alpha: 0.24),
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            AvatarBadge(
+              label: contact.avatarLabel,
+              color: contact.accentColor,
+              size: 48,
             ),
-          ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    contact.name,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    contact.phoneNumber,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurface
+                          .withValues(alpha: 0.72),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            SizedBox(
+              width: actionWidth,
+              child: GlassCompactActionButton(
+                actionKey: actionKey,
+                label: label,
+                onPressed: onPressed,
+                muted: onPressed == null,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -1252,58 +1220,26 @@ class _AddGroupSheetState extends State<_AddGroupSheet> {
             ),
           ),
           const SizedBox(height: 14),
-          _FlatInfoPanel(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-            child: TextField(
-              key: const Key('community_detail_add_group_name_field'),
-              controller: _nameController,
-              autofocus: true,
-              textCapitalization: TextCapitalization.words,
-              textInputAction: TextInputAction.done,
-              onSubmitted: (_) => _submit(),
-              decoration: const InputDecoration(
-                hintText: 'Group name',
-                border: InputBorder.none,
-              ),
-            ),
+          GlassTextField(
+            fieldKey: const Key('community_detail_add_group_name_field'),
+            controller: _nameController,
+            hintText: 'Group name',
+            autofocus: true,
+            textCapitalization: TextCapitalization.words,
+            textInputAction: TextInputAction.done,
+            onSubmitted: (_) => _submit(),
           ),
           const SizedBox(height: 16),
           Align(
             alignment: Alignment.centerRight,
-            child: FilledButton(
-              key: const Key('community_detail_add_group_confirm_button'),
+            child: GlassPrimaryButton(
+              actionKey: const Key('community_detail_add_group_confirm_button'),
+              label: 'Add',
               onPressed: _submit,
-              child: const Text('Add'),
             ),
           ),
         ],
       ),
-    );
-  }
-}
-
-/// Local copy of contact info's flat panel chrome for invite/add-group rows.
-class _FlatInfoPanel extends StatelessWidget {
-  const _FlatInfoPanel({
-    required this.child,
-    this.padding = const EdgeInsets.all(2),
-  });
-
-  final Widget child;
-  final EdgeInsetsGeometry padding;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return LiquidGlassSurface(
-      // Unblurred: the panel sits on an opaque scaffold, so a BackdropFilter
-      // would cost a saveLayer per section for no visible frost.
-      blurred: false,
-      showShadow: false,
-      borderRadius: const BorderRadius.all(Radius.circular(16)),
-      borderColor: theme.colorScheme.outlineVariant.withValues(alpha: 0.24),
-      padding: padding,
-      child: child,
     );
   }
 }

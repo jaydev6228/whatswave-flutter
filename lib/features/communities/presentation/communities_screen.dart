@@ -5,6 +5,7 @@ import '../../chats/application/chats_controller.dart';
 import '../../shared/widgets/avatar_badge.dart';
 import '../../shared/widgets/create_action_row.dart';
 import '../../shared/widgets/empty_state_card.dart';
+import '../../shared/widgets/glass_text_field.dart';
 import '../../shared/widgets/liquid_glass.dart';
 import '../../shared/widgets/search_field.dart';
 import '../../updates/application/updates_controller.dart';
@@ -160,10 +161,9 @@ class _CommunitiesScreenState extends State<CommunitiesScreen> {
   }
 
   Future<void> _showCreateCommunitySheet() async {
-    await showModalBottomSheet<void>(
+    await showGlassBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      showDragHandle: true,
       builder: (context) {
         return _CreateCommunitySheet(controller: widget.controller);
       },
@@ -400,7 +400,6 @@ class _CreateCommunitySheetState extends State<_CreateCommunitySheet> {
     return AnimatedBuilder(
       animation: widget.controller,
       builder: (context, _) {
-        final theme = Theme.of(context);
         return SafeArea(
           top: false,
           child: Padding(
@@ -436,7 +435,7 @@ class _CreateCommunitySheetState extends State<_CreateCommunitySheet> {
                 // dark with white glyphs because it floats over story media.
                 // This sheet sits on the app's own surface, so it needs the
                 // theme-aware family or it goes black-on-white in light mode.
-                _GlassField(
+                GlassTextField(
                   fieldKey: const Key('communities_create_name_field'),
                   controller: _nameController,
                   hintText: 'Community name',
@@ -444,7 +443,7 @@ class _CreateCommunitySheetState extends State<_CreateCommunitySheet> {
                   autofocus: true,
                 ),
                 const SizedBox(height: 12),
-                _GlassField(
+                GlassTextField(
                   fieldKey: const Key('communities_create_description_field'),
                   controller: _descriptionController,
                   hintText: 'Description (optional)',
@@ -461,111 +460,30 @@ class _CreateCommunitySheetState extends State<_CreateCommunitySheet> {
                   ),
                 ],
                 const SizedBox(height: 18),
-                LiquidGlassSurface(
-                  // The sheet behind this is opaque (bottomSheetTheme), so
-                  // there is nothing to blur -- tint and hairline only.
-                  blurred: false,
-                  showShadow: false,
-                  color: theme.colorScheme.primary.withValues(alpha: 0.14),
-                  borderColor:
-                      theme.colorScheme.primary.withValues(alpha: 0.42),
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: FilledButton(
-                      key: const Key('communities_create_submit_button'),
-                      // A glass capsule rather than the solid green slab: on a
-                      // sheet whose fields are now glass, a filled button reads
-                      // as a second material stacked on the first (the same
-                      // reason LiquidGlassDialog outlines its actions). The
-                      // primary tint and label keep it obviously the CTA.
-                      style: FilledButton.styleFrom(
-                        backgroundColor: Colors.transparent,
-                        foregroundColor: theme.colorScheme.primary,
-                        disabledBackgroundColor: Colors.transparent,
-                        elevation: 0,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                      ),
-                      onPressed: widget.controller.isCreatingCommunity
-                          ? null
-                          : () async {
-                              final navigator = Navigator.of(context);
-                              final didCreate =
-                                  await widget.controller.createCommunity(
-                                title: _nameController.text,
-                                description: _descriptionController.text,
-                              );
-                              if (!mounted) {
-                                return;
-                              }
-                              if (didCreate) {
-                                navigator.pop();
-                              }
-                            },
-                      child: widget.controller.isCreatingCommunity
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Text('Create community'),
-                    ),
-                  ),
+                GlassPrimaryButton(
+                  actionKey: const Key('communities_create_submit_button'),
+                  label: 'Create community',
+                  fullWidth: true,
+                  isLoading: widget.controller.isCreatingCommunity,
+                  onPressed: () async {
+                    final navigator = Navigator.of(context);
+                    final didCreate = await widget.controller.createCommunity(
+                      title: _nameController.text,
+                      description: _descriptionController.text,
+                    );
+                    if (!mounted) {
+                      return;
+                    }
+                    if (didCreate) {
+                      navigator.pop();
+                    }
+                  },
                 ),
               ],
             ),
           ),
         );
       },
-    );
-  }
-}
-
-/// A [TextField] on the app's glass rather than the theme's opaque filled
-/// capsule, so the create sheet's inputs share the surface language of the
-/// rest of the app's chrome. Theme-aware [LiquidGlassSurface] on purpose --
-/// the fixed-dark StatusChrome* family is for controls floating over media,
-/// and would render white-on-white here in light mode.
-class _GlassField extends StatelessWidget {
-  const _GlassField({
-    required this.fieldKey,
-    required this.controller,
-    required this.hintText,
-    this.maxLines = 1,
-    this.textInputAction,
-    this.autofocus = false,
-  });
-
-  final Key fieldKey;
-  final TextEditingController controller;
-  final String hintText;
-  final int maxLines;
-  final TextInputAction? textInputAction;
-  final bool autofocus;
-
-  @override
-  Widget build(BuildContext context) {
-    return LiquidGlassSurface(
-      borderRadius: const BorderRadius.all(Radius.circular(24)),
-      // Nothing to blur: the sheet under it is opaque (bottomSheetTheme).
-      blurred: false,
-      showShadow: false,
-      child: TextField(
-        key: fieldKey,
-        controller: controller,
-        maxLines: maxLines,
-        textInputAction: textInputAction,
-        autofocus: autofocus,
-        decoration: InputDecoration(
-          // The glass surface already draws the fill and the hairline; the
-          // theme's own filled capsule on top of it would be a second
-          // material stacked on the first.
-          filled: false,
-          border: InputBorder.none,
-          enabledBorder: InputBorder.none,
-          focusedBorder: InputBorder.none,
-          hintText: hintText,
-        ),
-      ),
     );
   }
 }

@@ -1087,11 +1087,10 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
       return;
     }
 
-    await showModalBottomSheet<void>(
+    await showGlassBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      showDragHandle: false,
+      heightFactor: 0.7,
       builder: (_) => _StoryViewersSheet(
         viewers: _viewersForSegment(_currentSegmentIndex),
         segmentId: _currentSegment?.id,
@@ -2146,82 +2145,59 @@ class _StoryViewersSheet extends StatelessWidget {
   final List<StoryViewer> viewers;
   final String? segmentId;
 
-  static const Color _sheetFill = Color(0xBF000000);
-  static const Color _handleFill = Color(0x59FFFFFF);
-  static const Color _primaryText = Colors.white;
-  static const Color _secondaryText = Color(0xB3FFFFFF);
-  static const Color _emptyText = Color(0x8FFFFFFF);
-
   @override
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.paddingOf(context).bottom;
-    return ClipRRect(
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
-      child: Container(
-        key: const Key('story_viewers_sheet'),
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.sizeOf(context).height * 0.7,
-        ),
-        color: _sheetFill,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 10),
-            Container(
-              width: 36,
-              height: 4,
-              decoration: BoxDecoration(
-                color: _handleFill,
-                borderRadius: BorderRadius.circular(999),
-              ),
-            ),
-            const Padding(
-              padding: EdgeInsets.fromLTRB(20, 18, 20, 10),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  'Viewed by',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: _primaryText,
-                    fontSize: 17,
-                    fontWeight: FontWeight.w800,
-                    height: 1.1,
-                  ),
+    final theme = Theme.of(context);
+    return Container(
+      key: const Key('story_viewers_sheet'),
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.sizeOf(context).height * 0.7,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 10),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Viewed by',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w800,
                 ),
               ),
             ),
-            if (viewers.isEmpty)
-              Padding(
-                padding: EdgeInsets.fromLTRB(20, 4, 20, 28 + bottomInset),
-                child: const Text(
-                  'No views yet.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: _emptyText,
-                    fontSize: 15,
-                    height: 1.35,
-                  ),
-                ),
-              )
-            else
-              Flexible(
-                child: ListView.separated(
-                  shrinkWrap: true,
-                  padding: EdgeInsets.fromLTRB(12, 0, 12, 16 + bottomInset),
-                  itemCount: viewers.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 2),
-                  itemBuilder: (context, index) {
-                    return _StoryViewerRow(
-                      viewer: viewers[index],
-                      segmentId: segmentId,
-                    );
-                  },
+          ),
+          if (viewers.isEmpty)
+            Padding(
+              padding: EdgeInsets.fromLTRB(20, 4, 20, 28 + bottomInset),
+              child: Text(
+                'No views yet.',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.56),
                 ),
               ),
-          ],
-        ),
+            )
+          else
+            Flexible(
+              child: ListView.separated(
+                shrinkWrap: true,
+                padding: EdgeInsets.fromLTRB(12, 0, 12, 16 + bottomInset),
+                itemCount: viewers.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 2),
+                itemBuilder: (context, index) {
+                  return _StoryViewerRow(
+                    viewer: viewers[index],
+                    segmentId: segmentId,
+                  );
+                },
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -2238,6 +2214,7 @@ class _StoryViewerRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final viewedAtLabel =
         viewer.viewedAt == null ? null : _relativeViewLabel(viewer.viewedAt!);
     final likedThisSegment = segmentId == null
@@ -2260,11 +2237,8 @@ class _StoryViewerRow extends StatelessWidget {
               viewer.name,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: _StoryViewersSheet._primaryText,
-                fontSize: 16,
+              style: theme.textTheme.titleSmall?.copyWith(
                 fontWeight: FontWeight.w600,
-                height: 1.2,
               ),
             ),
           ),
@@ -2281,11 +2255,9 @@ class _StoryViewerRow extends StatelessWidget {
               viewedAtLabel,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: _StoryViewersSheet._secondaryText,
-                fontSize: 13,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.56),
                 fontWeight: FontWeight.w500,
-                height: 1.1,
               ),
             ),
         ],

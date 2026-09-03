@@ -57,9 +57,11 @@ abstract final class AppTheme {
         backgroundColor: Colors.white,
         modalBackgroundColor: Colors.white,
         surfaceTintColor: Colors.transparent,
+        elevation: 0,
         showDragHandle: true,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          side: BorderSide.none,
         ),
       ),
       popupMenuTheme: PopupMenuThemeData(
@@ -165,7 +167,7 @@ abstract final class AppTheme {
         ),
         focusedBorder: const OutlineInputBorder(
           borderRadius: BorderRadius.all(Radius.circular(999)),
-          borderSide: BorderSide(color: AppPalette.emerald, width: 1.5),
+          borderSide: BorderSide(color: AppPalette.emerald, width: 1),
         ),
       ),
     );
@@ -218,9 +220,11 @@ abstract final class AppTheme {
         backgroundColor: Color(0xFF111B21),
         modalBackgroundColor: Color(0xFF111B21),
         surfaceTintColor: Colors.transparent,
+        elevation: 0,
         showDragHandle: true,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          side: BorderSide.none,
         ),
       ),
       popupMenuTheme: PopupMenuThemeData(
@@ -326,7 +330,7 @@ abstract final class AppTheme {
         ),
         focusedBorder: const OutlineInputBorder(
           borderRadius: BorderRadius.all(Radius.circular(999)),
-          borderSide: BorderSide(color: AppPalette.green, width: 1.5),
+          borderSide: BorderSide(color: AppPalette.green, width: 1),
         ),
       ),
     );

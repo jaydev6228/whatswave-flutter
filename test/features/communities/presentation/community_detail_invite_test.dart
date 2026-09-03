@@ -143,8 +143,8 @@ String _actionLabel(WidgetTester tester, String contactId) {
 
 VoidCallback? _actionOnPressed(WidgetTester tester, String contactId) {
   return tester
-      .widget<ButtonStyleButton>(
+      .widget<InkWell>(
         find.byKey(Key('community_detail_invite_action_$contactId')),
       )
-      .onPressed;
+      .onTap;
 }
