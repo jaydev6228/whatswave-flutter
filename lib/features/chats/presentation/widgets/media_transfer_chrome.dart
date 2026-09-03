@@ -4,8 +4,71 @@ import 'package:flutter/material.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 
 import '../../../../core/media/media_transfer.dart';
+import '../../../shared/widgets/liquid_glass.dart';
 import '../../../updates/presentation/widgets/status_media_source.dart';
 import '../../domain/chat_attachment.dart';
+
+/// Frosted circle for controls floating over a chat media tile -- fixed
+/// dark-on-media tint, not theme-aware, because it always sits on a photo
+/// or video rather than the app scaffold.
+class MediaGlassCircle extends StatelessWidget {
+  const MediaGlassCircle({
+    required this.child,
+    this.diameter = 52,
+    super.key,
+  });
+
+  final Widget child;
+  final double diameter;
+
+  static const Color _tint = Color(0x59000000);
+  static const Color _border = Color(0x38FFFFFF);
+
+  @override
+  Widget build(BuildContext context) {
+    return LiquidGlassSurface(
+      blurred: true,
+      blurSigma: 20,
+      color: _tint,
+      borderColor: _border,
+      showShadow: false,
+      child: SizedBox(
+        width: diameter,
+        height: diameter,
+        child: Center(child: child),
+      ),
+    );
+  }
+}
+
+/// WhatsApp-style play badge once video media is on-device.
+class MediaGlassPlayBadge extends StatelessWidget {
+  const MediaGlassPlayBadge({
+    this.diameter = 44,
+    this.iconSize = 24,
+    super.key,
+  });
+
+  /// Smaller overlay for flush shared-media grid tiles (~108pt wide).
+  const MediaGlassPlayBadge.compact({super.key})
+      : diameter = 30,
+        iconSize = 16;
+
+  final double diameter;
+  final double iconSize;
+
+  @override
+  Widget build(BuildContext context) {
+    return MediaGlassCircle(
+      diameter: diameter,
+      child: Icon(
+        Icons.play_arrow_rounded,
+        color: Colors.white,
+        size: iconSize,
+      ),
+    );
+  }
+}
 
 /// Shared by the document row's subtitle and the download affordance's
 /// label, so a 416 KB photo reads the same in both places.
@@ -40,33 +103,25 @@ class MediaTransferRing extends StatelessWidget {
         return Center(
           child: GestureDetector(
             onTap: onCancel,
-            child: SizedBox(
-              width: 46,
-              height: 46,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.45),
-                  shape: BoxShape.circle,
-                ),
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    SizedBox.square(
-                      dimension: 40,
-                      child: CircularProgressIndicator(
-                        value: transfer.progress,
-                        strokeWidth: 2.6,
-                        color: Colors.white,
-                        backgroundColor: Colors.white24,
-                      ),
-                    ),
-                    const Icon(
-                      Icons.close_rounded,
+            child: MediaGlassCircle(
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  SizedBox.square(
+                    dimension: 44,
+                    child: CircularProgressIndicator(
+                      value: transfer.progress,
+                      strokeWidth: 2.6,
                       color: Colors.white,
-                      size: 20,
+                      backgroundColor: Colors.white24,
                     ),
-                  ],
-                ),
+                  ),
+                  const Icon(
+                    Icons.close_rounded,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                ],
               ),
             ),
           ),
@@ -313,35 +368,39 @@ class _MediaDownloadGateState extends State<MediaDownloadGate> {
     final size = _totalSizeBytes;
     return Center(
       child: Material(
-        color: Colors.black.withValues(alpha: 0.55),
-        shape: const StadiumBorder(),
-        clipBehavior: Clip.antiAlias,
+        color: Colors.transparent,
         child: InkWell(
           key: Key('media_download_button_${widget.messageId}'),
           onTap: _startDownload,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(
+          borderRadius: BorderRadius.circular(999),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const MediaGlassCircle(
+                child: Icon(
                   Icons.arrow_downward_rounded,
                   color: Colors.white,
-                  size: 20,
+                  size: 26,
                 ),
-                if (size != null) ...[
-                  const SizedBox(width: 6),
-                  Text(
-                    formatMediaSize(size),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                    ),
+              ),
+              if (size != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  formatMediaSize(size),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    shadows: [
+                      Shadow(
+                        color: Color(0x99000000),
+                        blurRadius: 6,
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ],
-            ),
+            ],
           ),
         ),
       ),

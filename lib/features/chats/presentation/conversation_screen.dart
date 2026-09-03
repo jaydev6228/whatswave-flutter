@@ -44,8 +44,8 @@ import 'media_send_preview_screen.dart';
 import 'widgets/emoji_reaction_picker_screen.dart';
 import 'widgets/lazy_heavy_attachment.dart';
 import 'widgets/location_map_preview.dart';
+import 'widgets/chat_media_thumbnail.dart';
 import 'widgets/media_transfer_chrome.dart';
-import 'widgets/video_thumbnail_source.dart';
 import 'widgets/voice_note_bubble.dart';
 import 'widgets/composer_voice_button.dart';
 
@@ -4713,36 +4713,9 @@ class _MediaAttachmentTile extends StatefulWidget {
 }
 
 class _MediaAttachmentTileState extends State<_MediaAttachmentTile> {
-  Future<Uint8List?>? _videoThumbnailFuture;
-
-  @override
-  void initState() {
-    super.initState();
-    final localPath = widget.attachment.localMediaPath;
-    if (widget.attachment.type == ChatAttachmentType.video &&
-        localPath != null &&
-        statusMediaSourceExists(localPath)) {
-      _videoThumbnailFuture = videoThumbnailFor(localPath);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final attachment = widget.attachment;
-    final localPath = attachment.localMediaPath;
-    final isPhoto = attachment.type == ChatAttachmentType.photo ||
-        attachment.isImageDocument;
-    final isGated = widget.suppressRemoteMedia &&
-        localPath != null &&
-        isRemoteStatusMediaPath(localPath);
-    final hasRealPhoto = isPhoto &&
-        !isGated &&
-        localPath != null &&
-        statusMediaSourceExists(localPath);
-    final hasRealVideo = attachment.type == ChatAttachmentType.video &&
-        !isGated &&
-        localPath != null &&
-        statusMediaSourceExists(localPath);
     // 0.56 is 9:16 -- a phone portrait shot held upright. The old 0.7
     // floor cropped the top and bottom off every one of them; now that
     // aspectRatio carries the file's real shape (see
@@ -4761,100 +4734,22 @@ class _MediaAttachmentTileState extends State<_MediaAttachmentTile> {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                if (hasRealPhoto)
-                  Image(
-                    image: imageProviderForStatusMediaPath(
-                      localPath,
-                      // A bubble tile is at most kChatMediaWidth wide, and
-                      // half that inside a mosaic. Decoding at the real
-                      // device pixels it occupies -- rather than the
-                      // camera's -- is what keeps a thread of albums
-                      // scrollable while it loads.
-                      maxDecodeWidth: (kChatMediaWidth *
-                              MediaQuery.devicePixelRatioOf(context))
-                          .round(),
-                    )!,
-                    fit: BoxFit.cover,
-                    gaplessPlayback: true,
-                    loadingBuilder: (context, child, loadingProgress) {
-                      if (loadingProgress == null) {
-                        return child;
-                      }
-                      return _loadingPlaceholder();
-                    },
-                    errorBuilder: (_, __, ___) => _placeholder(),
-                  )
-                else if (hasRealVideo)
-                  FutureBuilder<Uint8List?>(
-                    future: _videoThumbnailFuture,
-                    builder: (context, snapshot) {
-                      final bytes = snapshot.data;
-                      if (bytes == null) {
-                        return _placeholder();
-                      }
-                      return Image.memory(
-                        bytes,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => _placeholder(),
-                      );
-                    },
-                  )
-                else
-                  _placeholder(),
+                ChatMediaThumbnailBody(
+                  attachment: attachment,
+                  suppressRemoteMedia: widget.suppressRemoteMedia,
+                  hidePlaceholderIcon: widget.transferChromeOnTop &&
+                      attachment.type == ChatAttachmentType.video,
+                  maxDecodeWidth: (kChatMediaWidth *
+                          MediaQuery.devicePixelRatioOf(context))
+                      .round(),
+                ),
                 if (attachment.type == ChatAttachmentType.video &&
                     !widget.transferChromeOnTop)
-                  Center(
-                    child: Container(
-                      width: 46,
-                      height: 46,
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.4),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.play_arrow_rounded,
-                        color: Colors.white,
-                        size: 26,
-                      ),
-                    ),
+                  const Center(
+                    child: MediaGlassPlayBadge(),
                   ),
               ],
             ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _placeholder() {
-    return ColoredBox(
-      color: widget.attachment.tintColor.withValues(alpha: 0.18),
-      child: Center(
-        child: Icon(
-          widget.attachment.type == ChatAttachmentType.video
-              ? Icons.videocam_outlined
-              : Icons.photo_outlined,
-          color: widget.attachment.tintColor,
-          size: 32,
-        ),
-      ),
-    );
-  }
-
-  /// Shown while a network (Storage-hosted) photo attachment is still
-  /// fetching -- the tinted swatch [_placeholder] uses, but with a spinner
-  /// instead of the type icon, so a genuinely-loading tile reads
-  /// differently from a genuinely-missing one.
-  Widget _loadingPlaceholder() {
-    return ColoredBox(
-      color: widget.attachment.tintColor.withValues(alpha: 0.18),
-      child: Center(
-        child: SizedBox(
-          width: 24,
-          height: 24,
-          child: CircularProgressIndicator(
-            strokeWidth: 2.4,
-            color: widget.attachment.tintColor,
           ),
         ),
       ),

@@ -93,7 +93,7 @@ void main() {
     }
   });
 
-  testWidgets('a video tile carries exactly one centred affordance',
+  testWidgets('a video without a path shows only the type icon',
       (tester) async {
     await _pumpGrid(tester, surfaceSize: iphoneProProfile.size);
 
@@ -102,9 +102,9 @@ void main() {
     expect(
       icons,
       findsOneWidget,
-      reason: 'the type icon and a play glyph used to overlap into a smudge',
+      reason: 'missing media must not stack a play badge on the type icon',
     );
-    expect(tester.widget<Icon>(icons).icon, Icons.play_circle_outline_rounded);
+    expect(tester.widget<Icon>(icons).icon, Icons.videocam_outlined);
     expect(
       tester.getCenter(icons),
       tester.getCenter(videoTile),

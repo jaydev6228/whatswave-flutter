@@ -694,21 +694,41 @@ Future<T?> showGlassBottomSheet<T>({
     backgroundColor: Colors.transparent,
     showDragHandle: false,
     builder: (sheetContext) {
-      Widget child = builder(sheetContext);
+      Widget sheetBody = builder(sheetContext);
       if (heightFactor != null) {
-        child = FractionallySizedBox(
+        sheetBody = FractionallySizedBox(
           heightFactor: heightFactor,
-          child: child,
+          child: sheetBody,
         );
       }
-      return Align(
-        alignment: Alignment.bottomCenter,
-        child: GlassBottomSheet(
-          child: SizedBox(
-            width: MediaQuery.sizeOf(sheetContext).width,
-            child: child,
-          ),
+      final panel = GlassBottomSheet(
+        child: SizedBox(
+          width: MediaQuery.sizeOf(sheetContext).width,
+          child: sheetBody,
         ),
+      );
+
+      // A transparent scroll-controlled sheet paints a full-screen route,
+      // which sits above the modal barrier and steals outside taps. The
+      // scrim tap target below restores tap-outside-to-dismiss.
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          if (isDismissible)
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => Navigator.of(sheetContext).pop(),
+              ),
+            ),
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: GestureDetector(
+              onTap: () {},
+              child: panel,
+            ),
+          ),
+        ],
       );
     },
   );

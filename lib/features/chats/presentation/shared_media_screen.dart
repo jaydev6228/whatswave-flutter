@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../updates/presentation/widgets/status_media_source.dart';
 import '../domain/chat_attachment.dart';
 import 'attachment_viewer_screen.dart';
+import 'widgets/chat_media_thumbnail.dart';
 
 /// Widest a grid tile can get, and the basis of the thumbnail decode
 /// budget -- one constant so the two cannot drift apart.
@@ -89,9 +90,11 @@ class SharedMediaThumbnail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final localPath = attachment.localMediaPath;
-    final hasRealPhoto = attachment.type == ChatAttachmentType.photo &&
+    final hasResolvableVideo = attachment.type == ChatAttachmentType.video &&
         localPath != null &&
         statusMediaSourceExists(localPath);
+    final decodeWidth =
+        (_maxTileExtent * MediaQuery.devicePixelRatioOf(context)).round();
 
     // No ClipRRect/rounded corners: WhatsApp's shared-media grid is flush
     // tiles, and rounding each one both wastes grid space and costs a clip
@@ -101,53 +104,47 @@ class SharedMediaThumbnail extends StatelessWidget {
       child: InkWell(
         key: tileKey,
         onTap: onTap,
-        child: hasRealPhoto
-            ? Image(
-                // Budgeted to the tile, not the source photo: the grid
-                // delegate caps a tile at [_maxTileExtent], so decoding
-                // wider than that is memory spent on pixels never painted
-                // -- and the full-size decode of a phone-camera JPEG is
-                // what froze the UI thread here before.
-                image: imageProviderForStatusMediaPath(
-                  localPath,
-                  maxDecodeWidth:
-                      (_maxTileExtent * MediaQuery.devicePixelRatioOf(context))
-                          .round(),
-                )!,
-                fit: BoxFit.cover,
-                loadingBuilder: (context, child, loadingProgress) {
-                  if (loadingProgress == null) {
-                    return child;
-                  }
-                  return ColoredBox(
-                    color: attachment.tintColor.withValues(alpha: 0.18),
-                    child: Center(
-                      child: SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: attachment.tintColor,
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              )
-            // One glyph only. A video never satisfies [hasRealPhoto] (that
-            // is photo-only), so the play triangle this tile used to stack
-            // on top was always drawn straight over the type icon -- two
-            // symbols in the same 24pt centre, smudged into an unreadable
-            // blob. play_circle carries both meanings on its own.
-            : ColoredBox(
-                color: attachment.tintColor.withValues(alpha: 0.18),
-                child: Icon(
-                  attachment.type == ChatAttachmentType.video
-                      ? Icons.play_circle_outline_rounded
-                      : Icons.photo_outlined,
-                  color: attachment.tintColor,
-                ),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            ChatMediaThumbnailBody(
+              attachment: attachment,
+              maxDecodeWidth: decodeWidth,
+            ),
+            if (hasResolvableVideo)
+              const Positioned(
+                right: 3,
+                bottom: 3,
+                child: _SharedMediaVideoBadge(),
               ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Corner video glyph for shared-media grid tiles -- a tiny dark scrim
+/// behind the white icon so it reads on both bright and dark thumbnails.
+class _SharedMediaVideoBadge extends StatelessWidget {
+  const _SharedMediaVideoBadge();
+
+  static const Color _scrim = Color(0xB3000000);
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: _scrim,
+        borderRadius: BorderRadius.circular(5),
+      ),
+      child: const Padding(
+        padding: EdgeInsets.all(4.5),
+        child: Icon(
+          Icons.videocam_rounded,
+          color: Colors.white,
+          size: 16,
+        ),
       ),
     );
   }
