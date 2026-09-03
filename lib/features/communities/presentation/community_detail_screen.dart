@@ -1,15 +1,19 @@
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../../core/media/avatar_photo_picker.dart';
 import '../../calls/application/calls_controller.dart';
 import '../../chats/application/chats_controller.dart';
 import '../../chats/presentation/conversation_screen.dart';
 import '../../shared/widgets/avatar_badge.dart';
+import '../../shared/widgets/avatar_preview.dart';
 import '../../shared/widgets/empty_state_card.dart';
 import '../../shared/widgets/error_dialog.dart';
 import '../../shared/widgets/search_field.dart';
+import '../../shared/widgets/status_motion.dart';
 import '../../updates/application/updates_controller.dart';
 import '../application/communities_controller.dart';
 import '../domain/app_invite_link.dart';
@@ -20,7 +24,7 @@ import 'community_time_format.dart';
 import 'community_unread.dart';
 import 'package:whatswave/features/shared/widgets/liquid_glass.dart';
 
-class CommunityDetailScreen extends StatelessWidget {
+class CommunityDetailScreen extends StatefulWidget {
   const CommunityDetailScreen({
     required this.controller,
     required this.chatsController,
@@ -37,14 +41,39 @@ class CommunityDetailScreen extends StatelessWidget {
   final String communityId;
 
   @override
+  State<CommunityDetailScreen> createState() => _CommunityDetailScreenState();
+}
+
+class _CommunityDetailScreenState extends State<CommunityDetailScreen> {
+  bool _isEditing = false;
+  File? _pendingPhoto;
+  bool _pendingRemovePhoto = false;
+  late final TextEditingController _titleController;
+  late final TextEditingController _descriptionController;
+
+  @override
+  void initState() {
+    super.initState();
+    _titleController = TextEditingController();
+    _descriptionController = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _descriptionController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: Listenable.merge([
-        controller,
-        chatsController,
+        widget.controller,
+        widget.chatsController,
       ]),
       builder: (context, _) {
-        final community = controller.communityById(communityId);
+        final community = widget.controller.communityById(widget.communityId);
         if (community == null) {
           return const Scaffold(
             body: SafeArea(
@@ -60,66 +89,108 @@ class CommunityDetailScreen extends StatelessWidget {
           );
         }
 
+        final canEdit = community.viewerIsAdmin;
+        final isBusy = widget.controller.isCommunityBusy(community.id);
+
         return Scaffold(
           key: const Key('community_detail_screen'),
           appBar: AppBar(
             title: Text(community.title),
             actions: [
-              IconButton(
-                key: const Key('community_detail_invite_button'),
-                tooltip: 'Invite members',
-                onPressed: () => _showInviteSheet(context, community),
-                icon: const Icon(Icons.person_add_outlined),
-              ),
-              PopupMenuButton<_CommunityDetailMenuAction>(
-                key: const Key('community_detail_menu_button'),
-                onSelected: (action) async {
-                  switch (action) {
-                    case _CommunityDetailMenuAction.delete:
-                      await _confirmAndDeleteCommunity(
-                        context,
-                        controller: controller,
-                        community: community,
-                      );
-                    case _CommunityDetailMenuAction.exit:
-                      await _confirmAndExitCommunity(
-                        context,
-                        controller: controller,
-                        community: community,
-                      );
-                  }
-                },
-                // Deleting is the creator's action; everyone else -- plain
-                // members and promoted admins alike -- exits instead.
-                // Both were "Delete community" before, so a member tapped a
-                // destructive-looking item that the security rules then
-                // refused -- they were told the delete failed, when what
-                // they actually wanted (leaving) was never on offer at all.
-                itemBuilder: (menuContext) => [
-                  if (community.viewerIsOwner)
-                    PopupMenuItem(
-                      key: const Key('community_detail_delete_menu_item'),
-                      value: _CommunityDetailMenuAction.delete,
-                      child: Text(
-                        'Deactivate community',
-                        style: TextStyle(
-                          color: Theme.of(menuContext).colorScheme.error,
-                        ),
-                      ),
-                    )
-                  else
-                    PopupMenuItem(
-                      key: const Key('community_detail_exit_menu_item'),
-                      value: _CommunityDetailMenuAction.exit,
-                      child: Text(
-                        'Exit community',
-                        style: TextStyle(
-                          color: Theme.of(menuContext).colorScheme.error,
-                        ),
-                      ),
+              if (canEdit)
+                StatusModeSwitcher(
+                  alignment: Alignment.centerRight,
+                  unboundedWidth: true,
+                  child: KeyedSubtree(
+                    key: ValueKey<bool>(_isEditing),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (!_isEditing)
+                          TextButton(
+                            key: const Key('community_detail_edit_button'),
+                            onPressed: isBusy
+                                ? null
+                                : () => _startEdit(community),
+                            child: const Text('Edit'),
+                          ),
+                        if (_isEditing) ...[
+                          TextButton(
+                            key: const Key('community_detail_cancel_edit_button'),
+                            onPressed: isBusy ? null : _cancelEdit,
+                            child: const Text('Cancel'),
+                          ),
+                          TextButton(
+                            key: const Key('community_detail_save_button'),
+                            onPressed: isBusy
+                                ? null
+                                : () => _saveEdit(community),
+                            child: isBusy
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                : const Text('Done'),
+                          ),
+                        ],
+                      ],
                     ),
-                ],
-              ),
+                  ),
+                ),
+              if (!_isEditing) ...[
+                IconButton(
+                  key: const Key('community_detail_invite_button'),
+                  tooltip: 'Invite members',
+                  onPressed: () => _showInviteSheet(context, community),
+                  icon: const Icon(Icons.person_add_outlined),
+                ),
+                PopupMenuButton<_CommunityDetailMenuAction>(
+                  key: const Key('community_detail_menu_button'),
+                  onSelected: (action) async {
+                    switch (action) {
+                      case _CommunityDetailMenuAction.delete:
+                        await _confirmAndDeleteCommunity(
+                          context,
+                          controller: widget.controller,
+                          community: community,
+                        );
+                      case _CommunityDetailMenuAction.exit:
+                        await _confirmAndExitCommunity(
+                          context,
+                          controller: widget.controller,
+                          community: community,
+                        );
+                    }
+                  },
+                  itemBuilder: (menuContext) => [
+                    if (community.viewerIsOwner)
+                      PopupMenuItem(
+                        key: const Key('community_detail_delete_menu_item'),
+                        value: _CommunityDetailMenuAction.delete,
+                        child: Text(
+                          'Deactivate community',
+                          style: TextStyle(
+                            color: Theme.of(menuContext).colorScheme.error,
+                          ),
+                        ),
+                      )
+                    else
+                      PopupMenuItem(
+                        key: const Key('community_detail_exit_menu_item'),
+                        value: _CommunityDetailMenuAction.exit,
+                        child: Text(
+                          'Exit community',
+                          style: TextStyle(
+                            color: Theme.of(menuContext).colorScheme.error,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ],
             ],
           ),
           body: SafeArea(
@@ -130,7 +201,18 @@ class CommunityDetailScreen extends StatelessWidget {
               ),
               children: [
                 const SizedBox(height: 8),
-                _CommunityHeader(community: community),
+                _CommunityHeader(
+                  community: community,
+                  isEditing: _isEditing && canEdit,
+                  canEdit: canEdit,
+                  isBusy: isBusy,
+                  titleController: _titleController,
+                  descriptionController: _descriptionController,
+                  pendingPhoto: _pendingPhoto,
+                  pendingRemovePhoto: _pendingRemovePhoto,
+                  onEditAvatarTap: (anchorContext) =>
+                      _showPhotoOptions(anchorContext, community),
+                ),
                 const SizedBox(height: 12),
                 _CommunityChatRow(
                   key: const Key('community_detail_announcements_row'),
@@ -144,7 +226,7 @@ class CommunityDetailScreen extends StatelessWidget {
                   subtitle: community.announcement.headline,
                   timestamp: community.announcement.publishedAt,
                   unreadCount: CommunityUnread.forAnnouncements(
-                    chatsController,
+                    widget.chatsController,
                     community,
                   ),
                   onTap: community.announcementThreadId == null
@@ -167,7 +249,7 @@ class CommunityDetailScreen extends StatelessWidget {
                         : group.summary,
                     timestamp: group.lastActivityAt,
                     unreadCount: CommunityUnread.forGroup(
-                      chatsController,
+                      widget.chatsController,
                       group,
                     ),
                     onTap: group.threadId == null
@@ -181,7 +263,7 @@ class CommunityDetailScreen extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     child: _CommunityMembersPanel(
                       community: community,
-                      members: _membersOf(controller, community),
+                      members: _membersOf(widget.controller, community),
                       onManage: (member) => _showMemberRoleSheet(
                         context,
                         community: community,
@@ -198,6 +280,122 @@ class CommunityDetailScreen extends StatelessWidget {
     );
   }
 
+  void _startEdit(CommunityHub community) {
+    _titleController.text = community.title;
+    _descriptionController.text = community.description;
+    setState(() {
+      _isEditing = true;
+      _pendingPhoto = null;
+      _pendingRemovePhoto = false;
+    });
+  }
+
+  void _cancelEdit() {
+    setState(() {
+      _isEditing = false;
+      _pendingPhoto = null;
+      _pendingRemovePhoto = false;
+    });
+  }
+
+  Future<void> _saveEdit(CommunityHub community) async {
+    final title = _titleController.text.trim();
+    if (title.isEmpty) {
+      await showErrorDialog(context, 'Enter a community name.');
+      return;
+    }
+
+    if (title != community.title) {
+      final didRename = await widget.controller.renameCommunity(
+        communityId: community.id,
+        title: title,
+      );
+      if (!didRename && mounted) {
+        final message = widget.controller.errorMessage ??
+            'We could not rename that community right now.';
+        widget.controller.clearError();
+        await showErrorDialog(context, message);
+        return;
+      }
+    }
+
+    if (_descriptionController.text.trim() != community.description) {
+      final didUpdate = await widget.controller.updateCommunityDescription(
+        communityId: community.id,
+        description: _descriptionController.text,
+      );
+      if (!didUpdate && mounted) {
+        final message = widget.controller.errorMessage ??
+            'We could not update that community right now.';
+        widget.controller.clearError();
+        await showErrorDialog(context, message);
+        return;
+      }
+    }
+
+    if (_pendingRemovePhoto) {
+      final didRemove = await widget.controller.deleteCommunityAvatar(
+        community.id,
+      );
+      if (!didRemove && mounted) {
+        final message = widget.controller.errorMessage ??
+            'We could not remove that community photo right now.';
+        widget.controller.clearError();
+        await showErrorDialog(context, message);
+        return;
+      }
+    } else if (_pendingPhoto != null) {
+      final didUpdate = await widget.controller.updateCommunityAvatar(
+        communityId: community.id,
+        photo: _pendingPhoto!,
+      );
+      if (!didUpdate && mounted) {
+        final message = widget.controller.errorMessage ??
+            'We could not update that community photo right now.';
+        widget.controller.clearError();
+        await showErrorDialog(context, message);
+        return;
+      }
+    }
+
+    if (!mounted) {
+      return;
+    }
+    _cancelEdit();
+  }
+
+  Future<void> _showPhotoOptions(
+    BuildContext anchorContext,
+    CommunityHub community,
+  ) async {
+    final canRemove = _pendingPhoto != null ||
+        (!_pendingRemovePhoto && community.avatarUrl?.isNotEmpty == true);
+    final action = await showAvatarPhotoOptionsSheet(
+      anchorContext,
+      canRemove: canRemove,
+    );
+    if (!mounted || action == null) {
+      return;
+    }
+
+    switch (action) {
+      case AvatarPhotoSheetAction.choose:
+        final cropped = await pickAndCropAvatarPhoto(context);
+        if (!mounted || cropped == null) {
+          return;
+        }
+        setState(() {
+          _pendingPhoto = cropped;
+          _pendingRemovePhoto = false;
+        });
+      case AvatarPhotoSheetAction.remove:
+        setState(() {
+          _pendingPhoto = null;
+          _pendingRemovePhoto = true;
+        });
+    }
+  }
+
   Future<void> _showInviteSheet(
     BuildContext context,
     CommunityHub community,
@@ -210,7 +408,7 @@ class CommunityDetailScreen extends StatelessWidget {
         return FractionallySizedBox(
           heightFactor: 0.82,
           child: _CommunityDetailInviteSheet(
-            controller: controller,
+            controller: widget.controller,
             community: community,
           ),
         );
@@ -282,7 +480,7 @@ class CommunityDetailScreen extends StatelessWidget {
       return;
     }
 
-    final didChange = await controller.setCommunityAdmin(
+    final didChange = await widget.controller.setCommunityAdmin(
       communityId: community.id,
       memberUid: member.uid,
       isAdmin: !member.isAdmin,
@@ -293,10 +491,10 @@ class CommunityDetailScreen extends StatelessWidget {
     // The refusals that matter are readable ones -- the 20-admin cap above
     // all (https://www.whatsapp.com/communities/learning/settingupyourcommunity)
     // -- so they get a dialog rather than a silently unchanged row.
-    final message = controller.errorMessage;
+    final message = widget.controller.errorMessage;
     if (message != null) {
       await showErrorDialog(context, message);
-      controller.clearError();
+      widget.controller.clearError();
     }
   }
 
@@ -304,15 +502,15 @@ class CommunityDetailScreen extends StatelessWidget {
     BuildContext context, {
     required String threadId,
   }) async {
-    chatsController.openThread(threadId);
+    widget.chatsController.openThread(threadId);
 
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
         builder: (_) => ConversationScreen(
-          callsController: callsController,
-          controller: chatsController,
-          updatesController: updatesController,
-          communitiesController: controller,
+          callsController: widget.callsController,
+          controller: widget.chatsController,
+          updatesController: widget.updatesController,
+          communitiesController: widget.controller,
           threadId: threadId,
         ),
       ),
@@ -425,51 +623,191 @@ Future<void> _confirmAndDeleteCommunity(
 }
 
 class _CommunityHeader extends StatelessWidget {
-  const _CommunityHeader({required this.community});
+  const _CommunityHeader({
+    required this.community,
+    required this.isEditing,
+    required this.canEdit,
+    required this.isBusy,
+    required this.titleController,
+    required this.descriptionController,
+    required this.pendingPhoto,
+    required this.pendingRemovePhoto,
+    required this.onEditAvatarTap,
+  });
 
   final CommunityHub community;
+  final bool isEditing;
+  final bool canEdit;
+  final bool isBusy;
+  final TextEditingController titleController;
+  final TextEditingController descriptionController;
+  final File? pendingPhoto;
+  final bool pendingRemovePhoto;
+  final void Function(BuildContext anchorContext) onEditAvatarTap;
+
+  static const double _avatarSize = 88;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final nameStyle = theme.textTheme.titleLarge?.copyWith(
+      fontWeight: FontWeight.w900,
+    );
+
+    Widget? descriptionSection;
+    Widget descriptionChild = const SizedBox.shrink();
+    if (isEditing && canEdit) {
+      descriptionChild = Padding(
+        padding: const EdgeInsets.only(top: 8),
+        child: TextField(
+          key: const Key('community_detail_description_field'),
+          controller: descriptionController,
+          minLines: 1,
+          maxLines: 4,
+          maxLength: 200,
+          textAlign: TextAlign.center,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: const InputDecoration(
+            isDense: true,
+            contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            hintText: 'What is this community about?',
+            counterText: '',
+          ),
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.72),
+          ),
+        ),
+      );
+    } else if (community.description.trim().isNotEmpty) {
+      descriptionChild = Padding(
+        padding: const EdgeInsets.only(top: 8),
+        child: Text(
+          community.description,
+          textAlign: TextAlign.center,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.72),
+          ),
+        ),
+      );
+    }
+    descriptionSection = StatusModeSwitcher(
+      child: KeyedSubtree(
+        key: ValueKey<String>(isEditing && canEdit ? 'edit' : 'read'),
+        child: descriptionChild,
+      ),
+    );
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: Column(
-        children: [
-          AvatarBadge(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: LiquidGlassSurface(
+        borderRadius: const BorderRadius.all(Radius.circular(22)),
+        blurred: false,
+        showShadow: false,
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 22),
+        child: SizedBox(
+          width: double.infinity,
+          child: AnimatedSize(
+            duration: MediaQuery.disableAnimationsOf(context)
+                ? const Duration(milliseconds: 1)
+                : kStatusMotionDuration,
+            curve: kStatusMotionCurve,
+            alignment: Alignment.topCenter,
+            child: Column(
+              children: [
+                _buildAvatar(context),
+                const SizedBox(height: 10),
+                StatusModeSwitcher(
+                  child: KeyedSubtree(
+                    key: ValueKey<bool>(isEditing && canEdit),
+                    child: isEditing && canEdit
+                        ? TextField(
+                            key: const Key('community_detail_rename_field'),
+                            controller: titleController,
+                            textAlign: TextAlign.center,
+                            maxLength: 60,
+                            textCapitalization: TextCapitalization.words,
+                            decoration: const InputDecoration(
+                              hintText: 'Community name',
+                              counterText: '',
+                            ),
+                            style: nameStyle,
+                          )
+                        : Text(
+                            community.title,
+                            textAlign: TextAlign.center,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: nameStyle,
+                          ),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  '${community.memberCount} members · ${community.groupCount} groups',
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.68),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                descriptionSection,
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAvatar(BuildContext context) {
+    final effectiveUrl = pendingRemovePhoto
+        ? null
+        : (pendingPhoto?.path ?? community.avatarUrl);
+
+    Widget avatar = pendingPhoto != null
+        ? ClipOval(
+            child: Image.file(
+              pendingPhoto!,
+              width: _avatarSize,
+              height: _avatarSize,
+              fit: BoxFit.cover,
+            ),
+          )
+        : AvatarBadge(
             label: community.avatarLabel,
             color: community.accentColor,
-            size: 88,
+            size: _avatarSize,
+            avatarUrl: effectiveUrl,
+          );
+
+    if (!isEditing || !canEdit) {
+      return GestureDetector(
+        key: const Key('community_detail_avatar'),
+        onTap: () => showAvatarPreview(
+          context,
+          label: community.title,
+          builder: (size) => AvatarBadge(
+            label: community.avatarLabel,
+            color: community.accentColor,
+            size: size,
+            avatarUrl: community.avatarUrl,
           ),
-          const SizedBox(height: 14),
-          Text(
-            community.title,
-            textAlign: TextAlign.center,
-            style: theme.textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            '${community.memberCount} members · ${community.groupCount} groups',
-            textAlign: TextAlign.center,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.68),
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          if (community.description.trim().isNotEmpty) ...[
-            const SizedBox(height: 10),
-            Text(
-              community.description,
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurface.withValues(alpha: 0.72),
-              ),
-            ),
+        ),
+        child: avatar,
+      );
+    }
+
+    return Builder(
+      builder: (anchorContext) => GestureDetector(
+        key: const Key('community_detail_change_photo_button'),
+        onTap: isBusy ? null : () => onEditAvatarTap(anchorContext),
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            avatar,
+            AvatarCameraBadge(isBusy: isBusy),
           ],
-        ],
+        ),
       ),
     );
   }

@@ -49,6 +49,20 @@ service firebase.storage {
         && request.auth.uid in firestore.get(/databases/(default)/documents/chatThreads/$(threadId)).data.get('groupAdminUids', []);
     }
 
+    // Community icons at communityPhotos/{communityId}/{fileName} --
+    // uploaded by FirestoreCommunitiesRepository.updateCommunityAvatar.
+    // Same admin gate as firestore.rules: owner counts even when adminUids
+    // is missing on a community created before that roster existed.
+    match /communityPhotos/{communityId}/{fileName} {
+      function communityData() {
+        return firestore.get(/databases/(default)/documents/communities/$(communityId)).data;
+      }
+      allow read: if request.auth != null;
+      allow write, delete: if request.auth != null
+        && (request.auth.uid == communityData().ownerUid
+            || request.auth.uid in communityData().get('adminUids', []));
+    }
+
     // "Add music" catalog audio at statusMusic/{fileName} -- admin-uploaded
     // (see the seeding script referenced by statusMusicTracks in
     // firestore.rules), never written from the client. Readable by any

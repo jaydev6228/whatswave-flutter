@@ -329,6 +329,7 @@ class _CommunityCard extends StatelessWidget {
                     label: community.avatarLabel,
                     color: community.accentColor,
                     size: 52,
+                    avatarUrl: community.avatarUrl,
                   ),
                   const SizedBox(width: 12),
                   Expanded(

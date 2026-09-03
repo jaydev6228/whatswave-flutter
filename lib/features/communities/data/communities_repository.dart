@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'communities_overview.dart';
 
 abstract class CommunitiesRepository {
@@ -55,6 +57,24 @@ abstract class CommunitiesRepository {
     required String memberUid,
     required bool isAdmin,
   });
+
+  /// Renames [communityId]. Also refreshes the stored initials badge.
+  Future<CommunitiesOverview> renameCommunity({
+    required String communityId,
+    required String title,
+  });
+
+  Future<CommunitiesOverview> updateCommunityDescription({
+    required String communityId,
+    required String description,
+  });
+
+  Future<CommunitiesOverview> updateCommunityAvatar({
+    required String communityId,
+    required File photo,
+  });
+
+  Future<CommunitiesOverview> deleteCommunityAvatar(String communityId);
 
   /// Records which real [ChatThread] backs a community group's messaging,
   /// once one has been created (see CommunitiesController).

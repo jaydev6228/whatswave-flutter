@@ -21,7 +21,20 @@ class CommunityHub {
     this.adminUids = const <String>[],
     this.ownerUid,
     this.viewerUid,
+    this.avatarUrl,
   });
+
+  /// Derives the initials badge from a community title -- same logic as
+  /// [DemoData.buildDraftCommunity].
+  static String avatarLabelForTitle(String title) {
+    return title
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((part) => part.isNotEmpty)
+        .take(2)
+        .map((part) => part[0].toUpperCase())
+        .join();
+  }
 
   /// WhatsApp's cap: "You can assign up to 20 community admin roles."
   /// (https://www.whatsapp.com/communities/learning/settingupyourcommunity).
@@ -77,6 +90,10 @@ class CommunityHub {
   /// and refuse self-promotion. Null for fixtures/demo data with no real
   /// account behind them.
   final String? viewerUid;
+
+  /// Remote download URL or local file path (fake backend). When null the
+  /// list and detail screens fall back to [avatarLabel].
+  final String? avatarUrl;
 
   /// Whether the viewer created this community. Distinct from
   /// [viewerIsAdmin]: a promoted admin manages members, but only the
@@ -138,6 +155,8 @@ class CommunityHub {
     List<String>? adminUids,
     String? ownerUid,
     String? viewerUid,
+    String? avatarUrl,
+    bool clearAvatarUrl = false,
   }) {
     return CommunityHub(
       id: id ?? this.id,
@@ -156,6 +175,7 @@ class CommunityHub {
       adminUids: adminUids ?? this.adminUids,
       ownerUid: ownerUid ?? this.ownerUid,
       viewerUid: viewerUid ?? this.viewerUid,
+      avatarUrl: clearAvatarUrl ? null : avatarUrl ?? this.avatarUrl,
     );
   }
 }

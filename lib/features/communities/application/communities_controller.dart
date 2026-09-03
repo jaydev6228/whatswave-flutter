@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 
@@ -485,6 +486,104 @@ class CommunitiesController extends ChangeNotifier {
         isAdmin: isAdmin,
       ),
       fallbackError: 'We could not change that admin role right now.',
+    );
+  }
+
+  /// Renames [communityId]. Admin-only.
+  Future<bool> renameCommunity({
+    required String communityId,
+    required String title,
+  }) async {
+    final community = communityById(communityId);
+    if (community == null) {
+      return false;
+    }
+    if (!community.viewerIsAdmin) {
+      _errorMessage = 'Only community admins can edit this community.';
+      notifyListeners();
+      return false;
+    }
+    final trimmed = title.trim();
+    if (trimmed.isEmpty) {
+      _errorMessage = 'Enter a community name.';
+      notifyListeners();
+      return false;
+    }
+
+    return _runCommunityAction(
+      communityId,
+      () => _repository.renameCommunity(
+        communityId: communityId,
+        title: trimmed,
+      ),
+      fallbackError: 'We could not rename that community right now.',
+    );
+  }
+
+  /// Updates the about text on [communityId]. Admin-only.
+  Future<bool> updateCommunityDescription({
+    required String communityId,
+    required String description,
+  }) async {
+    final community = communityById(communityId);
+    if (community == null) {
+      return false;
+    }
+    if (!community.viewerIsAdmin) {
+      _errorMessage = 'Only community admins can edit this community.';
+      notifyListeners();
+      return false;
+    }
+
+    return _runCommunityAction(
+      communityId,
+      () => _repository.updateCommunityDescription(
+        communityId: communityId,
+        description: description,
+      ),
+      fallbackError: 'We could not update that community right now.',
+    );
+  }
+
+  Future<bool> updateCommunityAvatar({
+    required String communityId,
+    required File photo,
+  }) async {
+    final community = communityById(communityId);
+    if (community == null) {
+      return false;
+    }
+    if (!community.viewerIsAdmin) {
+      _errorMessage = 'Only community admins can edit this community.';
+      notifyListeners();
+      return false;
+    }
+
+    return _runCommunityAction(
+      communityId,
+      () => _repository.updateCommunityAvatar(
+        communityId: communityId,
+        photo: photo,
+      ),
+      fallbackError: 'We could not update that community photo right now.',
+    );
+  }
+
+  Future<bool> deleteCommunityAvatar(String communityId) async {
+    final community = communityById(communityId);
+    if (community == null) {
+      return false;
+    }
+    if (!community.viewerIsAdmin) {
+      _errorMessage = 'Only community admins can edit this community.';
+      notifyListeners();
+      return false;
+    }
+
+    return _runCommunityAction(
+      communityId,
+      () => _repository.deleteCommunityAvatar(communityId),
+      fallbackError: 'We could not remove that community photo right now.',
     );
   }
 

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import '../../../core/sample/demo_data.dart';
 import '../domain/community_contact.dart';
@@ -152,6 +153,80 @@ class FakeCommunitiesRepository implements CommunitiesRepository {
             if (isAdmin) memberUid,
           ]),
         );
+      }),
+    );
+    return _buildOverview();
+  }
+
+  @override
+  Future<CommunitiesOverview> renameCommunity({
+    required String communityId,
+    required String title,
+  }) async {
+    await _wait();
+    final trimmed = title.trim();
+    if (trimmed.isEmpty) {
+      throw const CommunitiesRepositoryException(
+        'Enter a community name.',
+      );
+    }
+    _communities = List<CommunityHub>.unmodifiable(
+      _communities.map((community) {
+        if (community.id != communityId) {
+          return community;
+        }
+        return community.copyWith(
+          title: trimmed,
+          avatarLabel: CommunityHub.avatarLabelForTitle(trimmed),
+        );
+      }),
+    );
+    return _buildOverview();
+  }
+
+  @override
+  Future<CommunitiesOverview> updateCommunityDescription({
+    required String communityId,
+    required String description,
+  }) async {
+    await _wait();
+    _communities = List<CommunityHub>.unmodifiable(
+      _communities.map((community) {
+        if (community.id != communityId) {
+          return community;
+        }
+        return community.copyWith(description: description.trim());
+      }),
+    );
+    return _buildOverview();
+  }
+
+  @override
+  Future<CommunitiesOverview> updateCommunityAvatar({
+    required String communityId,
+    required File photo,
+  }) async {
+    await _wait();
+    _communities = List<CommunityHub>.unmodifiable(
+      _communities.map((community) {
+        if (community.id != communityId) {
+          return community;
+        }
+        return community.copyWith(avatarUrl: photo.path);
+      }),
+    );
+    return _buildOverview();
+  }
+
+  @override
+  Future<CommunitiesOverview> deleteCommunityAvatar(String communityId) async {
+    await _wait();
+    _communities = List<CommunityHub>.unmodifiable(
+      _communities.map((community) {
+        if (community.id != communityId) {
+          return community;
+        }
+        return community.copyWith(clearAvatarUrl: true);
       }),
     );
     return _buildOverview();

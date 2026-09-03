@@ -327,6 +327,24 @@ service cloud.firestore {
                                 && request.resource.data.diff(resource.data)
                                      .affectedKeys().hasOnly(['adminUids'])
                               )
+                           || (
+                                isCommunityAdmin()
+                                && !('deactivatedAt' in resource.data)
+                                && request.resource.data.diff(resource.data)
+                                     .affectedKeys().hasOnly(['title', 'avatarLabel'])
+                              )
+                           || (
+                                isCommunityAdmin()
+                                && !('deactivatedAt' in resource.data)
+                                && request.resource.data.diff(resource.data)
+                                     .affectedKeys().hasOnly(['description'])
+                              )
+                           || (
+                                isCommunityAdmin()
+                                && !('deactivatedAt' in resource.data)
+                                && request.resource.data.diff(resource.data)
+                                     .affectedKeys().hasOnly(['avatarUrl'])
+                              )
                          );
       // No delete at all. Deleting the document took the `groups` roster
       // with it -- the only record of which chat threads belonged to this

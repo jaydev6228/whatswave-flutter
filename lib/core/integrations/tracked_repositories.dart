@@ -849,6 +849,44 @@ class TrackedCommunitiesRepository implements CommunitiesRepository {
   }
 
   @override
+  Future<CommunitiesOverview> renameCommunity({
+    required String communityId,
+    required String title,
+  }) {
+    return _delegate.renameCommunity(
+      communityId: communityId,
+      title: title,
+    );
+  }
+
+  @override
+  Future<CommunitiesOverview> updateCommunityDescription({
+    required String communityId,
+    required String description,
+  }) {
+    return _delegate.updateCommunityDescription(
+      communityId: communityId,
+      description: description,
+    );
+  }
+
+  @override
+  Future<CommunitiesOverview> updateCommunityAvatar({
+    required String communityId,
+    required File photo,
+  }) {
+    return _delegate.updateCommunityAvatar(
+      communityId: communityId,
+      photo: photo,
+    );
+  }
+
+  @override
+  Future<CommunitiesOverview> deleteCommunityAvatar(String communityId) {
+    return _delegate.deleteCommunityAvatar(communityId);
+  }
+
+  @override
   Future<CommunitiesOverview> attachGroupThread({
     required String communityId,
     required String groupId,

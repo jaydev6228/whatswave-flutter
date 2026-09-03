@@ -1,7 +1,10 @@
+import 'dart:io';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:flutter/material.dart';
 
+import '../../../core/media/media_uploader.dart';
 import '../../../core/sample/demo_data.dart';
 import '../../../core/utils/phone_number_matching.dart';
 import '../../../core/utils/user_profile_lookup.dart';
@@ -62,10 +65,12 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
     fb_auth.FirebaseAuth? firebaseAuth,
     DeviceContactsService? deviceContactsService,
     List<CommunityContact>? initialContacts,
+    MediaUploader? mediaUploader,
   })  : _firestore = firestore ?? FirebaseFirestore.instance,
         _firebaseAuth = firebaseAuth ?? fb_auth.FirebaseAuth.instance,
         _deviceContactsService =
             deviceContactsService ?? const NativeDeviceContactsService(),
+        _mediaUploader = mediaUploader ?? FirebaseMediaUploader(),
         _contacts = initialContacts == null
             ? const <CommunityContact>[]
             : List<CommunityContact>.unmodifiable(initialContacts),
@@ -74,6 +79,7 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
   final FirebaseFirestore _firestore;
   final fb_auth.FirebaseAuth _firebaseAuth;
   final DeviceContactsService _deviceContactsService;
+  final MediaUploader _mediaUploader;
   List<CommunityContact> _contacts;
   bool _hasLoadedContacts;
 
@@ -393,6 +399,97 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
   }
 
   @override
+  Future<CommunitiesOverview> renameCommunity({
+    required String communityId,
+    required String title,
+  }) async {
+    _requireCurrentUid;
+    final trimmed = title.trim();
+    if (trimmed.isEmpty) {
+      throw const CommunitiesRepositoryException(
+        'Enter a community name.',
+      );
+    }
+    try {
+      await _communitiesRef.doc(communityId).update({
+        'title': trimmed,
+        'avatarLabel': CommunityHub.avatarLabelForTitle(trimmed),
+      });
+    } on FirebaseException catch (e) {
+      throw CommunitiesRepositoryException(
+        e.message ?? 'Could not rename that community.',
+      );
+    }
+    return fetchOverview();
+  }
+
+  @override
+  Future<CommunitiesOverview> updateCommunityDescription({
+    required String communityId,
+    required String description,
+  }) async {
+    _requireCurrentUid;
+    try {
+      await _communitiesRef.doc(communityId).update({
+        'description': description.trim(),
+      });
+    } on FirebaseException catch (e) {
+      throw CommunitiesRepositoryException(
+        e.message ?? 'Could not update that community.',
+      );
+    }
+    return fetchOverview();
+  }
+
+  @override
+  Future<CommunitiesOverview> updateCommunityAvatar({
+    required String communityId,
+    required File photo,
+  }) async {
+    _requireCurrentUid;
+    if (!await photo.exists()) {
+      throw const CommunitiesRepositoryException(
+        'That photo is no longer available.',
+      );
+    }
+
+    final extension = photo.path.contains('.')
+        ? photo.path.substring(photo.path.lastIndexOf('.'))
+        : '.jpg';
+    try {
+      final downloadUrl = await _mediaUploader.uploadFile(
+        photo,
+        storagePath: 'communityPhotos/$communityId/icon$extension',
+      );
+      await _communitiesRef.doc(communityId).update({
+        'avatarUrl': downloadUrl,
+      });
+    } on MediaUploadException catch (e) {
+      throw CommunitiesRepositoryException(e.message);
+    } on FirebaseException catch (e) {
+      throw CommunitiesRepositoryException(
+        e.message ?? 'Could not update that community photo right now.',
+      );
+    }
+    return fetchOverview();
+  }
+
+  @override
+  Future<CommunitiesOverview> deleteCommunityAvatar(String communityId) async {
+    _requireCurrentUid;
+    try {
+      await _communitiesRef.doc(communityId).update({
+        'avatarUrl': FieldValue.delete(),
+      });
+    } on FirebaseException catch (e) {
+      throw CommunitiesRepositoryException(
+        e.message ?? 'Could not remove that community photo.',
+      );
+    }
+    return fetchOverview();
+  }
+
+  @override
   Future<CommunitiesOverview> attachGroupThread({
     required String communityId,
     required String groupId,
@@ -614,6 +711,7 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
       ),
       ownerUid: ownerUid,
       viewerUid: currentUid,
+      avatarUrl: data['avatarUrl'] as String?,
     );
   }
 
@@ -637,6 +735,7 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
       'title': community.title,
       'description': community.description,
       'avatarLabel': community.avatarLabel,
+      if (community.avatarUrl != null) 'avatarUrl': community.avatarUrl,
       'accentColorArgb': community.accentColor.toARGB32(),
       // No 'memberCount' -- a denormalized copy written only at create time
       // goes stale the moment someone is added, and nothing reads it now that
