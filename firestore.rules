@@ -245,29 +245,66 @@ service cloud.firestore {
       // it -- including adding members -- so joining today only happens
       // via the owner inviting someone (no self-service join/invite-link
       // flow yet). A new community must start with only its own creator as
-      // a member.
+      // a member, and with the creator as its only admin.
+      function newAdmins() {
+        return request.resource.data.get('adminUids', []);
+      }
+      function oldAdmins() {
+        return resource.data.get('adminUids', []);
+      }
+      // The owner counts as an admin whatever adminUids says, so a
+      // community created before the roster existed still has someone who
+      // can promote its first admin.
+      function isCommunityAdmin() {
+        return request.auth.uid == resource.data.ownerUid
+                 || request.auth.uid in oldAdmins();
+      }
+      // WhatsApp caps community admins: "You can assign up to 20 community
+      // admin roles."
+      // (https://www.whatsapp.com/communities/learning/settingupyourcommunity)
+      // Checked here as well as in CommunitiesController so a stale or
+      // hand-rolled client cannot hand out a 21st. Only an existing admin
+      // may touch the roster at all; requiring the writer to already be one
+      // is also what makes self-promotion impossible, and keeping ownerUid
+      // in the list is what stops two admins demoting the owner out of
+      // their own community.
+      function rolesChangeIsLegal() {
+        return isCommunityAdmin()
+                 && newAdmins().size() <= 20
+                 && resource.data.ownerUid in newAdmins();
+      }
       allow read: if request.auth != null
                     && request.auth.uid in resource.data.memberUids;
       allow create: if request.auth != null
                       && request.auth.uid == request.resource.data.ownerUid
-                      && request.resource.data.memberUids == [request.auth.uid];
+                      && request.resource.data.memberUids == [request.auth.uid]
+                      && request.resource.data.adminUids == [request.auth.uid];
       // The owner may write anything. A plain member may make exactly one
-      // write: dropping their own uid out of memberUids, which is how
-      // exiting works here (that array is both the roster and the read
-      // gate). WhatsApp gives every member a way out of a community that
-      // does not depend on an admin acting for them -- exiting removes you
-      // from the community and its announcement group while the community
-      // itself stays up (https://faq.whatsapp.com/1312647189536807) -- and
-      // under an owner-only update rule, being added would otherwise be
-      // permanent. hasOnly(['memberUids']) plus the removeAll() equality
-      // pins the write to exactly that: no self-promotion to ownerUid, no
-      // removing anyone else, no edits to the community itself.
+      // write: dropping their own uid out of memberUids (and out of
+      // adminUids with it), which is how exiting works here (that array is
+      // both the roster and the read gate). WhatsApp gives every member a
+      // way out of a community that does not depend on an admin acting for
+      // them -- exiting removes you from the community and its announcement
+      // group while the community itself stays up
+      // (https://faq.whatsapp.com/1312647189536807) -- and under an
+      // owner-only update rule, being added would otherwise be permanent.
+      // hasOnly() plus the removeAll() equalities pin the write to exactly
+      // that: no self-promotion to ownerUid, no removing anyone else, no
+      // edits to the community itself. A member who is not an admin writes
+      // an unchanged adminUids, which removeAll() also satisfies, so a
+      // client that only writes memberUids still passes.
+      // The third branch is the admin one: an admin who is not the owner may
+      // write adminUids and nothing else, which is what promote/demote is.
+      // Every branch is gated on the role check above, so the 20-admin cap,
+      // the no-self-promotion rule and the owner's un-demotable role bind
+      // the owner's blanket write too.
       // The owner's blanket write ends the moment deactivatedAt is set:
       // deactivating a community cannot be undone
       // (https://faq.whatsapp.com/785738926054798), so nothing may edit or
       // resurrect one afterwards. The member-exit carve-out is left open,
       // since leaving is never harmful.
       allow update: if request.auth != null
+                      && (newAdmins() == oldAdmins() || rolesChangeIsLegal())
                       && (
                            (
                              request.auth.uid == resource.data.ownerUid
@@ -276,10 +313,19 @@ service cloud.firestore {
                            || (
                                 request.auth.uid in resource.data.memberUids
                                 && request.resource.data.diff(resource.data)
-                                     .affectedKeys().hasOnly(['memberUids'])
+                                     .affectedKeys()
+                                     .hasOnly(['memberUids', 'adminUids'])
                                 && request.resource.data.memberUids
                                      == resource.data.memberUids
                                           .removeAll([request.auth.uid])
+                                && newAdmins()
+                                     == oldAdmins().removeAll([request.auth.uid])
+                              )
+                           || (
+                                isCommunityAdmin()
+                                && !('deactivatedAt' in resource.data)
+                                && request.resource.data.diff(resource.data)
+                                     .affectedKeys().hasOnly(['adminUids'])
                               )
                          );
       // No delete at all. Deleting the document took the `groups` roster

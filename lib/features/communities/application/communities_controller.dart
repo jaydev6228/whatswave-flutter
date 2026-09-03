@@ -381,16 +381,22 @@ class CommunitiesController extends ChangeNotifier {
   /// groups carry on as ordinary group chats, and its announcement group
   /// closes (https://faq.whatsapp.com/785738926054798). Cannot be undone.
   Future<bool> deactivateCommunity(String communityId) async {
-    // Deactivating a community is an admin-only action on WhatsApp; a
-    // member's equivalent is [exitCommunity]
-    // (https://faq.whatsapp.com/785738926054798). Refusing here rather than
-    // waiting for the backend keeps a member from being told a community is
-    // gone when it is not.
+    // Owner-only, not admin-only. Deactivation cannot be undone
+    // (https://faq.whatsapp.com/785738926054798), while an admin role is
+    // something an owner hands out (and takes back) for adding and removing
+    // members and groups
+    // (https://www.whatsapp.com/communities/learning/settingupyourcommunity)
+    // -- so promoting someone must not also hand them a button that
+    // destroys the community for everyone. The creator is the one member
+    // who can never be demoted or removed, which is exactly the role an
+    // irreversible action belongs to. Refusing here rather than waiting for
+    // the backend keeps a member from being told a community is gone when
+    // it is not.
     final community = communityById(communityId);
-    if (community != null && !community.viewerIsAdmin) {
+    if (community != null && !community.viewerIsOwner) {
       _errorMessage =
-          'Only community admins can delete a community. You can exit it '
-          'instead.';
+          'Only the person who created this community can deactivate it. '
+          'You can exit it instead.';
       notifyListeners();
       return false;
     }
@@ -410,8 +416,15 @@ class CommunitiesController extends ChangeNotifier {
   /// admin who created it deactivates instead, which is why that case is
   /// turned back here.
   Future<bool> exitCommunity(String communityId) async {
+    // Only the creator is turned back, not every admin: a promoted admin is
+    // still a member, and WhatsApp guarantees every member a way out
+    // (https://faq.whatsapp.com/1312647189536807) -- gating this on the
+    // admin role instead would trap the very people an owner promoted.
+    // Exiting also drops the leaver's admin role (see the repositories), and
+    // the creator -- who is always an admin and cannot be demoted -- can
+    // never take this path, so the admin roster can never empty out.
     final community = communityById(communityId);
-    if (community != null && community.viewerIsAdmin) {
+    if (community != null && community.viewerIsOwner) {
       _errorMessage =
           'You created this community. Delete it instead of exiting.';
       notifyListeners();
@@ -423,6 +436,71 @@ class CommunitiesController extends ChangeNotifier {
       () => _repository.exitCommunity(communityId),
       fallbackError: 'We could not exit that community right now.',
     );
+  }
+
+  /// Promotes or demotes [memberUid] in [communityId].
+  ///
+  /// Admin-only, capped at [CommunityHub.maxAdmins]: "You can assign up to
+  /// 20 community admin roles."
+  /// (https://www.whatsapp.com/communities/learning/settingupyourcommunity).
+  /// Nobody may act on their own row -- self-promotion is the hole that
+  /// makes an admin list meaningless -- and the creator can never be
+  /// demoted, which is what stops two admins from locking the owner out of
+  /// their own community. `firestore.rules` enforces the same four.
+  Future<bool> setCommunityAdmin({
+    required String communityId,
+    required String memberUid,
+    required bool isAdmin,
+  }) async {
+    final community = communityById(communityId);
+    if (community == null) {
+      return false;
+    }
+
+    String? refusal;
+    if (!community.viewerIsAdmin) {
+      refusal = 'Only community admins can change admin roles.';
+    } else if (memberUid == community.viewerUid) {
+      refusal = 'You cannot change your own admin role.';
+    } else if (!isAdmin && memberUid == community.ownerUid) {
+      refusal = 'The person who created this community stays an admin.';
+    } else if (isAdmin &&
+        !community.isAdminUid(memberUid) &&
+        community.hasMaxAdmins) {
+      refusal = 'This community already has '
+          '${CommunityHub.maxAdmins} admins. Dismiss one before adding '
+          'another.';
+    }
+    if (refusal != null) {
+      _errorMessage = refusal;
+      notifyListeners();
+      return false;
+    }
+
+    return _runCommunityAction(
+      communityId,
+      () => _repository.setCommunityAdmin(
+        communityId: communityId,
+        memberUid: memberUid,
+        isAdmin: isAdmin,
+      ),
+      fallbackError: 'We could not change that admin role right now.',
+    );
+  }
+
+  /// The address-book entry behind a community member's uid, if this device
+  /// has one -- what puts a name and avatar on a members-list row.
+  ///
+  /// Matches [CommunityContact.id] as well as its matchedUid, because demo
+  /// and fixture contacts carry no matchedUid and are keyed by their slug
+  /// (same fallback as [phoneNumberForUid]).
+  CommunityContact? contactForUid(String uid) {
+    for (final contact in _contacts) {
+      if (contact.matchedUid == uid || contact.id == uid) {
+        return contact;
+      }
+    }
+    return null;
   }
 
   Future<bool> _runCommunityAction(

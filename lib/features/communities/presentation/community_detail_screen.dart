@@ -89,13 +89,14 @@ class CommunityDetailScreen extends StatelessWidget {
                       );
                   }
                 },
-                // Deleting is the admin's action; a member exits instead.
+                // Deleting is the creator's action; everyone else -- plain
+                // members and promoted admins alike -- exits instead.
                 // Both were "Delete community" before, so a member tapped a
                 // destructive-looking item that the security rules then
                 // refused -- they were told the delete failed, when what
                 // they actually wanted (leaving) was never on offer at all.
                 itemBuilder: (menuContext) => [
-                  if (community.viewerIsAdmin)
+                  if (community.viewerIsOwner)
                     PopupMenuItem(
                       key: const Key('community_detail_delete_menu_item'),
                       value: _CommunityDetailMenuAction.delete,
@@ -174,6 +175,21 @@ class CommunityDetailScreen extends StatelessWidget {
                         : () => _openThread(context, threadId: group.threadId!),
                   );
                 }),
+                if (community.memberUids.isNotEmpty) ...[
+                  const SizedBox(height: 18),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: _CommunityMembersPanel(
+                      community: community,
+                      members: _membersOf(controller, community),
+                      onManage: (member) => _showMemberRoleSheet(
+                        context,
+                        community: community,
+                        member: member,
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -200,6 +216,88 @@ class CommunityDetailScreen extends StatelessWidget {
         );
       },
     );
+  }
+
+  /// One row per uid on the community's roster, named from this device's
+  /// address book where it can be (a member you have never had in your
+  /// contacts is still on the roster and still needs a row).
+  List<_CommunityMember> _membersOf(
+    CommunitiesController controller,
+    CommunityHub community,
+  ) {
+    final members = <_CommunityMember>[
+      for (final uid in community.memberUids)
+        _CommunityMember(
+          uid: uid,
+          contact: controller.contactForUid(uid),
+          isAdmin: community.isAdminUid(uid),
+          isOwner: uid == community.ownerUid,
+          isSelf: uid == community.viewerUid,
+        ),
+    ];
+    members.sort((left, right) {
+      if (left.isSelf != right.isSelf) {
+        return left.isSelf ? -1 : 1;
+      }
+      if (left.isAdmin != right.isAdmin) {
+        return left.isAdmin ? -1 : 1;
+      }
+      return left.name.toLowerCase().compareTo(right.name.toLowerCase());
+    });
+    return members;
+  }
+
+  Future<void> _showMemberRoleSheet(
+    BuildContext context, {
+    required CommunityHub community,
+    required _CommunityMember member,
+  }) async {
+    final shouldToggle = await showModalBottomSheet<bool>(
+      context: context,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                key: const Key('community_detail_member_toggle_admin'),
+                leading: Icon(
+                  member.isAdmin
+                      ? Icons.remove_moderator_outlined
+                      : Icons.admin_panel_settings_outlined,
+                ),
+                title: Text(
+                  member.isAdmin
+                      ? 'Dismiss as community admin'
+                      : 'Make community admin',
+                ),
+                onTap: () => Navigator.of(sheetContext).pop(true),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+    if (shouldToggle != true || !context.mounted) {
+      return;
+    }
+
+    final didChange = await controller.setCommunityAdmin(
+      communityId: community.id,
+      memberUid: member.uid,
+      isAdmin: !member.isAdmin,
+    );
+    if (didChange || !context.mounted) {
+      return;
+    }
+    // The refusals that matter are readable ones -- the 20-admin cap above
+    // all (https://www.whatsapp.com/communities/learning/settingupyourcommunity)
+    // -- so they get a dialog rather than a silently unchanged row.
+    final message = controller.errorMessage;
+    if (message != null) {
+      await showErrorDialog(context, message);
+      controller.clearError();
+    }
   }
 
   Future<void> _openThread(
@@ -1015,6 +1113,198 @@ class _CommunityInviteListItem extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// A community member as the roster renders them: a uid, whatever this
+/// device knows them as, and their role.
+class _CommunityMember {
+  const _CommunityMember({
+    required this.uid,
+    required this.contact,
+    required this.isAdmin,
+    required this.isOwner,
+    required this.isSelf,
+  });
+
+  final String uid;
+  final CommunityContact? contact;
+  final bool isAdmin;
+  final bool isOwner;
+  final bool isSelf;
+
+  String get name => isSelf ? 'You' : contact?.name ?? 'WhatsWave member';
+
+  String get avatarLabel => contact?.avatarLabel ?? (isSelf ? 'Y' : '?');
+}
+
+/// The members roster. Until this existed the only place a person appeared
+/// at all was the invite sheet, so there was nowhere to promote anyone
+/// from.
+class _CommunityMembersPanel extends StatelessWidget {
+  const _CommunityMembersPanel({
+    required this.community,
+    required this.members,
+    required this.onManage,
+  });
+
+  final CommunityHub community;
+  final List<_CommunityMember> members;
+  final ValueChanged<_CommunityMember> onManage;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _SectionHeading('${members.length} members'),
+        _FlatInfoPanel(
+          padding: EdgeInsets.zero,
+          child: Column(
+            key: const Key('community_detail_members_panel'),
+            children: [
+              for (var index = 0; index < members.length; index++) ...[
+                if (index > 0)
+                  Divider(
+                    height: 1,
+                    color: theme.colorScheme.outlineVariant
+                        .withValues(alpha: 0.22),
+                  ),
+                _CommunityMemberRow(
+                  member: members[index],
+                  // Roles are an admin's to hand out, and nobody may act on
+                  // their own row or on the creator's: self-promotion would
+                  // make the list meaningless, and demoting the owner is how
+                  // two admins would lock them out of their own community.
+                  canManage: community.viewerIsAdmin &&
+                      !members[index].isSelf &&
+                      !members[index].isOwner,
+                  onTap: () => onManage(members[index]),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _CommunityMemberRow extends StatelessWidget {
+  const _CommunityMemberRow({
+    required this.member,
+    required this.canManage,
+    required this.onTap,
+  });
+
+  final _CommunityMember member;
+  final bool canManage;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        key: Key('community_detail_member_row_${member.uid}'),
+        onTap: canManage ? onTap : null,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          child: Row(
+            children: [
+              AvatarBadge(
+                label: member.avatarLabel,
+                color: member.contact?.accentColor ?? theme.colorScheme.primary,
+                size: 36,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  member.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleSmall
+                      ?.copyWith(fontWeight: FontWeight.w400),
+                ),
+              ),
+              if (member.isAdmin) ...[
+                const SizedBox(width: 8),
+                Container(
+                  key: Key('community_detail_member_admin_badge_${member.uid}'),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.primary.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    'Admin',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.primary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Local copies of contact info's section heading and flat panel: those are
+/// private to lib/features/chats, and this is the same list-section look
+/// (heading, glass panel, outlineVariant dividers at 0.22).
+class _SectionHeading extends StatelessWidget {
+  const _SectionHeading(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 0, 4, 6),
+      child: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: theme.textTheme.labelMedium?.copyWith(
+          color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.6,
+        ),
+      ),
+    );
+  }
+}
+
+class _FlatInfoPanel extends StatelessWidget {
+  const _FlatInfoPanel({
+    required this.child,
+    this.padding = const EdgeInsets.all(2),
+  });
+
+  final Widget child;
+  final EdgeInsetsGeometry padding;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return LiquidGlassSurface(
+      // Unblurred: the panel sits on an opaque scaffold, so a BackdropFilter
+      // would cost a saveLayer per section for no visible frost.
+      blurred: false,
+      showShadow: false,
+      borderRadius: const BorderRadius.all(Radius.circular(16)),
+      borderColor: theme.colorScheme.outlineVariant.withValues(alpha: 0.24),
+      padding: padding,
+      child: child,
     );
   }
 }

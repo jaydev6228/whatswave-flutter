@@ -26,6 +26,9 @@ import 'package:whatswave/features/updates/data/fake_updates_repository.dart';
 /// (https://faq.whatsapp.com/785738926054798). It used to be a hard delete
 /// of the community document, which took the group roster with it.
 
+/// Deactivation belongs to the creator alone, so these fixtures make the
+/// admin the owner: an admin who did not create the community is offered
+/// exit, not deactivation.
 CommunityHub _community({required String id, required bool viewerIsAdmin}) {
   return CommunityHub(
     id: id,
@@ -35,6 +38,10 @@ CommunityHub _community({required String id, required bool viewerIsAdmin}) {
     accentColor: const Color(0xFF00A884),
     memberCount: 4,
     viewerIsAdmin: viewerIsAdmin,
+    ownerUid: viewerIsAdmin ? 'me' : 'someone-else',
+    viewerUid: 'me',
+    memberUids: const ['me'],
+    adminUids: viewerIsAdmin ? const ['me'] : const ['someone-else'],
     announcementThreadId: '$id-announcements',
     announcement: CommunityAnnouncement(
       headline: 'Bin day moved',
@@ -72,7 +79,7 @@ class _AdminRepository extends FakeCommunitiesRepository {
     return CommunitiesOverview(
       communities: [
         for (final community in overview.communities)
-          community.copyWith(viewerIsAdmin: true),
+          community.copyWith(viewerIsAdmin: true, ownerUid: 'me'),
       ],
       contacts: overview.contacts,
     );

@@ -722,10 +722,12 @@ abstract final class DemoData {
     ),
   ];
 
-  /// The demo user is the creator of every sample community, so each one
-  /// comes back with `viewerIsAdmin: true` -- that flag is what gates the
-  /// admin-only deactivate action against a member's exit
-  /// (https://faq.whatsapp.com/785738926054798).
+  /// The demo user ('me') created every sample community, so each one comes
+  /// back with them as owner and admin -- ownership gates deactivation
+  /// against a member's exit (https://faq.whatsapp.com/785738926054798),
+  /// and the admin roster gates promoting and demoting members. Studio
+  /// Community also carries a second, promoted admin so the members list
+  /// has a non-owner Admin badge to show.
   static List<CommunityHub> buildCommunities() {
     final now = DateTime.now();
     return <CommunityHub>[
@@ -737,7 +739,13 @@ abstract final class DemoData {
         avatarLabel: 'SC',
         accentColor: AppPalette.green,
         viewerIsAdmin: true,
-        memberCount: 48,
+        ownerUid: 'me',
+        viewerUid: 'me',
+        memberUids: ['me', 'uid-ava-patel', 'uid-noah-kim', 'uid-priya-rai'],
+        adminUids: ['me', 'uid-ava-patel'],
+        // The people you added, not counting yourself -- same rule the
+        // Firestore roster count follows.
+        memberCount: 3,
         unreadCount: 9,
         announcementThreadId: 'studio-community-announcements',
         announcement: CommunityAnnouncement(
@@ -784,7 +792,11 @@ abstract final class DemoData {
         avatarLabel: 'FT',
         accentColor: AppPalette.amber,
         viewerIsAdmin: true,
-        memberCount: 11,
+        ownerUid: 'me',
+        viewerUid: 'me',
+        memberUids: ['me', 'uid-marco-silva', 'uid-priya-rai'],
+        adminUids: ['me'],
+        memberCount: 2,
         unreadCount: 2,
         announcementThreadId: 'friends-trip-2026-announcements',
         announcement: CommunityAnnouncement(
@@ -844,10 +856,14 @@ abstract final class DemoData {
           .map((part) => part[0].toUpperCase())
           .join(),
       accentColor: AppPalette.emerald,
-      // You just created it, so you are its admin -- the role that gates
-      // deactivating a community against a member's exit
-      // (https://faq.whatsapp.com/785738926054798).
+      // You just created it, so you own it and are its first admin -- the
+      // creator's own role is what gates deactivating a community against a
+      // member's exit (https://faq.whatsapp.com/785738926054798).
       viewerIsAdmin: true,
+      ownerUid: 'me',
+      viewerUid: 'me',
+      memberUids: const ['me'],
+      adminUids: const ['me'],
       // The count is the people you added, not the access roster you are
       // already on -- counting the creator here is what made a community read
       // one member higher than its own membership list.

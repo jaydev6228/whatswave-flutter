@@ -130,6 +130,34 @@ class FakeCommunitiesRepository implements CommunitiesRepository {
   }
 
   @override
+  Future<CommunitiesOverview> setCommunityAdmin({
+    required String communityId,
+    required String memberUid,
+    required bool isAdmin,
+  }) async {
+    await _wait();
+    // Applied as asked: the admin-only gate, the 20-admin cap, and the
+    // owner/self exclusions live in CommunitiesController so both
+    // repositories share them (same split as the exit-versus-deactivate
+    // role check).
+    _communities = List<CommunityHub>.unmodifiable(
+      _communities.map((community) {
+        if (community.id != communityId) {
+          return community;
+        }
+        return community.copyWith(
+          adminUids: List<String>.unmodifiable([
+            for (final uid in community.adminUids)
+              if (uid != memberUid) uid,
+            if (isAdmin) memberUid,
+          ]),
+        );
+      }),
+    );
+    return _buildOverview();
+  }
+
+  @override
   Future<CommunitiesOverview> attachGroupThread({
     required String communityId,
     required String groupId,
@@ -220,6 +248,10 @@ class FakeCommunitiesRepository implements CommunitiesRepository {
           invitedContactIds: List<String>.unmodifiable([
             ...community.invitedContactIds,
             contactId,
+          ]),
+          memberUids: List<String>.unmodifiable([
+            ...community.memberUids,
+            if (contact.matchedUid != null) contact.matchedUid!,
           ]),
           // This store has no member roster to count, so the header count has
           // to move with the invite -- otherwise it stays frozen at its
@@ -327,6 +359,8 @@ class FakeCommunitiesRepository implements CommunitiesRepository {
           ),
           invitedContactIds:
               List<String>.unmodifiable(community.invitedContactIds),
+          memberUids: List<String>.unmodifiable(community.memberUids),
+          adminUids: List<String>.unmodifiable(community.adminUids),
         );
       }),
     );

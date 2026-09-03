@@ -7,10 +7,12 @@ import 'package:whatswave/features/communities/data/fake_communities_repository.
 import 'package:whatswave/features/communities/domain/community_announcement.dart';
 import 'package:whatswave/features/communities/domain/community_hub.dart';
 
-/// Covers the admin-versus-member split WhatsApp draws around a community:
-/// only admins deactivate one (https://faq.whatsapp.com/785738926054798),
-/// and every member can exit one at any time
-/// (https://faq.whatsapp.com/1312647189536807).
+/// Covers the creator-versus-member split WhatsApp draws around a
+/// community: deactivating one is irreversible and stays with its creator
+/// (https://faq.whatsapp.com/785738926054798), and every member can exit
+/// one at any time (https://faq.whatsapp.com/1312647189536807). These
+/// fixtures make the admin the creator; a promoted admin who did not create
+/// the community exits like any other member.
 CommunityHub _community({required String id, required bool viewerIsAdmin}) {
   return CommunityHub(
     id: id,
@@ -20,6 +22,10 @@ CommunityHub _community({required String id, required bool viewerIsAdmin}) {
     accentColor: const Color(0xFF00A884),
     memberCount: 4,
     viewerIsAdmin: viewerIsAdmin,
+    ownerUid: viewerIsAdmin ? 'me' : 'someone-else',
+    viewerUid: 'me',
+    memberUids: const ['me'],
+    adminUids: viewerIsAdmin ? const ['me'] : const ['someone-else'],
     announcement: CommunityAnnouncement(
       headline: 'Bin day moved',
       body: 'Collections shift to Thursday this week.',
@@ -59,7 +65,7 @@ void main() {
     );
   });
 
-  test('a member cannot delete a community they do not admin', () async {
+  test('a member cannot deactivate a community they did not create', () async {
     final controller = _controllerFor([
       _community(id: 'theirs', viewerIsAdmin: false),
     ]);
@@ -68,11 +74,15 @@ void main() {
     final didDelete = await controller.deactivateCommunity('theirs');
 
     expect(didDelete, isFalse);
-    expect(controller.errorMessage, contains('Only community admins'));
+    expect(
+      controller.errorMessage,
+      contains('Only the person who created this community'),
+    );
     expect(controller.communities.map((community) => community.id), ['theirs']);
   });
 
-  test('an admin deletes their own community instead of exiting it', () async {
+  test('the creator deletes their own community instead of exiting it',
+      () async {
     final controller = _controllerFor([
       _community(id: 'mine', viewerIsAdmin: true),
     ]);

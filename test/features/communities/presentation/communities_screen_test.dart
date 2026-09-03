@@ -7,6 +7,7 @@ import 'package:whatswave/features/calls/application/calls_controller.dart';
 import 'package:whatswave/features/calls/data/fake_calls_repository.dart';
 import 'package:whatswave/features/chats/application/chats_controller.dart';
 import 'package:whatswave/features/chats/data/fake_chat_repository.dart';
+import 'package:whatswave/features/chats/domain/chat_thread.dart';
 import 'package:whatswave/features/communities/application/communities_controller.dart';
 import 'package:whatswave/features/communities/data/fake_communities_repository.dart';
 import 'package:whatswave/features/communities/domain/contact_access_status.dart';
@@ -180,6 +181,27 @@ void main() {
         find.byKey(const Key('conversation_composer_field')), findsOneWidget);
   });
 
+  // WhatsApp's rule for a community's announcement group: admins post,
+  // members read (https://faq.whatsapp.com/582420703681043). The composer is
+  // gated on the same thread admin list firestore.rules enforces the
+  // message-create gate on -- see ChatThread.currentUserCanSend.
+  testWidgets('announcement channel hides the composer from a member',
+      (tester) async {
+    await _openAnnouncementsThread(tester, viewerIsAdmin: false);
+
+    expect(find.byKey(const Key('conversation_composer_field')), findsNothing);
+    expect(find.text('Only admins can send messages'), findsOneWidget);
+  });
+
+  testWidgets('announcement channel keeps the composer for an admin',
+      (tester) async {
+    await _openAnnouncementsThread(tester, viewerIsAdmin: true);
+
+    expect(
+        find.byKey(const Key('conversation_composer_field')), findsOneWidget);
+    expect(find.text('Only admins can send messages'), findsNothing);
+  });
+
   testWidgets('shows an error card and retries after a failed load',
       (tester) async {
     final controller = CommunitiesController(
@@ -305,6 +327,51 @@ void main() {
   });
 }
 
+/// Opens the studio community's announcements channel with the viewer as an
+/// admin of that thread, or as a plain member.
+Future<void> _openAnnouncementsThread(
+  WidgetTester tester, {
+  required bool viewerIsAdmin,
+}) async {
+  await _pumpCommunitiesScreen(
+    tester,
+    device: iphoneProProfile,
+    controller: CommunitiesController(
+      repository: FakeCommunitiesRepository(latency: Duration.zero),
+      permissionService: MemoryAppPermissionService(
+        contactsStatus: ContactAccessStatus.granted,
+      ),
+    ),
+    chatsController: ChatsController(
+      repository: FakeChatRepository(
+        latency: Duration.zero,
+        initialThreads: _demoThreadsWithAnnouncementAdmin(viewerIsAdmin),
+      ),
+    ),
+  );
+
+  await _openCommunityDetail(tester, communityId: 'studio-community');
+  await tester.tap(
+    find.byKey(const Key('community_detail_announcements_row')),
+  );
+  await tester.pumpAndSettle();
+}
+
+/// The demo chat threads with the studio community's announcements channel
+/// re-pointed at an admin who is, or isn't, the viewer.
+List<ChatThread> _demoThreadsWithAnnouncementAdmin(bool viewerIsAdmin) {
+  return DemoData.buildChatThreads().map((thread) {
+    if (thread.id != 'studio-community-announcements') {
+      return thread;
+    }
+    return thread.copyWith(
+      participants: thread.participants!
+          .map((p) => p.isSelf ? p.copyWith(isAdmin: viewerIsAdmin) : p)
+          .toList(),
+    );
+  }).toList();
+}
+
 Future<void> _pumpCommunitiesScreen(
   WidgetTester tester, {
   required TestDeviceProfile device,
@@ -314,6 +381,14 @@ Future<void> _pumpCommunitiesScreen(
   await tester.binding.setSurfaceSize(device.size);
   addTearDown(() => tester.binding.setSurfaceSize(null));
 
+  // Communities reads its unread badges and opens its threads through the
+  // chats controller, so it has to be loaded here the way the real app
+  // loads it -- without this, every community thread resolves to null and
+  // a conversation opened from here renders no composer at all.
+  final chats = chatsController ??
+      ChatsController(repository: FakeChatRepository(latency: Duration.zero));
+  await chats.loadThreads();
+
   await tester.pumpWidget(
     MaterialApp(
       debugShowCheckedModeBanner: false,
@@ -322,10 +397,7 @@ Future<void> _pumpCommunitiesScreen(
       home: Scaffold(
         body: CommunitiesScreen(
           controller: controller,
-          chatsController: chatsController ??
-              ChatsController(
-                repository: FakeChatRepository(latency: Duration.zero),
-              ),
+          chatsController: chats,
           callsController: CallsController(
             repository: FakeCallsRepository(latency: Duration.zero),
             permissionService: MemoryAppPermissionService(),

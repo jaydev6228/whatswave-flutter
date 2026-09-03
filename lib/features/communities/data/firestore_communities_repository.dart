@@ -42,11 +42,20 @@ import 'device_contacts_service.dart';
 /// flow yet, and no separate pending-invite/accept step: being invited by
 /// the owner immediately grants membership.
 ///
-/// The one write a non-owner may make is removing their own uid from
-/// `memberUids` (see [exitCommunity]) -- WhatsApp guarantees every member a
-/// way out of a community independently of its admins
-/// (https://faq.whatsapp.com/1312647189536807), and without that carve-out
-/// an owner-only write rule means being added is permanent.
+/// Roles live in an `adminUids` array seeded with the creator. That list,
+/// not `ownerUid`, is what every admin gate reads -- WhatsApp communities
+/// have real admin roles, capped at 20 ("You can assign up to 20 community
+/// admin roles.",
+/// https://www.whatsapp.com/communities/learning/settingupyourcommunity) --
+/// and an admin may write `adminUids` and nothing else. `ownerUid` still
+/// names the creator, who can never be demoted and is the only one who may
+/// deactivate.
+///
+/// The one write a plain member may make is removing their own uid from
+/// `memberUids` and `adminUids` (see [exitCommunity]) -- WhatsApp
+/// guarantees every member a way out of a community independently of its
+/// admins (https://faq.whatsapp.com/1312647189536807), and without that
+/// carve-out an owner-only write rule means being added is permanent.
 class FirestoreCommunitiesRepository implements CommunitiesRepository {
   FirestoreCommunitiesRepository({
     FirebaseFirestore? firestore,
@@ -190,6 +199,10 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
         ..._communityToJson(draft),
         'ownerUid': uid,
         'memberUids': [uid],
+        // The creator starts as the only admin. Nothing else can seed this
+        // list (firestore.rules pins it to exactly [creator] at create), so
+        // every later admin is someone an admin promoted.
+        'adminUids': [uid],
       });
     } on FirebaseException catch (e) {
       throw CommunitiesRepositoryException(
@@ -226,9 +239,12 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
   Future<CommunitiesOverview> deactivateCommunity(String communityId) async {
     final uid = _requireCurrentUid;
     try {
-      // Deactivating a community is admin-only on WhatsApp -- a member's
-      // equivalent action is to exit
-      // (https://faq.whatsapp.com/785738926054798). `firestore.rules`
+      // Deactivation stays with the creator alone, not every admin: it is
+      // irreversible (https://faq.whatsapp.com/785738926054798) while an
+      // admin role is a grant an owner hands out for adding and removing
+      // members and groups
+      // (https://www.whatsapp.com/communities/learning/settingupyourcommunity),
+      // and a promotion must not double as a destroy button. `firestore.rules`
       // already enforces this, but checking first turns a raw
       // permission-denied into the reason, and stops a member believing
       // they removed a community that is still standing.
@@ -242,8 +258,8 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
       final owner = data['ownerUid'] as String?;
       if (owner != null && owner != uid) {
         throw const CommunitiesRepositoryException(
-          'Only community admins can delete a community. You can exit it '
-          'instead.',
+          'Only the person who created this community can deactivate it. '
+          'You can exit it instead.',
         );
       }
       // Release the groups BEFORE the community goes, not after: if this
@@ -322,8 +338,14 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
       // both the read-access roster and the membership list, so this drops
       // the community out of your list while leaving it intact for everyone
       // else (https://faq.whatsapp.com/1312647189536807).
+      // Both rosters, in one write: leaving while still listed in
+      // `adminUids` would leave a ghost admin who cannot even read the
+      // document, still occupying one of the 20 admin slots. The creator
+      // never reaches here (turned back above) and is always an admin, so
+      // this can never empty the admin roster.
       await _communitiesRef.doc(communityId).update({
         'memberUids': FieldValue.arrayRemove([uid]),
+        'adminUids': FieldValue.arrayRemove([uid]),
       });
     } on FirebaseException catch (e) {
       throw CommunitiesRepositoryException(
@@ -336,6 +358,38 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
   Future<String?> _ownerUid(String communityId) async {
     final doc = await _communitiesRef.doc(communityId).get();
     return doc.data()?['ownerUid'] as String?;
+  }
+
+  @override
+  Future<CommunitiesOverview> setCommunityAdmin({
+    required String communityId,
+    required String memberUid,
+    required bool isAdmin,
+  }) async {
+    _requireCurrentUid;
+    try {
+      // No pre-read gate on the role itself: CommunitiesController already
+      // refuses the admin-only, 20-cap, no-self-promotion and
+      // no-owner-demotion cases with a readable reason, and
+      // `firestore.rules` re-checks all four, so a stale client is refused
+      // by the backend rather than trusted.
+      //
+      // The owner is unioned in alongside the promotion because the rules
+      // require ownerUid to stay in adminUids -- on a community created
+      // before this list existed it isn't in there yet, and a bare
+      // arrayUnion would write a roster without them and be refused.
+      final owner = isAdmin ? await _ownerUid(communityId) : null;
+      await _communitiesRef.doc(communityId).update({
+        'adminUids': isAdmin
+            ? FieldValue.arrayUnion([memberUid, if (owner != null) owner])
+            : FieldValue.arrayRemove([memberUid]),
+      });
+    } on FirebaseException catch (e) {
+      throw CommunitiesRepositoryException(
+        e.message ?? 'Could not change that admin role.',
+      );
+    }
+    return fetchOverview();
   }
 
   @override
@@ -521,6 +575,9 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
     final memberUids =
         (data['memberUids'] as List<dynamic>?)?.cast<String>() ??
             const <String>[];
+    final adminUids = (data['adminUids'] as List<dynamic>?)?.cast<String>() ??
+        const <String>[];
+    final ownerUid = data['ownerUid'] as String?;
 
     return CommunityHub(
       id: doc.id,
@@ -544,7 +601,19 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
             const <String>[],
       ),
       announcementThreadId: data['announcementThreadId'] as String?,
-      viewerIsAdmin: (data['ownerUid'] as String?) == currentUid,
+      // Admin is roster membership now, not "created it". Documents written
+      // before `adminUids` existed have none, so they fall back to the
+      // owner -- otherwise every pre-existing community would come back
+      // with no admin at all and nobody able to promote one.
+      viewerIsAdmin: adminUids.isEmpty
+          ? ownerUid == currentUid
+          : adminUids.contains(currentUid),
+      memberUids: List<String>.unmodifiable(memberUids),
+      adminUids: List<String>.unmodifiable(
+        adminUids.isEmpty && ownerUid != null ? <String>[ownerUid] : adminUids,
+      ),
+      ownerUid: ownerUid,
+      viewerUid: currentUid,
     );
   }
 

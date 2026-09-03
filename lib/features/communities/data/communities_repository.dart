@@ -34,8 +34,27 @@ abstract class CommunitiesRepository {
   /// itself carries on
   /// (https://faq.whatsapp.com/1312647189536807). Without this a member
   /// added by an admin has no exit at all, since only the owner can write
-  /// the community document.
+  /// the community document. Exiting drops the uid from the admin roster
+  /// too, so a departed admin leaves no ghost role behind holding one of
+  /// the 20 slots. The creator cannot exit at all (they deactivate
+  /// instead), and the creator is always an admin, so a community can never
+  /// be left with no admin.
   Future<CommunitiesOverview> exitCommunity(String communityId);
+
+  /// Grants or revokes an admin role for [memberUid].
+  ///
+  /// WhatsApp communities have real admin roles, capped: "You can assign up
+  /// to 20 community admin roles."
+  /// (https://www.whatsapp.com/communities/learning/settingupyourcommunity).
+  /// The cap, the admin-only gate, and the rules that the owner can never be
+  /// demoted and nobody can promote themselves live in
+  /// CommunitiesController so both repositories share them; `firestore.rules`
+  /// enforces the same three server-side.
+  Future<CommunitiesOverview> setCommunityAdmin({
+    required String communityId,
+    required String memberUid,
+    required bool isAdmin,
+  });
 
   /// Records which real [ChatThread] backs a community group's messaging,
   /// once one has been created (see CommunitiesController).

@@ -836,6 +836,19 @@ class TrackedCommunitiesRepository implements CommunitiesRepository {
   }
 
   @override
+  Future<CommunitiesOverview> setCommunityAdmin({
+    required String communityId,
+    required String memberUid,
+    required bool isAdmin,
+  }) {
+    return _delegate.setCommunityAdmin(
+      communityId: communityId,
+      memberUid: memberUid,
+      isAdmin: isAdmin,
+    );
+  }
+
+  @override
   Future<CommunitiesOverview> attachGroupThread({
     required String communityId,
     required String groupId,

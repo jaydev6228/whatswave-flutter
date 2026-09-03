@@ -12,8 +12,10 @@ import 'package:whatswave/features/calls/data/fake_calls_repository.dart';
 import 'package:whatswave/features/updates/application/updates_controller.dart';
 import 'package:whatswave/features/updates/data/fake_updates_repository.dart';
 
-/// Serves the demo communities with the viewer's admin role forced, which is
-/// the only thing that decides which menu item the screen offers.
+/// Serves the demo communities with the viewer's role forced. Deactivation
+/// is the creator's action, so the forced role has to move ownerUid too --
+/// an admin who did not create the community is offered exit like anyone
+/// else.
 class _RoleForcedRepository extends FakeCommunitiesRepository {
   _RoleForcedRepository({required this.viewerIsAdmin})
       : super(latency: Duration.zero);
@@ -26,7 +28,10 @@ class _RoleForcedRepository extends FakeCommunitiesRepository {
     return CommunitiesOverview(
       communities: [
         for (final community in overview.communities)
-          community.copyWith(viewerIsAdmin: viewerIsAdmin),
+          community.copyWith(
+            viewerIsAdmin: viewerIsAdmin,
+            ownerUid: viewerIsAdmin ? 'me' : 'someone-else',
+          ),
       ],
       contacts: overview.contacts,
     );

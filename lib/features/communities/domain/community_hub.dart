@@ -17,7 +17,17 @@ class CommunityHub {
     this.invitedContactIds = const <String>[],
     this.announcementThreadId,
     this.viewerIsAdmin = false,
+    this.memberUids = const <String>[],
+    this.adminUids = const <String>[],
+    this.ownerUid,
+    this.viewerUid,
   });
+
+  /// WhatsApp's cap: "You can assign up to 20 community admin roles."
+  /// (https://www.whatsapp.com/communities/learning/settingupyourcommunity).
+  /// Enforced in CommunitiesController and again in `firestore.rules`, so a
+  /// stale client cannot hand out a 21st.
+  static const int maxAdmins = 20;
 
   final String id;
   final String title;
@@ -33,8 +43,10 @@ class CommunityHub {
   /// Backing [ChatThread] for the read-only announcements channel.
   final String? announcementThreadId;
 
-  /// Whether the signed-in viewer is a community admin (this app's owner
-  /// role) rather than a plain member.
+  /// Whether the signed-in viewer is a community admin rather than a plain
+  /// member -- i.e. whether their uid is in [adminUids]. Derived on read
+  /// (see FirestoreCommunitiesRepository) rather than computed here,
+  /// because fixtures and demo data set the role directly without a uid.
   ///
   /// WhatsApp draws every destructive community action along this line:
   /// only community admins can deactivate a community, and everyone else
@@ -44,6 +56,36 @@ class CommunityHub {
   /// a community). Defaults to false so a community whose role is unknown
   /// is treated as someone else's.
   final bool viewerIsAdmin;
+
+  /// Everyone in the community, admins included -- this is the read-access
+  /// roster on the document, and what the members list renders.
+  final List<String> memberUids;
+
+  /// The subset of [memberUids] holding an admin role. Admins can add and
+  /// remove members and groups
+  /// (https://www.whatsapp.com/communities/learning/settingupyourcommunity);
+  /// [ownerUid] is always in here and can never be demoted.
+  final List<String> adminUids;
+
+  /// The creator. Kept as its own field because one action still needs a
+  /// single un-removable person: deactivation is irreversible, so it stays
+  /// with the one role nobody can take away (see
+  /// CommunitiesController.deactivateCommunity).
+  final String? ownerUid;
+
+  /// The signed-in viewer's uid, so the members list can mark their own row
+  /// and refuse self-promotion. Null for fixtures/demo data with no real
+  /// account behind them.
+  final String? viewerUid;
+
+  /// Whether the viewer created this community. Distinct from
+  /// [viewerIsAdmin]: a promoted admin manages members, but only the
+  /// creator can deactivate or is barred from exiting.
+  bool get viewerIsOwner => ownerUid != null && ownerUid == viewerUid;
+
+  bool get hasMaxAdmins => adminUids.length >= maxAdmins;
+
+  bool isAdminUid(String uid) => adminUids.contains(uid);
 
   int get groupCount => groups.length;
 
@@ -92,6 +134,10 @@ class CommunityHub {
     List<String>? invitedContactIds,
     String? announcementThreadId,
     bool? viewerIsAdmin,
+    List<String>? memberUids,
+    List<String>? adminUids,
+    String? ownerUid,
+    String? viewerUid,
   }) {
     return CommunityHub(
       id: id ?? this.id,
@@ -106,6 +152,10 @@ class CommunityHub {
       invitedContactIds: invitedContactIds ?? this.invitedContactIds,
       announcementThreadId: announcementThreadId ?? this.announcementThreadId,
       viewerIsAdmin: viewerIsAdmin ?? this.viewerIsAdmin,
+      memberUids: memberUids ?? this.memberUids,
+      adminUids: adminUids ?? this.adminUids,
+      ownerUid: ownerUid ?? this.ownerUid,
+      viewerUid: viewerUid ?? this.viewerUid,
     );
   }
 }
