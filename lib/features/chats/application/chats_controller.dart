@@ -6,8 +6,10 @@ import 'package:flutter/material.dart';
 
 import '../../../core/models/status_story.dart';
 import '../../../app/theme/app_palette.dart';
+import '../../../core/media/media_transfer.dart';
 import '../../../core/permissions/app_permission_service.dart';
 import '../../../core/permissions/device_location_service.dart';
+import '../../../core/utils/user_profile_lookup.dart';
 import '../../calls/domain/call_permissions.dart';
 import '../data/chat_inbox_cache.dart';
 import '../data/chat_repository.dart';
@@ -645,6 +647,18 @@ class ChatsController extends ChangeNotifier {
     );
   }
 
+  /// The other participant's published about/phone/name, for Contact info.
+  /// Swallows failures the same way [groupThreadsSharedWith] does: a
+  /// profile that can't be read is a missing optional row, never an error
+  /// banner over the whole screen.
+  Future<UserProfileSnapshot?> contactProfile(String uid) async {
+    try {
+      return await _repository.fetchContactProfile(uid);
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<List<ChatThread>> groupThreadsSharedWith(
     String participantUid,
   ) async {
@@ -711,6 +725,7 @@ class ChatsController extends ChangeNotifier {
     required String name,
     required List<String> memberUids,
     bool isCommunityGroup = false,
+    bool isAnnouncementOnly = false,
   }) async {
     _errorMessage = null;
     notifyListeners();
@@ -720,6 +735,7 @@ class ChatsController extends ChangeNotifier {
         name: name,
         memberUids: memberUids,
         isCommunityGroup: isCommunityGroup,
+        isAnnouncementOnly: isAnnouncementOnly,
       );
       _threads = _mergeIncomingThreads(await _repository.fetchThreads());
       notifyListeners();
@@ -945,6 +961,7 @@ class ChatsController extends ChangeNotifier {
     required List<ChatAttachment> attachments,
     String? caption,
     MessageReplyPreview? replyPreview,
+    MediaTransfer? transfer,
   }) {
     return _runThreadMutation(
       threadId,
@@ -953,6 +970,7 @@ class ChatsController extends ChangeNotifier {
         attachments: attachments,
         caption: caption,
         replyPreview: replyPreview,
+        transfer: transfer,
       ),
       fallbackError: 'We could not send that attachment right now.',
       clearSearch: false,

@@ -109,8 +109,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Delete community?'), findsOneWidget);
-    await tester.tap(find.text('Delete'));
+    expect(find.text('Deactivate community?'), findsOneWidget);
+    await tester.tap(find.text('Deactivate'));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('community_detail_screen')), findsNothing);

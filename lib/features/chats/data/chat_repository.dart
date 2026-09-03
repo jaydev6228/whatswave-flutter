@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import '../../../core/media/media_transfer.dart';
+import '../../../core/utils/user_profile_lookup.dart';
 import '../domain/chat_attachment.dart';
 import '../domain/chat_message.dart';
 import '../domain/chat_thread.dart';
@@ -69,10 +71,15 @@ abstract class ChatRepository {
   /// (see [ChatThread.isCommunityGroup]) so it's excluded from the main
   /// Chats list -- pass true only for threads created on a community's
   /// behalf, never for a user-initiated group from New group.
+  ///
+  /// [isAnnouncementOnly] marks it as a community's announcements channel
+  /// (see [ChatThread.isAnnouncementOnly]) -- only the creating admin may
+  /// post into it, enforced in firestore.rules, not just in the UI.
   Future<ChatThread> createGroup({
     required String name,
     required List<String> memberUids,
     bool isCommunityGroup = false,
+    bool isAnnouncementOnly = false,
   });
 
   /// Adds [memberUids] to an existing group thread's membership. Only a
@@ -146,6 +153,16 @@ abstract class ChatRepository {
   /// rather than "Delete chat" (contact goes too).
   Future<List<ChatThread>> clearThreadMessages(String threadId);
 
+  /// The other participant's own published profile (name/about/phone/
+  /// avatar), for Contact info -- [ChatThread] itself carries only what a
+  /// chat list row needs, so about/phone have to be fetched by uid.
+  ///
+  /// Defaults to null so a backend with no profile registry to read simply
+  /// shows no about/phone rows. Null is also the answer when [uid] has no
+  /// published profile or the read fails -- callers omit the rows rather
+  /// than render blanks.
+  Future<UserProfileSnapshot?> fetchContactProfile(String uid) async => null;
+
   /// Group threads that both the caller and [participantUid] belong to --
   /// the "Common groups" list on a 1:1 contact's info screen. Empty if
   /// there are none (or this participant isn't a real account, e.g. a
@@ -190,11 +207,17 @@ abstract class ChatRepository {
 
   /// Sends one or more attachments as a single message (e.g. several
   /// photos picked together) -- always non-empty.
+  ///
+  /// [transfer] receives the combined upload progress of every attachment
+  /// in the message (WhatsApp shows one ring per message, not per tile)
+  /// and aborts the send when cancelled -- the message is then never
+  /// written at all, rather than written with a half-uploaded file.
   Future<List<ChatThread>> sendAttachmentMessage({
     required String threadId,
     required List<ChatAttachment> attachments,
     String? caption,
     MessageReplyPreview? replyPreview,
+    MediaTransfer? transfer,
   });
 
   /// Sets (or replaces) the caller's reaction on [messageId] to [emoji]. If

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:whatswave/features/updates/presentation/status_motion.dart';
+import 'package:whatswave/features/shared/widgets/status_motion.dart';
 
 void main() {
   // A column of [switcher, marker] -- exactly the shape the media composer's

@@ -82,6 +82,7 @@ class ChatAttachment {
     this.latitude,
     this.longitude,
     this.localMediaPath,
+    this.sizeBytes,
   });
 
   final String id;
@@ -103,6 +104,14 @@ class ChatAttachment {
   /// (any device, not just the one that sent it) actually resolves. Null
   /// falls back to [tintColor] as a plain placeholder swatch.
   final String? localMediaPath;
+
+  /// The media file's size in bytes, read at pick time. Only ever a
+  /// display detail: it is what the download affordance on an
+  /// not-yet-fetched incoming bubble labels itself with ("416 KB"), the
+  /// way WhatsApp does. Null on anything picked before this field existed,
+  /// and on every non-file attachment -- the affordance then shows the
+  /// arrow alone rather than a size it would have to guess at.
+  final int? sizeBytes;
 
   bool get hasCoordinates => latitude != null && longitude != null;
 
@@ -166,6 +175,7 @@ class ChatAttachment {
     double? latitude,
     double? longitude,
     String? localMediaPath,
+    int? sizeBytes,
   }) {
     return ChatAttachment(
       id: id ?? this.id,
@@ -177,6 +187,7 @@ class ChatAttachment {
       latitude: latitude ?? this.latitude,
       longitude: longitude ?? this.longitude,
       localMediaPath: localMediaPath ?? this.localMediaPath,
+      sizeBytes: sizeBytes ?? this.sizeBytes,
     );
   }
 }

@@ -4,6 +4,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../../../app/theme/app_palette.dart';
+import '../../../shared/widgets/liquid_glass.dart';
+import '../../../updates/presentation/widgets/status_chrome.dart';
 import '../../domain/chat_attachment.dart';
 import 'voice_note_recording_session.dart';
 
@@ -20,7 +22,16 @@ Future<ChatAttachment?> showVoiceNoteRecorderSheet(
     isDismissible: false,
     enableDrag: false,
     isScrollControlled: true,
-    builder: (sheetContext) => _VoiceNoteRecorderSheet(threadId: threadId),
+    // The app theme paints every modal sheet an opaque panel, which is what
+    // made the recorder read as a flat slab from a different design next to
+    // the app's glass chrome. Transparent here lets StatusChromeSheet supply
+    // the glass instead -- and its own handle replaces the themed one, which
+    // would otherwise float in the now-empty sheet area above the glass.
+    backgroundColor: Colors.transparent,
+    showDragHandle: false,
+    builder: (sheetContext) => StatusChromeSheet(
+      child: _VoiceNoteRecorderSheet(threadId: threadId),
+    ),
   );
 }
 
@@ -160,44 +171,68 @@ class _VoiceNoteRecorderSheetState extends State<_VoiceNoteRecorderSheet> {
             ] else ...[
               Row(
                 children: [
-                  IconButton.filledTonal(
+                  LiquidGlassIconButton(
                     key: const Key('voice_recorder_discard_button'),
-                    onPressed: isActive ? _discard : null,
-                    icon: const Icon(Icons.delete_outline_rounded),
+                    icon: Icons.delete_outline_rounded,
+                    // Red label, not a filled red button -- the same
+                    // destructive treatment LiquidGlassDialogAction uses.
+                    iconColor: theme.colorScheme.error
+                        .withValues(alpha: isActive ? 1 : 0.34),
                     iconSize: 20,
-                    constraints:
-                        const BoxConstraints(minWidth: 44, minHeight: 44),
+                    // The sheet's own glass already blurs what is behind it,
+                    // so a second BackdropFilter here would only cost
+                    // compositing for no visible difference.
+                    blurred: false,
+                    visualSize: 44,
                     tooltip: 'Discard',
+                    onTap: isActive ? _discard : null,
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        SizedBox(
-                          height: 28,
-                          child: _RecordingWaveform(samples: _session.samples),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          formatVoiceNoteDuration(_session.elapsed),
-                          key: const Key('voice_recorder_timer'),
-                          textAlign: TextAlign.center,
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontFeatures: const [FontFeature.tabularFigures()],
-                            fontWeight: FontWeight.w700,
+                    child: LiquidGlassSurface(
+                      borderRadius: const BorderRadius.all(Radius.circular(20)),
+                      blurred: false,
+                      showShadow: false,
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SizedBox(
+                            height: 28,
+                            child:
+                                _RecordingWaveform(samples: _session.samples),
                           ),
-                        ),
-                      ],
+                          const SizedBox(height: 4),
+                          Text(
+                            formatVoiceNoteDuration(_session.elapsed),
+                            key: const Key('voice_recorder_timer'),
+                            textAlign: TextAlign.center,
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontFeatures: const [
+                                FontFeature.tabularFigures()
+                              ],
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                   const SizedBox(width: 8),
                   if (_stage == _RecorderStage.recording ||
                       _stage == _RecorderStage.paused)
-                    IconButton.filledTonal(
+                    LiquidGlassIconButton(
                       key: const Key('voice_recorder_pause_button'),
-                      onPressed: _togglePause,
-                      icon: AnimatedSwitcher(
+                      icon: Icons.pause_rounded,
+                      iconSize: 20,
+                      blurred: false,
+                      visualSize: 44,
+                      tooltip:
+                          _stage == _RecorderStage.paused ? 'Resume' : 'Pause',
+                      onTap: _togglePause,
+                      child: AnimatedSwitcher(
                         duration: const Duration(milliseconds: 180),
                         transitionBuilder: (child, animation) =>
                             ScaleTransition(
@@ -212,23 +247,24 @@ class _VoiceNoteRecorderSheetState extends State<_VoiceNoteRecorderSheet> {
                               ? Icons.play_arrow_rounded
                               : Icons.pause_rounded,
                           key: ValueKey<_RecorderStage>(_stage),
+                          size: 20,
+                          color: theme.colorScheme.onSurface,
                         ),
                       ),
-                      iconSize: 20,
-                      constraints:
-                          const BoxConstraints(minWidth: 44, minHeight: 44),
-                      tooltip:
-                          _stage == _RecorderStage.paused ? 'Resume' : 'Pause',
                     ),
                   const SizedBox(width: 6),
-                  IconButton.filled(
+                  // Glass with a primary-coloured glyph, not a solid green
+                  // circle -- the same send affordance the media send
+                  // preview's StatusChromeSendButton gives that bar.
+                  LiquidGlassIconButton(
                     key: const Key('voice_recorder_send_button'),
-                    onPressed: isActive ? _stopAndSend : null,
-                    icon: const Icon(Icons.send_rounded),
-                    iconSize: 20,
-                    constraints:
-                        const BoxConstraints(minWidth: 44, minHeight: 44),
+                    icon: Icons.send_rounded,
+                    iconColor: theme.colorScheme.primary
+                        .withValues(alpha: isActive ? 1 : 0.4),
+                    iconSize: 22,
+                    blurred: false,
                     tooltip: 'Send',
+                    onTap: isActive ? _stopAndSend : null,
                   ),
                 ],
               ),

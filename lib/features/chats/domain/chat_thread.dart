@@ -20,6 +20,7 @@ class ChatThread {
     this.typingPreview,
     this.participantUid,
     this.isCommunityGroup = false,
+    this.isAnnouncementOnly = false,
     this.avatarUrl,
     this.participants,
     this.participantUids,
@@ -56,6 +57,17 @@ class ChatThread {
   /// Communities flow that created it.
   final bool isCommunityGroup;
 
+  /// True for a community's announcements channel, where only community
+  /// admins may post -- members read (and react) but cannot send. Matches
+  /// WhatsApp's rule for the announcement group
+  /// (https://faq.whatsapp.com/582420703681043). The admin here is the
+  /// thread's own `groupAdminUids`, which for an announcements thread is
+  /// exactly the community owner who created it (see
+  /// CommunitiesController._ensureAnnouncementThreadIfPossible and
+  /// CommunityHub.viewerIsAdmin) -- same person, one notion of admin, and
+  /// the same field firestore.rules enforces the write gate on.
+  final bool isAnnouncementOnly;
+
   /// The other 1:1 participant's uploaded profile photo (see
   /// FirebaseAuthRepository.updateAvatar), resolved the same way as their
   /// live name -- see FirestoreChatRepository's class doc comment. Null
@@ -81,6 +93,13 @@ class ChatThread {
   /// false for 1:1 threads or a group with no [participants] data.
   bool get currentUserIsGroupAdmin =>
       participants?.any((p) => p.isSelf && p.isAdmin) ?? false;
+
+  /// Whether the viewer is allowed to send into this thread at all. False
+  /// only for a non-admin viewing an announcements channel -- the same
+  /// condition firestore.rules rejects a message create on, so the hidden
+  /// composer and the server gate never disagree.
+  bool get currentUserCanSend =>
+      !isAnnouncementOnly || currentUserIsGroupAdmin;
 
   /// Every other member uid in this group, excluding [currentUid].
   List<String> otherMemberUids(String currentUid) {
@@ -175,6 +194,7 @@ class ChatThread {
     bool clearTypingPreview = false,
     String? participantUid,
     bool? isCommunityGroup,
+    bool? isAnnouncementOnly,
     String? avatarUrl,
     bool clearAvatarUrl = false,
     List<GroupParticipant>? participants,
@@ -198,6 +218,7 @@ class ChatThread {
           clearTypingPreview ? null : typingPreview ?? this.typingPreview,
       participantUid: participantUid ?? this.participantUid,
       isCommunityGroup: isCommunityGroup ?? this.isCommunityGroup,
+      isAnnouncementOnly: isAnnouncementOnly ?? this.isAnnouncementOnly,
       avatarUrl: clearAvatarUrl ? null : (avatarUrl ?? this.avatarUrl),
       participants: participants ?? this.participants,
       participantUids: participantUids ?? this.participantUids,

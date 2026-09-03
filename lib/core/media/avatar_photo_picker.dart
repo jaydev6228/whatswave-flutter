@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../features/shared/presentation/avatar_crop_screen.dart';
+import '../../features/shared/widgets/liquid_glass.dart';
 
 enum AvatarPhotoSheetAction { choose, remove }
 
@@ -12,46 +13,42 @@ Future<File?> Function(BuildContext context, File source)? avatarCropOverride;
 
 /// WhatsApp-style sheet for changing or removing a circular profile/group
 /// photo -- one place for choose/remove instead of separate overlay buttons.
+/// The choose/remove bubble for a circular profile or group photo.
+///
+/// The same liquid-glass bubble the status "+" and the chat attachment
+/// menu use (see showStatusComposeChoice), rather than a modal bottom
+/// sheet -- a two-item choice anchored to the button that opened it, not a
+/// panel sliding up over the whole screen.
+///
+/// [anchorContext] must be scoped to the tapped avatar itself (wrap it in a
+/// Builder), or the bubble anchors to the whole screen instead of the
+/// control the user touched.
 Future<AvatarPhotoSheetAction?> showAvatarPhotoOptionsSheet(
-  BuildContext context, {
+  BuildContext anchorContext, {
   required bool canRemove,
 }) {
-  return showModalBottomSheet<AvatarPhotoSheetAction>(
-    context: context,
-    showDragHandle: true,
-    builder: (sheetContext) {
-      return SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              key: const Key('avatar_photo_choose_button'),
-              leading: const Icon(Icons.photo_library_outlined),
-              title: const Text('Choose photo'),
-              onTap: () =>
-                  Navigator.of(sheetContext).pop(AvatarPhotoSheetAction.choose),
-            ),
-            if (canRemove)
-              ListTile(
-                key: const Key('avatar_photo_remove_button'),
-                leading: Icon(
-                  Icons.delete_outline_rounded,
-                  color: Theme.of(sheetContext).colorScheme.error,
-                ),
-                title: Text(
-                  'Remove photo',
-                  style: TextStyle(
-                    color: Theme.of(sheetContext).colorScheme.error,
-                  ),
-                ),
-                onTap: () => Navigator.of(sheetContext)
-                    .pop(AvatarPhotoSheetAction.remove),
-              ),
-            const SizedBox(height: 8),
-          ],
+  return showLiquidGlassBubbleMenu<AvatarPhotoSheetAction>(
+    anchorContext: anchorContext,
+    // The avatar sits near the top of every screen that offers this.
+    openBelow: true,
+    itemBuilder: (sheetContext) => [
+      LiquidGlassBubbleItem(
+        key: const Key('avatar_photo_choose_button'),
+        icon: Icons.photo_library_outlined,
+        label: 'Choose photo',
+        onTap: () =>
+            Navigator.of(sheetContext).pop(AvatarPhotoSheetAction.choose),
+      ),
+      if (canRemove)
+        LiquidGlassBubbleItem(
+          key: const Key('avatar_photo_remove_button'),
+          icon: Icons.delete_outline_rounded,
+          label: 'Remove photo',
+          color: Theme.of(sheetContext).colorScheme.error,
+          onTap: () =>
+              Navigator.of(sheetContext).pop(AvatarPhotoSheetAction.remove),
         ),
-      );
-    },
+    ],
   );
 }
 

@@ -201,6 +201,8 @@ class StatusChromeSendButton extends StatelessWidget {
   const StatusChromeSendButton({
     required this.actionKey,
     required this.onTap,
+    this.busy = false,
+    this.tooltip = 'Share status',
     super.key,
   });
 
@@ -209,12 +211,20 @@ class StatusChromeSendButton extends StatelessWidget {
   /// Null disables the button.
   final VoidCallback? onTap;
 
+  /// Swaps the icon for a spinner and ignores taps -- for a send that has
+  /// real work to do first (baking a rotation, say) rather than one that
+  /// pops immediately.
+  final bool busy;
+
+  /// What the button does, for screen readers and the tooltip.
+  final String tooltip;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     const radius = BorderRadius.all(Radius.circular(999));
     return Tooltip(
-      message: 'Share status',
+      message: tooltip,
       child: StatusChromeSurface(
         borderRadius: radius,
         blurred: true,
@@ -223,7 +233,7 @@ class StatusChromeSendButton extends StatelessWidget {
           borderRadius: radius,
           child: InkWell(
             key: actionKey,
-            onTap: onTap,
+            onTap: busy ? null : onTap,
             borderRadius: radius,
             // Same reasoning as StatusChromeButton above.
             splashFactory: NoSplash.splashFactory,
@@ -231,14 +241,90 @@ class StatusChromeSendButton extends StatelessWidget {
             child: SizedBox(
               width: 48,
               height: 48,
-              child: Icon(
-                Icons.send_rounded,
-                size: 22,
-                color: onTap == null
-                    ? theme.colorScheme.primary.withValues(alpha: 0.4)
-                    : theme.colorScheme.primary,
-              ),
+              child: busy
+                  ? Center(
+                      child: SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: theme.colorScheme.primary,
+                        ),
+                      ),
+                    )
+                  : Icon(
+                      Icons.send_rounded,
+                      size: 22,
+                      color: onTap == null
+                          ? theme.colorScheme.primary.withValues(alpha: 0.4)
+                          : theme.colorScheme.primary,
+                    ),
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The glass caption capsule that pairs with [StatusChromeSendButton].
+///
+/// Shared by the status composer and the chat media send preview: the two
+/// are the same "review this before it goes out" bar, and they looked like
+/// two different apps when one was a filled grey field next to a solid
+/// green circle.
+class StatusChromeCaptionField extends StatelessWidget {
+  const StatusChromeCaptionField({
+    required this.fieldKey,
+    required this.controller,
+    this.hintText = 'Add a caption...',
+    super.key,
+  });
+
+  final Key fieldKey;
+  final TextEditingController controller;
+  final String hintText;
+
+  @override
+  Widget build(BuildContext context) {
+    // The capsule's exact fill and border, plus a backdrop blur.
+    //
+    // A placed text overlay can be huge and land anywhere, including right
+    // behind this row -- at which point the hint and the caret were
+    // competing with headline-sized text showing through. Blurring what is
+    // behind separates them without changing the material: same colour,
+    // same border, still translucent.
+    return StatusChromeSurface(
+      borderRadius: const BorderRadius.all(Radius.circular(20)),
+      blurred: true,
+      child: TextField(
+        key: fieldKey,
+        controller: controller,
+        maxLines: 3,
+        minLines: 1,
+        style: const TextStyle(color: Colors.white),
+        cursorColor: Colors.white,
+        textInputAction: TextInputAction.done,
+        decoration: InputDecoration(
+          // The app theme fills text fields, which painted an opaque slab
+          // inside the glass and left the caption looking like a cut-out
+          // bar rather than something laid over the story.
+          filled: false,
+          hintText: hintText,
+          hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
+          // Every state spelled out, not just `border`: the app theme
+          // supplies enabledBorder/focusedBorder, which drew a second
+          // outline inside the surface so the caption's edge never matched
+          // the send button's.
+          border: InputBorder.none,
+          enabledBorder: InputBorder.none,
+          focusedBorder: InputBorder.none,
+          disabledBorder: InputBorder.none,
+          errorBorder: InputBorder.none,
+          focusedErrorBorder: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 12,
           ),
         ),
       ),

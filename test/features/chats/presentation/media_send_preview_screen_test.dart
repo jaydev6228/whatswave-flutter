@@ -161,7 +161,180 @@ void main() {
     expect(result, isNull);
   });
 
-  // Rotate/markup (both funnel through RepaintBoundary.toImage +
+  testWidgets(
+    'rotating swaps the photo dimensions instead of letterboxing it into '
+    'the page',
+    (tester) async {
+      // 40x24, so a shrink-on-rotate is unmistakable. Driven through
+      // rotatePhotoBytesClockwise directly rather than the rotate button:
+      // the encode/decode runs on the real event loop (hence runAsync),
+      // and the button shows a progress spinner while it works, which
+      // pumpAndSettle can never settle.
+      final source =
+          File('test/fixtures/test_photo_landscape.png').readAsBytesSync();
+      await tester.pumpWidget(const SizedBox());
+
+      await tester.runAsync(() async {
+        final once = await rotatePhotoBytesClockwise(source);
+        final onceImage = await decodeImageFromList(once);
+        expect(onceImage.width, 24);
+        expect(onceImage.height, 40);
+        onceImage.dispose();
+
+        // The old capture path baked the screen-shaped page slot into the
+        // file, so the second turn contained an already-letterboxed image
+        // and the photo kept shrinking. Round-tripping back to 40x24
+        // proves nothing but the photo is in there.
+        final twice = await rotatePhotoBytesClockwise(once);
+        final twiceImage = await decodeImageFromList(twice);
+        expect(twiceImage.width, 40);
+        expect(twiceImage.height, 24);
+        twiceImage.dispose();
+      });
+    },
+  );
+
+  testWidgets('rotating is immediate -- one frame, no spinner',
+      (tester) async {
+    final photoFile = File('${tempDir.path}/landscape.png')
+      ..writeAsBytesSync(
+        File('test/fixtures/test_photo_landscape.png').readAsBytesSync(),
+      );
+
+    await tester.binding.setSurfaceSize(iphoneSeProfile.size);
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MediaSendPreviewScreen(
+          attachments: [photoAttachment(photoFile.path)],
+          initialCaption: null,
+        ),
+      ),
+    );
+    await _settle(tester);
+
+    int turns() => tester
+        .widgetList<RotatedBox>(find.byType(RotatedBox))
+        .first
+        .quarterTurns;
+    expect(turns(), 0);
+
+    // A single pump, not a settle: rotation used to decode, redraw and
+    // re-encode the file on every tap, which is most of a second of dead
+    // time behind a progress spinner. It is UI state now, baked on send.
+    for (var expected = 1; expected <= 4; expected++) {
+      await tester.tap(
+        find.byKey(const Key('media_send_preview_rotate_button')),
+      );
+      await tester.pump();
+      expect(turns(), expected % 4);
+    }
+  });
+
+  testWidgets('the draw canvas repaints as strokes are added',
+      (tester) async {
+    final photoFile = File('${tempDir.path}/landscape.png')
+      ..writeAsBytesSync(
+        File('test/fixtures/test_photo_landscape.png').readAsBytesSync(),
+      );
+
+    await tester.binding.setSurfaceSize(iphoneSeProfile.size);
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MediaSendPreviewScreen(
+          attachments: [photoAttachment(photoFile.path)],
+          initialCaption: null,
+        ),
+      ),
+    );
+    await _settle(tester);
+
+    await tester.tap(find.byKey(const Key('media_send_preview_markup_button')));
+    await _settle(tester);
+
+    final painter = tester
+        .widget<CustomPaint>(
+          find.descendant(
+            of: find.byKey(const Key('media_send_preview_markup_canvas')),
+            matching: find.byType(CustomPaint),
+          ),
+        )
+        .painter!;
+    // The strokes list is mutated in place, so the painter compared it to
+    // itself and reported "nothing changed" forever: every stroke was
+    // recorded and none was ever drawn.
+    expect(painter.shouldRepaint(painter), isTrue);
+  });
+
+  testWidgets(
+      'the shared draw tray sets the stroke width, and the eraser clears '
+      'ink instead of adding it', (tester) async {
+    final photoFile = File('${tempDir.path}/landscape.png')
+      ..writeAsBytesSync(
+        File('test/fixtures/test_photo_landscape.png').readAsBytesSync(),
+      );
+
+    await tester.binding.setSurfaceSize(iphoneSeProfile.size);
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MediaSendPreviewScreen(
+          attachments: [photoAttachment(photoFile.path)],
+          initialCaption: null,
+        ),
+      ),
+    );
+    await _settle(tester);
+
+    await tester.tap(find.byKey(const Key('media_send_preview_markup_button')));
+    await _settle(tester);
+
+    // The controls this screen used to be missing entirely, now shared with
+    // the status composer's draw mode.
+    expect(
+      find.byKey(const Key('media_send_preview_markup_eraser_button')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const Key('media_send_preview_markup_stroke_2')),
+      findsOneWidget,
+    );
+
+    final canvas = find.descendant(
+      of: find.byKey(const Key('media_send_preview_markup_canvas')),
+      matching: find.byType(CustomPaint),
+    );
+
+    await tester.tap(find.byKey(const Key('media_send_preview_markup_stroke_2')));
+    await tester.pump();
+    await tester.drag(canvas, const Offset(40, 0));
+    await tester.pump();
+    expect(
+      canvas,
+      paints..path(color: Colors.white, strokeWidth: 12),
+      reason: 'the widest of the three shared stroke sizes was picked',
+    );
+
+    await tester
+        .tap(find.byKey(const Key('media_send_preview_markup_eraser_button')));
+    await tester.pump();
+    await tester.dragFrom(
+      tester.getCenter(canvas) - const Offset(0, 30),
+      const Offset(40, 0),
+    );
+    await tester.pump();
+    // An eraser stroke is opaque black painted with BlendMode.clear inside
+    // the ink layer -- the pen stroke before it is still there, unpicked.
+    expect(
+      canvas,
+      paints
+        ..path(color: Colors.white, strokeWidth: 12)
+        ..path(color: Colors.black, strokeWidth: 12),
+    );
+  });
+
+  // Markup (funnels through RepaintBoundary.toImage +
   // WidgetsBinding.endOfFrame to bake an edit into a new file) are
   // deliberately not covered here. In this test environment that async
   // capture path never reliably settles -- tried a 5s-timeout

@@ -40,7 +40,7 @@ void main() {
     expect(originalCount, greaterThan(0));
     final communityToDelete = controller.communities.first;
 
-    final didDelete = await controller.deleteCommunity(communityToDelete.id);
+    final didDelete = await controller.deactivateCommunity(communityToDelete.id);
 
     expect(didDelete, isTrue);
     expect(controller.communities.length, originalCount - 1);
@@ -123,6 +123,31 @@ void main() {
     expect(threadId, isNotNull);
     expect(updatedCommunity.announcementThreadId, isNotNull);
     expect(chatsController.threadById(threadId!)?.isGroup, isTrue);
+
+    // Only the announcements channel is admin-post-only, and only its
+    // creating admin may send -- the community's ordinary group stays open
+    // to every member. See ChatThread.isAnnouncementOnly and the matching
+    // firestore.rules message-create gate.
+    final announcement = chatsController.threadById(
+      updatedCommunity.announcementThreadId!,
+    )!;
+    expect(announcement.isAnnouncementOnly, isTrue);
+    expect(announcement.currentUserIsGroupAdmin, isTrue);
+    expect(announcement.currentUserCanSend, isTrue);
+    expect(
+      announcement
+          .copyWith(
+            participants: announcement.participants!
+                .map((p) => p.copyWith(isAdmin: false))
+                .toList(),
+          )
+          .currentUserCanSend,
+      isFalse,
+    );
+
+    final groupThread = chatsController.threadById(threadId)!;
+    expect(groupThread.isAnnouncementOnly, isFalse);
+    expect(groupThread.currentUserCanSend, isTrue);
   });
 
   test('resolves community context for announcement and group threads',

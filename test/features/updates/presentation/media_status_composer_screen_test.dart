@@ -5,7 +5,7 @@ import 'package:whatswave/core/models/status_story.dart';
 import 'package:whatswave/features/updates/presentation/media_status_composer_screen.dart';
 import 'package:whatswave/features/updates/presentation/widgets/status_chrome.dart';
 import 'package:whatswave/features/updates/presentation/widgets/status_media_decoration_overlay.dart';
-import 'package:whatswave/features/updates/presentation/status_motion.dart';
+import 'package:whatswave/features/shared/widgets/status_motion.dart';
 import 'package:whatswave/features/updates/presentation/widgets/status_story_media_surface.dart';
 
 import '../../../support/device_matrix.dart';

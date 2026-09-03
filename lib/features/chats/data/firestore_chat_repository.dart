@@ -5,6 +5,8 @@ import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:flutter/material.dart';
 
 import '../../../app/theme/app_palette.dart';
+import '../../../core/media/media_transfer.dart';
+import '../../updates/presentation/widgets/status_media_source.dart';
 import '../../../core/media/media_uploader.dart';
 import '../../../core/utils/user_profile_lookup.dart';
 import '../domain/chat_attachment.dart';
@@ -247,6 +249,7 @@ class FirestoreChatRepository implements ChatRepository {
     required String name,
     required List<String> memberUids,
     bool isCommunityGroup = false,
+    bool isAnnouncementOnly = false,
   }) async {
     final uid = _requireCurrentUid;
     final trimmedName = name.trim();
@@ -264,6 +267,7 @@ class FirestoreChatRepository implements ChatRepository {
       await docRef.set(<String, Object?>{
         'isGroup': true,
         'isCommunityGroup': isCommunityGroup,
+        'isAnnouncementOnly': isAnnouncementOnly,
         'groupName': trimmedName,
         'groupAvatarLabel': _avatarLabelForName(trimmedName),
         'groupAccentColorArgb': _accentColorForName(trimmedName).toARGB32(),
@@ -520,6 +524,19 @@ class FirestoreChatRepository implements ChatRepository {
   }
 
   @override
+  Future<UserProfileSnapshot?> fetchContactProfile(String uid) {
+    // Drop the memoized snapshot first: _profileLookup's cache has no TTL,
+    // and the chat list already populated it for this uid at app launch
+    // (see _threadFromDoc). Without this, a field the other user only
+    // published *after* our launch -- phoneNumber especially, which older
+    // profile docs predate entirely -- stays invisible in Contact info
+    // until the viewer force-restarts the app. Contact info is an explicit,
+    // infrequent tap, so one extra document read is the right trade.
+    _profileLookup.invalidate(uid);
+    return _profileLookup.fetch(uid);
+  }
+
+  @override
   Future<List<ChatThread>> groupThreadsSharedWith(
     String participantUid,
   ) async {
@@ -645,12 +662,14 @@ class FirestoreChatRepository implements ChatRepository {
     required List<ChatAttachment> attachments,
     String? caption,
     MessageReplyPreview? replyPreview,
+    MediaTransfer? transfer,
   }) async {
     await _sendMessage(
       threadId: threadId,
       text: caption ?? '',
       attachments: attachments,
       replyPreview: replyPreview,
+      transfer: transfer,
     );
     return fetchThreads();
   }
@@ -747,6 +766,7 @@ class FirestoreChatRepository implements ChatRepository {
     required List<ChatAttachment> attachments,
     StoryReplyContext? storyReplyContext,
     MessageReplyPreview? replyPreview,
+    MediaTransfer? transfer,
   }) async {
     final uid = _requireCurrentUid;
     final senderName = _firebaseAuth.currentUser?.displayName ?? 'You';
@@ -765,9 +785,17 @@ class FirestoreChatRepository implements ChatRepository {
             attachment,
             threadId: threadId,
             messageId: messageRef.id,
+            transfer: transfer,
           ),
         ),
       );
+
+      // A cancelled send writes nothing at all. Cancelling only the Storage
+      // task would still leave a message in the thread whose media points
+      // at an upload that was abandoned half-way.
+      if (transfer?.isCancelled ?? false) {
+        return;
+      }
 
       final batch = _firestore.batch();
       batch.set(messageRef, {
@@ -911,6 +939,7 @@ class FirestoreChatRepository implements ChatRepository {
       typingPreview: data['typingPreview'] as String?,
       participantUid: otherUid,
       isCommunityGroup: (data['isCommunityGroup'] as bool?) ?? false,
+      isAnnouncementOnly: (data['isAnnouncementOnly'] as bool?) ?? false,
       participants: participants,
       participantUids: isGroup ? participantUids : null,
       groupDescription: groupDescription,
@@ -962,6 +991,10 @@ class FirestoreChatRepository implements ChatRepository {
     return ChatMessage(
       id: doc.id,
       senderName: (data['senderName'] as String?) ?? '',
+      // Already written on every send -- it just never made it onto the
+      // model, so a group bubble had nothing but the name captured at send
+      // time and kept showing it after the sender was renamed.
+      senderUid: data['senderUid'] as String?,
       sentAt: sentAt is Timestamp ? sentAt.toDate() : DateTime.now(),
       isFromCurrentUser: data['senderUid'] == currentUid,
       text: (data['text'] as String?) ?? '',
@@ -994,6 +1027,7 @@ class FirestoreChatRepository implements ChatRepository {
     ChatAttachment attachment, {
     required String threadId,
     required String messageId,
+    MediaTransfer? transfer,
   }) async {
     final localPath = attachment.localMediaPath;
     final isUploadable = localPath != null &&
@@ -1027,7 +1061,15 @@ class FirestoreChatRepository implements ChatRepository {
         file,
         storagePath:
             'chatMedia/$threadId/$messageId-${attachment.id}$extension',
+        transfer: transfer,
+        // One slot per attachment, so an album's ring sums its photos
+        // instead of each upload overwriting the last one's byte counts.
+        transferSlot: attachment.id,
       );
+      // File the copy we just sent under its new URL, so this device reads
+      // its own media off disk instead of pulling it back down -- and so
+      // every "is this here?" check says yes for media that plainly is.
+      await cacheUploadedMedia(remoteUrl: downloadUrl, localFile: file);
       return attachment.copyWith(localMediaPath: downloadUrl);
     } catch (e) {
       // Best-effort -- see doc comment above. Deliberately catches
@@ -1056,6 +1098,7 @@ class FirestoreChatRepository implements ChatRepository {
       // least the sender can still re-read their own sent media back.
       if (attachment.localMediaPath != null)
         'localMediaPath': attachment.localMediaPath,
+      if (attachment.sizeBytes != null) 'sizeBytes': attachment.sizeBytes,
     };
   }
 
@@ -1070,6 +1113,7 @@ class FirestoreChatRepository implements ChatRepository {
       latitude: (map['latitude'] as num?)?.toDouble(),
       longitude: (map['longitude'] as num?)?.toDouble(),
       localMediaPath: map['localMediaPath'] as String?,
+      sizeBytes: (map['sizeBytes'] as num?)?.toInt(),
     );
   }
 

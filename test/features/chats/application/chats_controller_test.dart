@@ -6,8 +6,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:whatswave/app/theme/app_palette.dart';
 import 'package:whatswave/core/permissions/app_permission_service.dart';
 import 'package:whatswave/core/permissions/device_location_service.dart';
+import 'package:whatswave/core/utils/user_profile_lookup.dart';
 import 'package:whatswave/core/sample/demo_data.dart';
 import 'package:whatswave/features/chats/application/chats_controller.dart';
+import 'package:whatswave/core/media/media_transfer.dart';
 import 'package:whatswave/features/chats/data/chat_repository.dart';
 import 'package:whatswave/features/chats/data/fake_chat_repository.dart';
 import 'package:whatswave/features/chats/domain/chat_attachment.dart';
@@ -980,6 +982,7 @@ class _SummaryOnlyAfterSendRepository implements ChatRepository {
     required List<ChatAttachment> attachments,
     String? caption,
     MessageReplyPreview? replyPreview,
+    MediaTransfer? transfer,
   }) async {
     return _summaryOnly(
       await _delegate.sendAttachmentMessage(
@@ -1176,6 +1179,9 @@ class _FailingChatRepository implements ChatRepository {
   }
 
   @override
+  Future<UserProfileSnapshot?> fetchContactProfile(String uid) async => null;
+
+  @override
   Future<ChatThread> fetchThreadWithMessages(String threadId) {
     throw UnimplementedError();
   }
@@ -1199,6 +1205,7 @@ class _FailingChatRepository implements ChatRepository {
     required String name,
     required List<String> memberUids,
     bool isCommunityGroup = false,
+    bool isAnnouncementOnly = false,
   }) {
     throw UnimplementedError();
   }
@@ -1209,6 +1216,7 @@ class _FailingChatRepository implements ChatRepository {
     required List<ChatAttachment> attachments,
     String? caption,
     MessageReplyPreview? replyPreview,
+    MediaTransfer? transfer,
   }) {
     throw UnimplementedError();
   }
@@ -1393,11 +1401,13 @@ class _SendFailingChatRepository implements ChatRepository {
     required String name,
     required List<String> memberUids,
     bool isCommunityGroup = false,
+    bool isAnnouncementOnly = false,
   }) =>
       _delegate.createGroup(
         name: name,
         memberUids: memberUids,
         isCommunityGroup: isCommunityGroup,
+        isAnnouncementOnly: isAnnouncementOnly,
       );
 
   @override
@@ -1416,11 +1426,16 @@ class _SendFailingChatRepository implements ChatRepository {
       _delegate.groupThreadsSharedWith(participantUid);
 
   @override
+  Future<UserProfileSnapshot?> fetchContactProfile(String uid) =>
+      _delegate.fetchContactProfile(uid);
+
+  @override
   Future<List<ChatThread>> sendAttachmentMessage({
     required String threadId,
     required List<ChatAttachment> attachments,
     String? caption,
     MessageReplyPreview? replyPreview,
+    MediaTransfer? transfer,
   }) {
     throw const ChatRepositoryException('Message service offline');
   }

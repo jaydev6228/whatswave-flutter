@@ -14,9 +14,10 @@ import 'widgets/emoji_picker_sheet.dart';
 import 'widgets/status_media_decoration_overlay.dart';
 import 'widgets/status_story_media_surface.dart';
 import 'widgets/video_trim_scrubber.dart';
-import 'status_motion.dart';
+import '../../shared/widgets/status_motion.dart';
 import 'widgets/status_text_editing_tools.dart';
 import 'status_system_chrome.dart';
+import 'widgets/draw_tools.dart';
 import 'widgets/status_chrome.dart';
 import 'widgets/rotation_dial.dart';
 import 'widgets/overlay_delete_target.dart';
@@ -3152,7 +3153,8 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen>
                       top: _mediaTopInset + 10,
                       right: 14,
                       bottom: _kMediaBottomInset + 10,
-                      child: _DrawColorRail(
+                      child: DrawColorRail(
+                        keyPrefix: 'updates_media_draw',
                         selectedColor: _drawColor,
                         isEraserMode: _isEraserMode,
                         onSelectColor: (color) {
@@ -3168,61 +3170,17 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen>
                       right: 0,
                       bottom: 74,
                       child: Center(
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
+                        child: DrawStrokeTray(
+                          keyPrefix: 'updates_media_draw',
+                          color: _drawColor,
+                          isEraserMode: _isEraserMode,
+                          onToggleEraser: () => setState(
+                            () => _isEraserMode = !_isEraserMode,
                           ),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.22),
-                            borderRadius: BorderRadius.circular(999),
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.1),
-                            ),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                key: const Key(
-                                    'updates_media_draw_eraser_button'),
-                                tooltip: _isEraserMode ? 'Pen' : 'Eraser',
-                                onPressed: () => setState(
-                                  () => _isEraserMode = !_isEraserMode,
-                                ),
-                                iconSize: 24,
-                                style: IconButton.styleFrom(
-                                  minimumSize: const Size(44, 44),
-                                  backgroundColor: _isEraserMode
-                                      ? Colors.white.withValues(alpha: 0.18)
-                                      : null,
-                                ),
-                                icon: Icon(
-                                  _isEraserMode
-                                      ? Icons.edit_rounded
-                                      : Icons.auto_fix_off_rounded,
-                                  color: Colors.white,
-                                ),
-                              ),
-                              for (var i = 0; i < _drawStrokeWidths.length; i++)
-                                Padding(
-                                  padding:
-                                      const EdgeInsets.symmetric(horizontal: 2),
-                                  child: _StrokeSizeButton(
-                                    dotDiameter:
-                                        (_isEraserMode ? 10.0 : 6.0) + i * 4.0,
-                                    color: _isEraserMode
-                                        ? Colors.white
-                                        : _drawColor,
-                                    selected: _drawStrokeWidth ==
-                                        _drawStrokeWidths[i],
-                                    onTap: () => setState(
-                                      () => _drawStrokeWidth =
-                                          _drawStrokeWidths[i],
-                                    ),
-                                  ),
-                                ),
-                            ],
+                          selectedStrokeIndex:
+                              _drawStrokeWidths.indexOf(_drawStrokeWidth),
+                          onSelectStroke: (index) => setState(
+                            () => _drawStrokeWidth = _drawStrokeWidths[index],
                           ),
                         ),
                       ),
@@ -3297,7 +3255,10 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen>
                             crossAxisAlignment: CrossAxisAlignment.end,
                             children: [
                               Expanded(
-                                child: _ComposerCaptionField(
+                                child: StatusChromeCaptionField(
+                                  fieldKey: const Key(
+                                    'updates_media_caption_field',
+                                  ),
                                   controller: _captionController,
                                 ),
                               ),
@@ -3600,177 +3561,6 @@ class _ComposerMusicEditingTray extends StatelessWidget {
 /// what should be a single drag. White sits at the top, black at the
 /// bottom, the hue spectrum runs between them, and a drag/tap anywhere
 /// picks the color straight off the bar.
-class _DrawColorRail extends StatefulWidget {
-  const _DrawColorRail({
-    required this.selectedColor,
-    required this.isEraserMode,
-    required this.onSelectColor,
-  });
-
-  final Color selectedColor;
-  final bool isEraserMode;
-  final ValueChanged<Color> onSelectColor;
-
-  @override
-  State<_DrawColorRail> createState() => _DrawColorRailState();
-}
-
-class _DrawColorRailState extends State<_DrawColorRail> {
-  double _barPosition = 0;
-
-  void _updateFromLocalY(double localY, double height) {
-    if (height <= 0) {
-      return;
-    }
-    final position = (localY / height).clamp(0.0, 1.0);
-    setState(() => _barPosition = position);
-    widget.onSelectColor(_colorForDrawBarPosition(position));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      key: const Key('updates_media_draw_editing_tray'),
-      width: 34,
-      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 6),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.22),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
-      ),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final height = constraints.maxHeight;
-          return GestureDetector(
-            key: const Key('updates_media_draw_color_bar'),
-            behavior: HitTestBehavior.opaque,
-            onTapDown: (details) =>
-                _updateFromLocalY(details.localPosition.dy, height),
-            onVerticalDragStart: (details) =>
-                _updateFromLocalY(details.localPosition.dy, height),
-            onVerticalDragUpdate: (details) =>
-                _updateFromLocalY(details.localPosition.dy, height),
-            child: Stack(
-              clipBehavior: Clip.none,
-              children: [
-                Container(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(999),
-                    gradient: const LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: _kDrawColorBarStops,
-                    ),
-                  ),
-                ),
-                Positioned(
-                  top: (_barPosition * height - 9)
-                      .clamp(0.0, math.max(height - 18, 0.0)),
-                  left: -5,
-                  right: -5,
-                  child: IgnorePointer(
-                    child: Container(
-                      key: const Key('updates_media_draw_color_thumb'),
-                      height: 18,
-                      decoration: BoxDecoration(
-                        color: widget.isEraserMode
-                            ? Colors.transparent
-                            : widget.selectedColor,
-                        borderRadius: BorderRadius.circular(999),
-                        border: Border.all(color: Colors.white, width: 3),
-                        boxShadow: const [
-                          BoxShadow(color: Colors.black38, blurRadius: 4),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          );
-        },
-      ),
-    );
-  }
-}
-
-const List<Color> _kDrawColorBarStops = [
-  Colors.white,
-  Color(0xFFFF3B30),
-  Color(0xFFFF9500),
-  Color(0xFFFFCC00),
-  Color(0xFF34C759),
-  Color(0xFF00C7BE),
-  Color(0xFF0A84FF),
-  Color(0xFFBF5AF2),
-  Colors.black,
-];
-
-Color _colorForDrawBarPosition(double t) {
-  final stops = _kDrawColorBarStops;
-  final segmentCount = stops.length - 1;
-  final scaled = t.clamp(0.0, 1.0) * segmentCount;
-  final index = scaled.floor().clamp(0, segmentCount - 1);
-  final localT = scaled - index;
-  return Color.lerp(stops[index], stops[index + 1], localT)!;
-}
-
-/// The text tool's own vertical color rail -- same continuous drag-to-pick
-/// bar and gradient stops as [_DrawColorRail], just without the eraser
-/// affordance a text overlay has no use for. Floats on the right edge while
-/// actively editing text, matching WhatsApp's own text-color picker.
-
-/// The text tool's font-style row -- horizontally scrollable circular
-/// swatches, each previewing a real font look, tapped directly rather than
-/// cycled one at a time. Sits just above the keyboard while editing,
-/// matching WhatsApp's own text tool.
-
-/// A stroke-width option shown as an actual dot at that size, in the pen's
-/// current color -- shows you what the stroke will really look like,
-/// instead of an abstract "S/M/L" label.
-class _StrokeSizeButton extends StatelessWidget {
-  const _StrokeSizeButton({
-    required this.dotDiameter,
-    required this.color,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final double dotDiameter;
-  final Color color;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(999),
-      child: Container(
-        width: 34,
-        height: 34,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: selected ? Colors.white.withValues(alpha: 0.18) : null,
-        ),
-        child: Center(
-          child: Container(
-            width: dotDiameter,
-            height: dotDiameter,
-            decoration: BoxDecoration(
-              color: color,
-              shape: BoxShape.circle,
-              border: color == Colors.white
-                  ? Border.all(color: Colors.black26)
-                  : null,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _BlurEditingTray extends StatelessWidget {
   const _BlurEditingTray({
     required this.blurSigma,
@@ -4233,57 +4023,6 @@ class _VideoPlayPauseOverlay extends StatelessWidget {
 /// A plain "Add a caption..." field -- WhatsApp/Instagram's simple caption
 /// input, distinct from the rich draggable text tool. Multi-line since a
 /// caption (unlike a single styled text overlay) is expected to wrap.
-class _ComposerCaptionField extends StatelessWidget {
-  const _ComposerCaptionField({required this.controller});
-
-  final TextEditingController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    // The capsule's exact fill and border, plus a backdrop blur.
-    //
-    // A placed text overlay can be huge and land anywhere, including right
-    // behind this row -- at which point the hint and the caret were
-    // competing with headline-sized text showing through. Blurring what is
-    // behind separates them without changing the material: same colour,
-    // same border, still translucent.
-    return StatusChromeSurface(
-      borderRadius: const BorderRadius.all(Radius.circular(20)),
-      blurred: true,
-      child: TextField(
-        key: const Key('updates_media_caption_field'),
-        controller: controller,
-        maxLines: 3,
-        minLines: 1,
-        style: const TextStyle(color: Colors.white),
-        decoration: InputDecoration(
-          // The app theme fills text fields, which painted an opaque slab
-          // inside the glass and left the caption looking like a cut-out
-          // bar rather than something laid over the story.
-          filled: false,
-          hintText: 'Add a caption...',
-          hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
-          // Every state spelled out, not just `border`: the app theme
-          // supplies enabledBorder/focusedBorder, which drew a second
-          // outline inside the surface so the caption's edge never matched
-          // the send button's.
-          border: InputBorder.none,
-          enabledBorder: InputBorder.none,
-          focusedBorder: InputBorder.none,
-          disabledBorder: InputBorder.none,
-          errorBorder: InputBorder.none,
-          focusedErrorBorder: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 16,
-            vertical: 12,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// The mute toggle that rides inside the filmstrip's surface.
 class _MuteToggle extends StatelessWidget {
   const _MuteToggle({required this.isMuted, required this.onTap, super.key});
 

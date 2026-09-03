@@ -16,6 +16,7 @@ class CommunityHub {
     this.unreadCount = 0,
     this.invitedContactIds = const <String>[],
     this.announcementThreadId,
+    this.viewerIsAdmin = false,
   });
 
   final String id;
@@ -31,6 +32,18 @@ class CommunityHub {
 
   /// Backing [ChatThread] for the read-only announcements channel.
   final String? announcementThreadId;
+
+  /// Whether the signed-in viewer is a community admin (this app's owner
+  /// role) rather than a plain member.
+  ///
+  /// WhatsApp draws every destructive community action along this line:
+  /// only community admins can deactivate a community, and everyone else
+  /// exits instead -- see
+  /// https://faq.whatsapp.com/785738926054798 (How to deactivate a
+  /// community) and https://faq.whatsapp.com/1312647189536807 (How to exit
+  /// a community). Defaults to false so a community whose role is unknown
+  /// is treated as someone else's.
+  final bool viewerIsAdmin;
 
   int get groupCount => groups.length;
 
@@ -78,6 +91,7 @@ class CommunityHub {
     int? unreadCount,
     List<String>? invitedContactIds,
     String? announcementThreadId,
+    bool? viewerIsAdmin,
   }) {
     return CommunityHub(
       id: id ?? this.id,
@@ -91,6 +105,7 @@ class CommunityHub {
       unreadCount: unreadCount ?? this.unreadCount,
       invitedContactIds: invitedContactIds ?? this.invitedContactIds,
       announcementThreadId: announcementThreadId ?? this.announcementThreadId,
+      viewerIsAdmin: viewerIsAdmin ?? this.viewerIsAdmin,
     );
   }
 }

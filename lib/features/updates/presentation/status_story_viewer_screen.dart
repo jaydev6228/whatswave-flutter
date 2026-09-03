@@ -865,7 +865,16 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
             storyOwnerUid: _story.id,
             storyOwnerName: _story.name,
             segmentType: _currentSegmentType,
-            segmentId: _currentSegment?.id,
+            // Only a real segment's id is worth recording. On a ring whose
+            // segment list hasn't hydrated yet, segmentAt() hands back a
+            // synthesized '<story>-segment-<n>' placeholder -- storing that
+            // left the reply pointing at an id no live segment can ever
+            // match, so the card either went dead or reopened the ring at
+            // its first item. The index below covers that case instead.
+            segmentId: _currentSegmentIndex < _story.segments.length
+                ? _currentSegment?.id
+                : null,
+            segmentIndex: _currentSegmentIndex,
             previewText: _currentSegment?.previewText,
             mediaUrl: _currentSegment?.localMediaPath,
             accentColorArgb: _story.accentColor.toARGB32(),

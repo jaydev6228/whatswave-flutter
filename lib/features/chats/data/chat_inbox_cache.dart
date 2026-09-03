@@ -86,6 +86,7 @@ class ChatInboxCache {
       'typingPreview': thread.typingPreview,
       'participantUid': thread.participantUid,
       'isCommunityGroup': thread.isCommunityGroup,
+      'isAnnouncementOnly': thread.isAnnouncementOnly,
       'avatarUrl': thread.avatarUrl,
       'groupDescription': thread.groupDescription,
       'participantUids': thread.participantUids,
@@ -115,6 +116,7 @@ class ChatInboxCache {
       typingPreview: map['typingPreview'] as String?,
       participantUid: map['participantUid'] as String?,
       isCommunityGroup: (map['isCommunityGroup'] as bool?) ?? false,
+      isAnnouncementOnly: (map['isAnnouncementOnly'] as bool?) ?? false,
       avatarUrl: map['avatarUrl'] as String?,
       groupDescription: map['groupDescription'] as String?,
       participantUids: (map['participantUids'] as List<dynamic>?)

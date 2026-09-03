@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../app/theme/app_palette.dart';
 import '../../../core/models/status_story.dart';
-import 'status_motion.dart';
+import '../../shared/widgets/status_motion.dart';
 import 'status_system_chrome.dart';
 import 'widgets/emoji_picker_sheet.dart';
 import 'widgets/status_chrome.dart';

@@ -3,7 +3,9 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../../../app/theme/app_palette.dart';
+import '../../../core/media/media_transfer.dart';
 import '../../../core/sample/demo_data.dart';
+import '../../../core/utils/user_profile_lookup.dart';
 import '../domain/chat_attachment.dart';
 import '../domain/chat_message.dart';
 import '../domain/chat_thread.dart';
@@ -16,10 +18,20 @@ class FakeChatRepository implements ChatRepository {
   FakeChatRepository({
     List<ChatThread>? initialThreads,
     this.latency = const Duration(milliseconds: 180),
+    this.onAttachmentTransfer,
   }) : _threads =
             _deepCopyThreads(initialThreads ?? DemoData.buildChatThreads());
 
   final Duration latency;
+
+  /// Handed the [MediaTransfer] of an in-flight [sendAttachmentMessage]
+  /// before this repository waits on anything, so a test can drive the
+  /// bubble's progress ring by hand.
+  ///
+  /// This repository uploads nothing, so it has no byte counts of its own
+  /// to report -- and inventing a timed sequence of them here would put a
+  /// fake upload on the code path the local/demo backend actually runs.
+  final void Function(MediaTransfer transfer)? onAttachmentTransfer;
   List<ChatThread> _threads;
   int _messageSequence = 0;
 
@@ -116,6 +128,7 @@ class FakeChatRepository implements ChatRepository {
     required String name,
     required List<String> memberUids,
     bool isCommunityGroup = false,
+    bool isAnnouncementOnly = false,
   }) async {
     await _wait();
     final trimmedName = name.trim();
@@ -134,6 +147,7 @@ class FakeChatRepository implements ChatRepository {
       messages: const [],
       isGroup: true,
       isCommunityGroup: isCommunityGroup,
+      isAnnouncementOnly: isAnnouncementOnly,
       participants: [
         const GroupParticipant(
           uid: 'me',
@@ -365,6 +379,28 @@ class FakeChatRepository implements ChatRepository {
   }
 
   @override
+  Future<UserProfileSnapshot?> fetchContactProfile(String uid) async {
+    await _wait();
+    // Demo threads carry no participantUid (see groupThreadsSharedWith
+    // below), so Contact info falls back to the thread id -- which is the
+    // same slug the demo contact list is keyed by. Matching both that and
+    // matchedUid keeps this working either way.
+    for (final contact in DemoData.buildCommunityContacts()) {
+      if (contact.id == uid || contact.matchedUid == uid) {
+        return UserProfileSnapshot(
+          name: contact.name,
+          avatarLabel: contact.avatarLabel,
+          accentColorArgb: contact.accentColor.toARGB32(),
+          username: contact.username,
+          about: contact.about,
+          phoneNumber: contact.phoneNumber,
+        );
+      }
+    }
+    return null;
+  }
+
+  @override
   Future<List<ChatThread>> groupThreadsSharedWith(
     String participantUid,
   ) async {
@@ -510,8 +546,15 @@ class FakeChatRepository implements ChatRepository {
     required List<ChatAttachment> attachments,
     String? caption,
     MessageReplyPreview? replyPreview,
+    MediaTransfer? transfer,
   }) async {
+    if (transfer != null) {
+      onAttachmentTransfer?.call(transfer);
+    }
     await _wait();
+    if (transfer?.isCancelled ?? false) {
+      return _deepCopyThreads(_threads);
+    }
     final thread = _threadForId(threadId);
     final trimmedCaption = caption?.trim() ?? '';
     final newMessage = ChatMessage(

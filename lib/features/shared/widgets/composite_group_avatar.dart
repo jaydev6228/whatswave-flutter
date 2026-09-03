@@ -27,8 +27,13 @@ class CompositeGroupAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final members =
-        participants.take(maxVisibleMembers).toList(growable: false);
+    // Your own face is in every group you are in, so it tells you nothing
+    // about which group this is -- drop it and let a member who actually
+    // distinguishes the group take the tile.
+    final members = participants
+        .where((participant) => !participant.isSelf)
+        .take(maxVisibleMembers)
+        .toList(growable: false);
     if (members.isEmpty) {
       return AvatarBadge(
         label: fallbackLabel,

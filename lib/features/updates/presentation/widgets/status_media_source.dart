@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/widgets.dart';
@@ -56,6 +57,14 @@ BaseCacheManager? debugStatusMediaCacheManager;
 BaseCacheManager get _statusMediaCacheManager =>
     debugStatusMediaCacheManager ?? DefaultCacheManager();
 
+/// The same disk cache every remote image/video here resolves through.
+///
+/// Exposed so a chat bubble can tell "already on this device" from "still
+/// only a URL", which is the whole basis of WhatsApp's explicit download
+/// affordance -- and so tapping it fills the very cache the image provider
+/// then reads back from, rather than a second one of its own.
+BaseCacheManager get statusMediaCacheManager => _statusMediaCacheManager;
+
 /// Whether the disk cache has been *proven* to work on this device.
 ///
 /// Starts false and is only turned on once a probe succeeds, so an
@@ -90,7 +99,110 @@ void debugResetStatusMediaDiskCache() {
   _diskCacheProbe = null;
 }
 
-ImageProvider<Object>? imageProviderForStatusMediaPath(String mediaPath) {
+/// [maxDecodeWidth] caps the decoded bitmap, in raw pixels, for a provider
+/// that only ever paints a thumbnail.
+///
+/// Without it a phone-camera JPEG decodes at its full ~12 megapixels into
+/// a 125pt bubble tile -- roughly 48MB of ARGB for one thumbnail. A chat
+/// scrolled to a couple of albums did that a dozen times over, and the
+/// decode work froze the UI thread long enough that the bubbles sat empty
+/// and drags on the message list did nothing at all for several seconds
+/// after opening the thread.
+///
+/// Pass null (the default) where the full image is genuinely shown -- the
+/// full-screen viewer, the status canvas -- so nothing downsamples an image
+/// the reader is actually looking at.
+/// Files the freshly-uploaded copy of [localFile] into the shared disk
+/// cache under the [remoteUrl] it now lives at.
+///
+/// Media you just sent is already on this device, so re-fetching it from
+/// storage to look at it is pure waste -- and until it is fetched, every
+/// "do we have this?" check says no. That is what made a just-uploaded
+/// photo render as a placeholder behind a download button.
+///
+/// Best-effort by design: a cache that cannot be written must cost a
+/// re-download, never a failed send.
+Future<void> cacheUploadedMedia({
+  required String remoteUrl,
+  required File localFile,
+}) async {
+  if (!isRemoteStatusMediaPath(remoteUrl)) {
+    return;
+  }
+  try {
+    await ensureStatusMediaDiskCacheReady();
+    if (!_diskCacheProven) {
+      return;
+    }
+    await _statusMediaCacheManager.putFile(
+      remoteUrl,
+      await localFile.readAsBytes(),
+      fileExtension: _cacheFileExtension(localFile.path),
+    );
+  } catch (_) {
+    // Deliberately swallowed -- see the doc comment.
+  }
+}
+
+String _cacheFileExtension(String path) {
+  final dot = path.lastIndexOf('.');
+  if (dot < 0 || dot == path.length - 1) {
+    return 'file';
+  }
+  return path.substring(dot + 1);
+}
+
+/// The real pixel aspect ratio (width / height) of an encoded image file,
+/// or null if it cannot be read.
+///
+/// Header-only: [ui.ImageDescriptor.encoded] parses the dimensions out of
+/// the file's header without decoding a single pixel, so this costs almost
+/// nothing even across a sixteen-photo pick.
+///
+/// Worth doing at pick time because ChatAttachment.aspectRatio otherwise
+/// keeps its 1.25 default for every photo ever picked -- so a portrait
+/// photo was laid out in a landscape slot and cropped to it, and an album
+/// had no way to know whether its photos were tall or wide.
+Future<double?> encodedImageAspectRatio(String path) async {
+  // Cheaper than letting the engine fail, and load-bearing: an engine call
+  // for a file that isn't there is still an engine call, and one made for
+  // a path that will never resolve leaves the caller awaiting forever.
+  if (path.trim().isEmpty || !File(path).existsSync()) {
+    return null;
+  }
+  ui.ImmutableBuffer? buffer;
+  ui.ImageDescriptor? descriptor;
+  try {
+    buffer = await ui.ImmutableBuffer.fromFilePath(path);
+    descriptor = await ui.ImageDescriptor.encoded(buffer);
+    final aspect = descriptor.width / descriptor.height;
+    return aspect.isFinite && aspect > 0 ? aspect : null;
+  } catch (_) {
+    return null;
+  } finally {
+    descriptor?.dispose();
+    buffer?.dispose();
+  }
+}
+
+ImageProvider<Object>? imageProviderForStatusMediaPath(
+  String mediaPath, {
+  int? maxDecodeWidth,
+}) {
+  final provider = _rawImageProviderForStatusMediaPath(mediaPath);
+  if (provider == null || maxDecodeWidth == null) {
+    return provider;
+  }
+  // allowUpscaling: false -- a photo already smaller than the budget is
+  // left exactly as it is rather than being blown up to meet it.
+  return ResizeImage(
+    provider,
+    width: maxDecodeWidth,
+    allowUpscaling: false,
+  );
+}
+
+ImageProvider<Object>? _rawImageProviderForStatusMediaPath(String mediaPath) {
   final normalizedPath = mediaPath.trim();
   if (normalizedPath.isEmpty) {
     return null;

@@ -93,12 +93,15 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
     Navigator.of(context).pop(true);
   }
 
-  Future<void> _showAvatarPhotoOptions(AppUser currentUser) async {
+  Future<void> _showAvatarPhotoOptions(
+    BuildContext anchorContext,
+    AppUser currentUser,
+  ) async {
     final canRemove = _pendingAvatarFile != null ||
         _pendingRemoveAvatar ||
         currentUser.avatarUrl?.isNotEmpty == true;
     final action = await showAvatarPhotoOptionsSheet(
-      context,
+      anchorContext,
       canRemove: canRemove,
     );
     if (!mounted || action == null) {
@@ -194,17 +197,24 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                         Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            GestureDetector(
-                              key: const Key('profile_avatar_change_button'),
-                              onTap: _isBusy
-                                  ? null
-                                  : () => _showAvatarPhotoOptions(currentUser),
-                              child: Stack(
-                                clipBehavior: Clip.none,
-                                children: [
-                                  _buildAvatarPreview(currentUser),
-                                  AvatarCameraBadge(isBusy: _isSavingAvatar),
-                                ],
+                            // Builder so the options bubble anchors to the
+                            // avatar rather than measuring the whole page.
+                            Builder(
+                              builder: (anchorContext) => GestureDetector(
+                                key: const Key('profile_avatar_change_button'),
+                                onTap: _isBusy
+                                    ? null
+                                    : () => _showAvatarPhotoOptions(
+                                          anchorContext,
+                                          currentUser,
+                                        ),
+                                child: Stack(
+                                  clipBehavior: Clip.none,
+                                  children: [
+                                    _buildAvatarPreview(currentUser),
+                                    AvatarCameraBadge(isBusy: _isSavingAvatar),
+                                  ],
+                                ),
                               ),
                             ),
                             const SizedBox(width: 18),

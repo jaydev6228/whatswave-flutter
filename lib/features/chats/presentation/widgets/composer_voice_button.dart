@@ -125,7 +125,6 @@ class _ComposerVoiceButtonState extends State<ComposerVoiceButton> {
     final overlay = Overlay.of(context);
     _overlayEntry = OverlayEntry(
       builder: (overlayContext) {
-        final theme = Theme.of(overlayContext);
         final samples = _session?.samples ?? const <double>[];
         return Material(
           color: Colors.transparent,
@@ -141,59 +140,10 @@ class _ComposerVoiceButtonState extends State<ComposerVoiceButton> {
                 left: 12,
                 right: 12,
                 bottom: 12 + MediaQuery.paddingOf(overlayContext).bottom,
-                child: Material(
-                  elevation: 8,
-                  borderRadius: BorderRadius.circular(18),
-                  color: theme.colorScheme.surface,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-                    child: Row(
-                      children: [
-                        Icon(
-                          _cancelPending
-                              ? Icons.delete_outline_rounded
-                              : Icons.mic_rounded,
-                          color: _cancelPending
-                              ? theme.colorScheme.error
-                              : theme.colorScheme.primary,
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              SizedBox(
-                                height: 32,
-                                child: _HoldRecordingWaveform(samples: samples),
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                formatVoiceNoteDuration(_elapsed),
-                                textAlign: TextAlign.center,
-                                style: theme.textTheme.titleSmall?.copyWith(
-                                  fontFeatures: const [
-                                    FontFeature.tabularFigures(),
-                                  ],
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Text(
-                          _cancelPending
-                              ? 'Release to cancel'
-                              : 'Release to send',
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: theme.colorScheme.onSurface
-                                .withValues(alpha: 0.64),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                child: HoldRecordingBar(
+                  samples: samples,
+                  elapsed: _elapsed,
+                  cancelPending: _cancelPending,
                 ),
               ),
             ],
@@ -277,6 +227,104 @@ class _ComposerVoiceButtonState extends State<ComposerVoiceButton> {
                 : theme.colorScheme.onSurface.withValues(alpha: 0.34),
             onTap: null,
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The bar shown over the composer while hold-to-record is active.
+///
+/// Extracted so its layout can be exercised directly: it only ever appears
+/// behind a live microphone session, which a widget test has no way to
+/// stand up.
+class HoldRecordingBar extends StatelessWidget {
+  const HoldRecordingBar({
+    required this.samples,
+    required this.elapsed,
+    required this.cancelPending,
+    super.key,
+  });
+
+  final List<double> samples;
+  final Duration elapsed;
+  final bool cancelPending;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    // Glass, not an opaque elevated panel: this floats directly over the
+    // conversation, and a filled surface slab read as a different design
+    // from the composer chrome right underneath it. Tinted heavier than the
+    // default so the timer and hint stay legible over a busy wallpaper.
+    return LiquidGlassSurface(
+      borderRadius: BorderRadius.circular(18),
+      tintOpacityLight: 0.82,
+      tintOpacityDark: 0.62,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+        child: Row(
+          children: [
+            Icon(
+              cancelPending
+                  ? Icons.delete_outline_rounded
+                  : Icons.mic_rounded,
+              color: cancelPending
+                  ? theme.colorScheme.error
+                  : theme.colorScheme.primary,
+            ),
+            const SizedBox(width: 12),
+            // Timer and hint sit *inside* the flexible column rather than
+            // beside it. A Row lays its non-flex children out at their
+            // natural width first and gives Expanded whatever is left, so
+            // the hint -- as a plain sibling Text -- claimed its full
+            // width and overflowed the bar into black-and-yellow stripes
+            // on an Android display set to a zoomed size (smaller logical
+            // width, larger text scale). Nothing here has a natural width
+            // to claim any more, and the hint ellipsises rather than
+            // pushing.
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  SizedBox(
+                    height: 32,
+                    child: _HoldRecordingWaveform(samples: samples),
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Text(
+                        formatVoiceNoteDuration(elapsed),
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontFeatures: const [
+                            FontFeature.tabularFigures(),
+                          ],
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          cancelPending
+                              ? 'Release to cancel'
+                              : 'Release to send',
+                          textAlign: TextAlign.end,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: theme.colorScheme.onSurface
+                                .withValues(alpha: 0.64),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );

@@ -31,24 +31,59 @@ import '../../shared/swipe_down_to_dismiss.dart';
 /// video control bar or the map's "Open in Maps" button, already handle
 /// their own bottom inset) so there's no stray blank gap above the home
 /// indicator.
-class AttachmentViewerScreen extends StatelessWidget {
+class AttachmentViewerScreen extends StatefulWidget {
   const AttachmentViewerScreen({
-    required this.attachment,
+    required this.attachments,
     required this.threadName,
+    this.initialIndex = 0,
     super.key,
-  });
+  }) : assert(attachments.length > 0, 'nothing to preview');
 
-  final ChatAttachment attachment;
+  /// Every attachment the tapped one arrived with, in bubble order.
+  ///
+  /// A message that bundles sixteen photos shows four in the bubble; the
+  /// other twelve are only reachable here, so the viewer pages the whole
+  /// album rather than the single tile that opened it.
+  final List<ChatAttachment> attachments;
   final String threadName;
+  final int initialIndex;
+
+  @override
+  State<AttachmentViewerScreen> createState() => _AttachmentViewerScreenState();
+}
+
+class _AttachmentViewerScreenState extends State<AttachmentViewerScreen> {
+  late final PageController _pageController;
+  late int _index;
+
+  @override
+  void initState() {
+    super.initState();
+    _index = widget.initialIndex.clamp(0, widget.attachments.length - 1);
+    _pageController = PageController(initialPage: _index);
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
+    final attachments = widget.attachments;
+    final hasAlbum = attachments.length > 1;
+    final current = attachments[_index];
+
     return Semantics(
       // threadName no longer shows as visible text (a floating close
       // button over the media is all the chrome this screen needs), but
       // still gives screen-reader users the same context sighted users get
       // from the surrounding conversation.
-      label: '${attachment.compactLabel} from $threadName',
+      label: hasAlbum
+          ? '${current.compactLabel} from ${widget.threadName}, '
+              '${_index + 1} of ${attachments.length}'
+          : '${current.compactLabel} from ${widget.threadName}',
       container: true,
       // Swipe down to close, the same gesture the story viewer uses -- the
       // standard way out of any full-screen media presentation.
@@ -57,7 +92,18 @@ class AttachmentViewerScreen extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            _AttachmentCanvas(attachment: attachment),
+            if (!hasAlbum)
+              _AttachmentCanvas(attachment: attachments.single)
+            else
+              PageView.builder(
+                key: const Key('attachment_viewer_pager'),
+                controller: _pageController,
+                itemCount: attachments.length,
+                onPageChanged: (index) => setState(() => _index = index),
+                itemBuilder: (context, index) => _AttachmentCanvas(
+                  attachment: attachments[index],
+                ),
+              ),
             Positioned(
               top: 0,
               left: 0,
@@ -66,22 +112,47 @@ class AttachmentViewerScreen extends StatelessWidget {
                 bottom: false,
                 child: Padding(
                   padding: const EdgeInsets.all(12),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: LiquidGlassIconButton(
-                      key: const Key('attachment_viewer_close_button'),
-                      icon: Icons.close_rounded,
-                      tooltip: 'Close',
-                      size: 40,
-                      onTap: () => Navigator.of(context).pop(),
-                      // A fixed dark-glass chrome regardless of app theme --
-                      // this floats over media/black canvases, not the app's
-                      // own surface, so it must stay legible in both light and
-                      // dark mode (same reasoning as the video control bar's
-                      // buttons and in-call controls).
-                      color: Colors.black.withValues(alpha: 0.42),
-                      iconColor: Colors.white,
-                    ),
+                  child: Row(
+                    children: [
+                      LiquidGlassIconButton(
+                        key: const Key('attachment_viewer_close_button'),
+                        icon: Icons.close_rounded,
+                        tooltip: 'Close',
+                        // visualSize, not size: the glass circle shrinks to
+                        // sit level with the "6 of 11" pill opposite it,
+                        // while the tap target stays at the 44pt minimum.
+                        visualSize: 32,
+                        iconSize: 18,
+                        onTap: () => Navigator.of(context).pop(),
+                        // A fixed dark-glass chrome regardless of app theme --
+                        // this floats over media/black canvases, not the app's
+                        // own surface, so it must stay legible in both light
+                        // and dark mode (same reasoning as the video control
+                        // bar's buttons and in-call controls).
+                        color: Colors.black.withValues(alpha: 0.42),
+                        iconColor: Colors.white,
+                      ),
+                      if (hasAlbum) ...[
+                        const Spacer(),
+                        LiquidGlassSurface(
+                          borderRadius: BorderRadius.circular(999),
+                          color: Colors.black.withValues(alpha: 0.42),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 6,
+                          ),
+                          child: Text(
+                            '${_index + 1} of ${attachments.length}',
+                            key: const Key('attachment_viewer_page_label'),
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
               ),
@@ -97,19 +168,21 @@ class AttachmentViewerScreen extends StatelessWidget {
 /// on top of the current screen instead of navigating to a new route.
 Future<void> showAttachmentPreview(
   BuildContext context, {
-  required ChatAttachment attachment,
+  required List<ChatAttachment> attachments,
   required String threadName,
+  int initialIndex = 0,
 }) {
   return showGeneralDialog<void>(
     context: context,
-    barrierLabel: attachment.title,
+    barrierLabel: attachments[initialIndex].title,
     barrierColor: Colors.black54,
     transitionDuration: const Duration(milliseconds: 220),
     pageBuilder: (context, _, __) {
       return Dialog.fullscreen(
         backgroundColor: Theme.of(context).colorScheme.surface,
         child: AttachmentViewerScreen(
-          attachment: attachment,
+          attachments: attachments,
+          initialIndex: initialIndex,
           threadName: threadName,
         ),
       );

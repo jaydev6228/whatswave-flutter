@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../updates/presentation/status_motion.dart';
+import 'widgets/status_motion.dart';
 
 /// A modal route that rises from the bottom like an iOS sheet.
 ///

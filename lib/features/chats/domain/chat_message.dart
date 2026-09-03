@@ -8,6 +8,7 @@ class ChatMessage {
   const ChatMessage({
     required this.id,
     required this.senderName,
+    this.senderUid,
     required this.sentAt,
     required this.isFromCurrentUser,
     this.text = '',
@@ -22,7 +23,18 @@ class ChatMessage {
   });
 
   final String id;
+  /// The display name as it was when this was sent.
+  ///
+  /// A snapshot, and treated as one: a group bubble labels itself from the
+  /// live roster via [senderUid] and only falls back to this when there is
+  /// no participant to resolve -- a member who has since left, or a thread
+  /// with no roster at all.
   final String senderName;
+
+  /// Who sent it. Null for messages from a backend that does not record it
+  /// (the seeded fake data) and for optimistic local messages before the
+  /// send round-trips.
+  final String? senderUid;
   final DateTime sentAt;
   final bool isFromCurrentUser;
   final String text;
@@ -67,6 +79,7 @@ class ChatMessage {
   ChatMessage copyWith({
     String? id,
     String? senderName,
+    String? senderUid,
     DateTime? sentAt,
     bool? isFromCurrentUser,
     String? text,
@@ -82,6 +95,7 @@ class ChatMessage {
     return ChatMessage(
       id: id ?? this.id,
       senderName: senderName ?? this.senderName,
+      senderUid: senderUid ?? this.senderUid,
       sentAt: sentAt ?? this.sentAt,
       isFromCurrentUser: isFromCurrentUser ?? this.isFromCurrentUser,
       text: text ?? this.text,

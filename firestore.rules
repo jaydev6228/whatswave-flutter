@@ -23,7 +23,7 @@ service cloud.firestore {
       allow update: if request.auth != null
                      && request.auth.uid in resource.data.participantUids
                      && !request.resource.data.diff(resource.data).affectedKeys()
-                          .hasAny(['groupName', 'groupDescription', 'groupAvatarUrl', 'groupAdminUids', 'participantUids']);
+                          .hasAny(['groupName', 'groupDescription', 'groupAvatarUrl', 'groupAdminUids', 'participantUids', 'isAnnouncementOnly']);
 
       // Rename group / edit description / change icon -- admin only, one
       // field at a time. See
@@ -82,10 +82,25 @@ service cloud.firestore {
         allow read: if request.auth != null
                      && request.auth.uid in
                         get(/databases/$(database)/documents/chatThreads/$(threadId)).data.participantUids;
+        // A community's announcements channel (isAnnouncementOnly, set at
+        // creation by CommunitiesController._ensureAnnouncementThreadIfPossible)
+        // is admin-post-only, matching WhatsApp
+        // (https://faq.whatsapp.com/582420703681043): members read and react
+        // here but cannot send. The admin list is the thread's own
+        // groupAdminUids, which for this thread holds exactly the community
+        // owner who created it. Ordinary threads have no such field and are
+        // unaffected.
         allow create: if request.auth != null
                        && request.auth.uid in
                           get(/databases/$(database)/documents/chatThreads/$(threadId)).data.participantUids
-                       && request.resource.data.senderUid == request.auth.uid;
+                       && request.resource.data.senderUid == request.auth.uid
+                       && (
+                            get(/databases/$(database)/documents/chatThreads/$(threadId))
+                              .data.get('isAnnouncementOnly', false) != true
+                            || request.auth.uid in
+                               get(/databases/$(database)/documents/chatThreads/$(threadId))
+                                 .data.get('groupAdminUids', [])
+                          );
         // Reactions -- a participant may only touch the reactions map, and
         // only their own uid's entry within it (see
         // FirestoreChatRepository.toggleMessageReaction).
@@ -236,15 +251,46 @@ service cloud.firestore {
       allow create: if request.auth != null
                       && request.auth.uid == request.resource.data.ownerUid
                       && request.resource.data.memberUids == [request.auth.uid];
+      // The owner may write anything. A plain member may make exactly one
+      // write: dropping their own uid out of memberUids, which is how
+      // exiting works here (that array is both the roster and the read
+      // gate). WhatsApp gives every member a way out of a community that
+      // does not depend on an admin acting for them -- exiting removes you
+      // from the community and its announcement group while the community
+      // itself stays up (https://faq.whatsapp.com/1312647189536807) -- and
+      // under an owner-only update rule, being added would otherwise be
+      // permanent. hasOnly(['memberUids']) plus the removeAll() equality
+      // pins the write to exactly that: no self-promotion to ownerUid, no
+      // removing anyone else, no edits to the community itself.
+      // The owner's blanket write ends the moment deactivatedAt is set:
+      // deactivating a community cannot be undone
+      // (https://faq.whatsapp.com/785738926054798), so nothing may edit or
+      // resurrect one afterwards. The member-exit carve-out is left open,
+      // since leaving is never harmful.
       allow update: if request.auth != null
-                      && request.auth.uid == resource.data.ownerUid;
-      // Unlike chatThreads' soft "hide for me" delete, deleting a community
-      // is meant to remove it for everyone (there's no other participant's
-      // separate view to preserve the way a 1:1 chat has) -- a real delete,
-      // restricted to the owner, matching callHistory's owner-scoped
-      // delete below.
-      allow delete: if request.auth != null
-                      && request.auth.uid == resource.data.ownerUid;
+                      && (
+                           (
+                             request.auth.uid == resource.data.ownerUid
+                             && !('deactivatedAt' in resource.data)
+                           )
+                           || (
+                                request.auth.uid in resource.data.memberUids
+                                && request.resource.data.diff(resource.data)
+                                     .affectedKeys().hasOnly(['memberUids'])
+                                && request.resource.data.memberUids
+                                     == resource.data.memberUids
+                                          .removeAll([request.auth.uid])
+                              )
+                         );
+      // No delete at all. Deleting the document took the `groups` roster
+      // with it -- the only record of which chat threads belonged to this
+      // community -- so the threads survived unreachable instead of
+      // carrying on as ordinary groups, which is what deactivation is
+      // supposed to leave behind
+      // (https://faq.whatsapp.com/785738926054798). Deactivation is the
+      // owner-side action now (see the update rule above); nothing needs
+      // the document gone.
+      allow delete: if false;
     }
 
     match /phoneDirectory/{phoneKey} {
@@ -338,8 +384,8 @@ service cloud.firestore {
       // real delete is allowed here: clearing call history removes only
       // the owner's own private data, with no other participant's view of
       // anything at risk the way there would be for a shared chat thread.
-      // (communities allows a real owner-scoped delete too, for the same
-      // "meant to be gone for everyone, by the owner" reason -- see that
+      // (communities deactivates rather than deletes -- its groups have to
+      // survive as ordinary chats -- so it is not a parallel here; see that
       // match block above.)
       allow read: if request.auth != null
                     && request.auth.uid == resource.data.ownerUid;

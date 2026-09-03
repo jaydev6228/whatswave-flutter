@@ -12,6 +12,13 @@ abstract final class AppPalette {
   static const Color rose = Color(0xFFE55B5B);
   static const Color amber = Color(0xFFFFC857);
   static const Color sky = Color(0xFF58A6FF);
+
+  /// The blue a read receipt turns.
+  ///
+  /// Its own colour rather than the app's green: on a sent bubble -- which is
+  /// green -- green ticks read as delivered-but-unseen, so "they've seen it"
+  /// had no distinct signal at all.
+  static const Color readReceipt = Color(0xFF53BDEB);
   static const Color purple = Color(0xFF8C6BFF);
 
   static const LinearGradient storyGradient = LinearGradient(

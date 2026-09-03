@@ -379,12 +379,17 @@ class LiquidGlassBubbleItem extends StatelessWidget {
     required this.onTap,
     this.icon,
     this.selected = false,
+    this.color,
     super.key,
   });
 
   final String label;
   final IconData? icon;
   final bool selected;
+
+  /// Tints icon and label -- for a destructive entry, which this app marks
+  /// with a red label rather than a filled red row.
+  final Color? color;
   final VoidCallback onTap;
 
   @override
@@ -400,18 +405,27 @@ class LiquidGlassBubbleItem extends StatelessWidget {
         child: Row(
           children: [
             if (icon != null) ...[
-              Icon(icon, color: Colors.white, size: 18),
+              Icon(icon, color: color ?? Colors.white, size: 18),
               const SizedBox(width: 10),
             ],
-            Text(
-              label,
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
+            // Expanded, not a bare Text with a Spacer after it: the
+            // bubble's width comes from where its anchor sits, so one
+            // anchored to a centred avatar is far narrower than one
+            // anchored to a corner button, and a natural-width label
+            // overflowed it into black-and-yellow stripes.
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: color ?? Colors.white,
+                  fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
+                ),
               ),
             ),
             if (selected) ...[
-              const Spacer(),
+              const SizedBox(width: 8),
               const Icon(Icons.check_rounded, color: Colors.white, size: 16),
             ],
           ],

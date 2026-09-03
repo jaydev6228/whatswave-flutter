@@ -91,9 +91,9 @@ class _NewGroupScreenState extends State<NewGroupScreen> {
     setState(() => _showNameStep = true);
   }
 
-  Future<void> _showGroupIconOptions() async {
+  Future<void> _showGroupIconOptions(BuildContext anchorContext) async {
     final action = await showAvatarPhotoOptionsSheet(
-      context,
+      anchorContext,
       canRemove: _pendingIconPhoto != null,
     );
     if (!mounted || action == null) {
@@ -289,32 +289,36 @@ class _NewGroupScreenState extends State<NewGroupScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Center(
-                child: GestureDetector(
-                  key: const Key('new_group_icon_picker_button'),
-                  onTap: _isCreating || _isUploadingIcon
-                      ? null
-                      : _showGroupIconOptions,
-                  child: Stack(
-                    clipBehavior: Clip.none,
-                    children: [
-                      _pendingIconPhoto != null
-                          ? ClipOval(
-                              child: Image.file(
-                                _pendingIconPhoto!,
-                                width: 72,
-                                height: 72,
-                                fit: BoxFit.cover,
+                // Builder so the options bubble anchors to the icon rather
+                // than measuring the whole page.
+                child: Builder(
+                  builder: (anchorContext) => GestureDetector(
+                    key: const Key('new_group_icon_picker_button'),
+                    onTap: _isCreating || _isUploadingIcon
+                        ? null
+                        : () => _showGroupIconOptions(anchorContext),
+                    child: Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        _pendingIconPhoto != null
+                            ? ClipOval(
+                                child: Image.file(
+                                  _pendingIconPhoto!,
+                                  width: 72,
+                                  height: 72,
+                                  fit: BoxFit.cover,
+                                ),
+                              )
+                            : AvatarBadge(
+                                label: _previewAvatarLabel(),
+                                color: theme.colorScheme.primary,
+                                size: 72,
                               ),
-                            )
-                          : AvatarBadge(
-                              label: _previewAvatarLabel(),
-                              color: theme.colorScheme.primary,
-                              size: 72,
-                            ),
-                      AvatarCameraBadge(
-                        isBusy: _isCreating || _isUploadingIcon,
-                      ),
-                    ],
+                        AvatarCameraBadge(
+                          isBusy: _isCreating || _isUploadingIcon,
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),

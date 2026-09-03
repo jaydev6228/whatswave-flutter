@@ -41,6 +41,8 @@ class UserProfileLookup {
         accentColorArgb: data?['accentColorArgb'] as int?,
         avatarUrl: data?['avatarUrl'] as String?,
         username: data?['username'] as String?,
+        about: data?['about'] as String?,
+        phoneNumber: data?['phoneNumber'] as String?,
       );
       _cache[uid] = snapshot;
       return snapshot;
@@ -66,6 +68,8 @@ class UserProfileSnapshot {
     this.accentColorArgb,
     this.avatarUrl,
     this.username,
+    this.about,
+    this.phoneNumber,
   });
 
   final String name;
@@ -78,4 +82,13 @@ class UserProfileSnapshot {
 
   /// Lowercase WhatsWave username (without "@"), when set on the profile.
   final String? username;
+
+  /// The user's own status line. Null (or empty) for anyone who has never
+  /// set one, and for a profile written before this field existed --
+  /// callers must omit the row rather than render a blank one.
+  final String? about;
+
+  /// Absent on profiles written before FirebaseAuthRepository started
+  /// publishing it, so this stays nullable even for a real account.
+  final String? phoneNumber;
 }

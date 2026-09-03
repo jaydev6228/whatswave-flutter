@@ -31,6 +31,7 @@ class FakeCommunitiesRepository implements CommunitiesRepository {
 
   List<CommunityHub> _communities;
   List<CommunityContact> _contacts;
+  final Set<String> _deactivatedCommunityIds = <String>{};
   int _createdCommunitySequence = 0;
 
   Future<void> _wait() {
@@ -103,8 +104,25 @@ class FakeCommunitiesRepository implements CommunitiesRepository {
   }
 
   @override
-  Future<CommunitiesOverview> deleteCommunity(String communityId) async {
+  Future<CommunitiesOverview> deactivateCommunity(String communityId) async {
     await _wait();
+    // Deactivation is a state change, not a delete (see
+    // CommunitiesRepository.deactivateCommunity) -- the community stays in
+    // the store and _buildOverview is what keeps it out of every member's
+    // list. Modelled that way here rather than dropping it, so the filter
+    // is what tests exercise: that filter is the part a hard delete used to
+    // get for free.
+    _deactivatedCommunityIds.add(communityId);
+    return _buildOverview();
+  }
+
+  @override
+  Future<CommunitiesOverview> exitCommunity(String communityId) async {
+    await _wait();
+    // The in-memory fake has a single viewer, so leaving a community and
+    // dropping it from this viewer's list are the same thing. The role
+    // check that stops an admin from exiting instead of deactivating lives
+    // in CommunitiesController, so both repositories share it.
     _communities = List<CommunityHub>.unmodifiable(
       _communities.where((community) => community.id != communityId),
     );
@@ -203,6 +221,11 @@ class FakeCommunitiesRepository implements CommunitiesRepository {
             ...community.invitedContactIds,
             contactId,
           ]),
+          // This store has no member roster to count, so the header count has
+          // to move with the invite -- otherwise it stays frozen at its
+          // create-time value while members join, which is the "3 members"
+          // over a 2-person list bug on the Firestore side.
+          memberCount: community.memberCount + 1,
         );
       }),
     );
@@ -253,9 +276,21 @@ class FakeCommunitiesRepository implements CommunitiesRepository {
     _deviceContactsChangedController.add(null);
   }
 
+  /// Community ids still held by this store, deactivated or not -- lets a
+  /// test tell "filtered out of the overview" apart from "deleted".
+  List<String> get debugCommunityIdsInStore =>
+      _communities.map((community) => community.id).toList(growable: false);
+
   CommunitiesOverview _buildOverview() {
     return CommunitiesOverview(
-      communities: _cloneCommunities(_communities),
+      communities: _cloneCommunities(
+        _communities
+            .where(
+              (community) =>
+                  !_deactivatedCommunityIds.contains(community.id),
+            )
+            .toList(growable: false),
+      ),
       contacts: _cloneContacts(_contacts),
     );
   }

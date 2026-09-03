@@ -3,7 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../../../core/models/status_story.dart';
-import '../status_motion.dart';
+import '../../../shared/widgets/status_motion.dart';
 import 'status_media_decoration_overlay.dart';
 import 'text_status_canvas.dart';
 

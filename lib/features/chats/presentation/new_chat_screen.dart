@@ -107,8 +107,30 @@ class _NewChatScreenState extends State<NewChatScreen>
                 (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
               );
 
-            final onWhatsWave =
-                contacts.where((c) => c.isOnWhatsWave).toList(growable: false);
+            // "New chat" is for people you are NOT already chatting with --
+            // anyone with a thread in a chat list is reachable from that
+            // list instead. Archived counts as an existing thread (archiving
+            // moves a chat, it doesn't end it), while a deleted chat leaves
+            // no thread behind at all (deletion is a per-user hide, see
+            // FirestoreChatRepository.deleteThread), so that contact comes
+            // back here. Uses the same two list views the Chats tab renders,
+            // so "in the chat list" can't drift from what's shown there.
+            final chattingUids = <String>{
+              for (final thread in [
+                ...widget.chatsController.inboxThreads(),
+                ...widget.chatsController.archivedThreads(),
+              ])
+                if (!thread.isGroup && thread.participantUid != null)
+                  thread.participantUid!,
+            };
+            // A contact with no matchedUid can't be tied to a thread, so
+            // showing them is the safe side of the rule.
+            final onWhatsWave = contacts
+                .where(
+                  (c) =>
+                      c.isOnWhatsWave && !chattingUids.contains(c.matchedUid),
+                )
+                .toList(growable: false);
             final needsInvite =
                 contacts.where((c) => !c.isOnWhatsWave).toList(growable: false);
             final hasAccess = controller.contactAccessStatus.hasAnyAccess;

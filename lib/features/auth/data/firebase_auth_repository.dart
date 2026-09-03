@@ -218,7 +218,8 @@ class FirebaseAuthRepository implements AuthRepository {
     await user.updateDisplayName(trimmedName);
     await _writeAbout(user.uid, trimmedAbout);
     await _registerInPhoneDirectory(user.uid, user.phoneNumber);
-    await _registerUserProfile(user.uid, trimmedName, trimmedAbout);
+    await _registerUserProfile(
+        user.uid, trimmedName, trimmedAbout, user.phoneNumber);
     await user.reload();
 
     return _appUserFromFirebaseUser(_firebaseAuth.currentUser ?? user);
@@ -240,10 +241,11 @@ class FirebaseAuthRepository implements AuthRepository {
   /// [updateAvatar]) every single time, since this method has no avatarUrl
   /// of its own to preserve.
   Future<void> _registerUserProfile(
-      String uid, String name, String about) async {
+      String uid, String name, String about, String? phoneNumber) async {
     if (name.isEmpty) {
       return;
     }
+    final trimmedPhoneNumber = phoneNumber?.trim() ?? '';
     try {
       await _firestore.collection('userProfiles').doc(uid).set({
         'name': name,
@@ -251,6 +253,10 @@ class FirebaseAuthRepository implements AuthRepository {
         'avatarLabel': _avatarLabelForName(name),
         'accentColorArgb': _accentColorForName(name).toARGB32(),
         'username': _usernameForName(name),
+        // Omitted rather than written empty when Firebase has no number for
+        // this session -- a merged '' would overwrite a good number already
+        // published by an earlier sign-in, leaving Contact info blank.
+        if (trimmedPhoneNumber.isNotEmpty) 'phoneNumber': trimmedPhoneNumber,
       }, SetOptions(merge: true));
     } on FirebaseException {
       // Best-effort -- see doc comment above.
@@ -291,7 +297,7 @@ class FirebaseAuthRepository implements AuthRepository {
     // all the way back to the generic "WhatsWave user"/"?" placeholder.
     // Fire-and-forget: best-effort like the rest of this class, and it
     // shouldn't add a network round trip to every app launch/sign-in.
-    unawaited(_registerUserProfile(user.uid, name, about));
+    unawaited(_registerUserProfile(user.uid, name, about, user.phoneNumber));
     return AppUser(
       name: name,
       phoneNumber: user.phoneNumber ?? '',

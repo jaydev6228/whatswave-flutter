@@ -13,6 +13,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../../app/theme/app_palette.dart';
+import '../../../core/media/media_transfer.dart';
 import '../../../core/models/status_story.dart';
 import '../../calls/application/calls_controller.dart';
 import '../../calls/domain/call_contact.dart';
@@ -28,6 +29,7 @@ import '../../updates/presentation/widgets/status_media_source.dart';
 import '../../updates/presentation/widgets/status_ring_avatar.dart';
 import '../application/chats_controller.dart';
 import '../domain/chat_attachment.dart';
+import '../domain/group_participant.dart';
 import '../domain/chat_message.dart';
 import '../domain/chat_thread.dart';
 import '../domain/message_reaction.dart';
@@ -42,6 +44,7 @@ import 'media_send_preview_screen.dart';
 import 'widgets/emoji_reaction_picker_screen.dart';
 import 'widgets/lazy_heavy_attachment.dart';
 import 'widgets/location_map_preview.dart';
+import 'widgets/media_transfer_chrome.dart';
 import 'widgets/video_thumbnail_source.dart';
 import 'widgets/voice_note_bubble.dart';
 import 'widgets/composer_voice_button.dart';
@@ -119,6 +122,16 @@ class _ConversationScreenState extends State<ConversationScreen> {
   /// a chat with many attachments or overshoot the wait on a slow one.
   bool _stickToBottom = true;
 
+  /// Optimistic message id -> the upload its media is riding on.
+  ///
+  /// Keyed by the local message rather than the thread because several
+  /// albums can be in flight at once, and each bubble draws its own ring.
+  /// An entry lives exactly as long as the send: created before the
+  /// repository call, disposed in its finally, so a failed or cancelled
+  /// send leaves nothing behind to leak or to keep spinning.
+  final Map<String, MediaTransfer> _outboundTransfers =
+      <String, MediaTransfer>{};
+
   /// The most recently observed [ScrollMetrics.maxScrollExtent], used to
   /// tell "content actually grew" apart from "pixels just isn't at the
   /// current max" (e.g. a deliberate scroll-up, or this state's own
@@ -190,6 +203,12 @@ class _ConversationScreenState extends State<ConversationScreen> {
     _ownSendScrollSuppressionTimer?.cancel();
     _highlightClearTimer?.cancel();
     _highlightedMessageIdNotifier.dispose();
+    // A send that is still in flight when the screen goes away: its finally
+    // will not run against a mounted state, so drop the listeners here.
+    for (final transfer in _outboundTransfers.values) {
+      transfer.dispose();
+    }
+    _outboundTransfers.clear();
     _composerController.dispose();
     _messageListController.dispose();
     _composerFocusNode.dispose();
@@ -320,11 +339,25 @@ class _ConversationScreenState extends State<ConversationScreen> {
             listenable: widget.controller,
             builder: (context, _) {
               final thread = widget.controller.threadById(widget.threadId);
-              if (thread == null || thread.isBlocked) {
-                if (thread != null) {
-                  return _BlockedContactBanner(name: thread.name);
-                }
+              if (thread == null) {
                 return const SizedBox.shrink();
+              }
+              if (thread.isBlocked) {
+                return _ComposerNotice(
+                  icon: Icons.block_rounded,
+                  iconColor: Theme.of(context).colorScheme.error,
+                  label: 'You blocked ${thread.name}',
+                );
+              }
+              // A community's announcements channel is admin-post-only
+              // (see ChatThread.isAnnouncementOnly). Members still read and
+              // react here; firestore.rules rejects their sends regardless,
+              // so hiding the composer only saves them a failed attempt.
+              if (!thread.currentUserCanSend) {
+                return const _ComposerNotice(
+                  icon: Icons.campaign_outlined,
+                  label: 'Only admins can send messages',
+                );
               }
               return _buildComposerPane(context, thread);
             },
@@ -332,6 +365,25 @@ class _ConversationScreenState extends State<ConversationScreen> {
         ],
       ),
     );
+  }
+
+  /// The group header's one-line member list, comma separated.
+  ///
+  /// "You" goes last, after every other member: the other names are what
+  /// identify the group at a glance, so they are the ones that must
+  /// survive the ellipsis on a narrow screen -- leading with "You" would
+  /// spend the visible half of the line on the one member the reader
+  /// already knows is there.
+  ///
+  /// Empty when the roster is unknown, which drops the row rather than
+  /// rendering an empty subtitle line.
+  String _groupParticipantNames(ChatThread thread) {
+    final participants = thread.participants ?? const <GroupParticipant>[];
+    return [
+      for (final participant in participants)
+        if (!participant.isSelf) participant.name,
+      if (participants.any((participant) => participant.isSelf)) 'You',
+    ].join(', ');
   }
 
   PreferredSizeWidget _buildConversationAppBar(
@@ -350,6 +402,10 @@ class _ConversationScreenState extends State<ConversationScreen> {
     );
     final showStory = widget.controller.shouldShowStoryForThread(thread);
     final visibleMessages = _visibleMessagesForThread(thread);
+    // Empty for 1:1 chats on purpose: the old "Secure chat preview" line
+    // said nothing, and an empty string is what drops the second row
+    // rather than leaving a blank one reserving height.
+    final subtitle = thread.isGroup ? _groupParticipantNames(thread) : '';
 
     return AppBar(
       titleSpacing: 0,
@@ -392,23 +448,27 @@ class _ConversationScreenState extends State<ConversationScreen> {
                       onTap: () => _openContactInfo(thread.id),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
+                        // Sizes to whatever rows exist so a 1:1 chat, which
+                        // now has no subtitle at all, centres its single
+                        // name line instead of hanging it off the top of a
+                        // Column still stretched to two rows' height.
+                        mainAxisSize: MainAxisSize.min,
                         children: [
                           Text(
                             thread.name,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
-                          Text(
-                            thread.isGroup
-                                ? 'Group chat • ${visibleMessages.length} messages'
-                                : 'Secure chat preview',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.labelMedium?.copyWith(
-                              color: theme.colorScheme.onSurface
-                                  .withValues(alpha: 0.72),
+                          if (subtitle.isNotEmpty)
+                            Text(
+                              subtitle,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.labelMedium?.copyWith(
+                                color: theme.colorScheme.onSurface
+                                    .withValues(alpha: 0.72),
+                              ),
                             ),
-                          ),
                         ],
                       ),
                     ),
@@ -568,6 +628,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
         final bubble = _MessageBubble(
           thread: thread,
           message: message,
+          uploadTransfer: _outboundTransfers[message.id],
           highlightMessageIdNotifier: _highlightedMessageIdNotifier,
           onRetryTap: message.isFromCurrentUser &&
                   message.deliveryState == MessageDeliveryState.failed &&
@@ -579,6 +640,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
           onAttachmentTap: (attachment) {
             _handleAttachmentPreviewTap(
               attachment,
+              album: message.attachments,
               threadName: thread.name,
             );
           },
@@ -777,26 +839,38 @@ class _ConversationScreenState extends State<ConversationScreen> {
     );
   }
 
-  /// The live story this reply points at, or null once it is gone.
+  /// The live story this reply points at and the segment to open in it, or
+  /// null once that segment is gone.
   ///
   /// Matched on the status item the reply was actually sent from, not just
   /// its owner: resolving by owner meant a reply to a status that had long
   /// since been deleted opened whatever unrelated thing that person had
   /// posted in the meantime.
-  StatusStory? _storyForReply(StoryReplyContext replyContext) {
+  ///
+  /// A recorded segment id is authoritative -- if it matches nothing live,
+  /// the status really is gone. Replies sent while the ring's segments had
+  /// not hydrated carry no id (see StoryReplyContext.segmentIndex) and
+  /// resolve by position instead, which is what stops them reopening the
+  /// ring at its first item.
+  (StatusStory, int?)? _storyForReply(StoryReplyContext replyContext) {
     final story =
         widget.updatesController.storyForOwnerUid(replyContext.storyOwnerUid);
     if (story == null) {
       return null;
     }
     final segmentId = replyContext.segmentId;
-    if (segmentId == null) {
-      // Written before segment ids were recorded -- keep the old behaviour
-      // rather than turning every old reply into a dead link.
-      return story;
+    if (segmentId != null) {
+      final index =
+          story.segments.indexWhere((segment) => segment.id == segmentId);
+      return index < 0 ? null : (story, index);
     }
-    final stillLive = story.segments.any((segment) => segment.id == segmentId);
-    return stillLive ? story : null;
+    final segmentIndex = replyContext.segmentIndex;
+    if (segmentIndex != null && segmentIndex < story.totalSegments) {
+      return (story, segmentIndex);
+    }
+    // Written before either was recorded -- keep the old owner-only
+    // behaviour rather than turning every old reply into a dead link.
+    return (story, null);
   }
 
   bool _isStoryReplyAvailable(ChatMessage message) {
@@ -808,20 +882,17 @@ class _ConversationScreenState extends State<ConversationScreen> {
   }
 
   Future<void> _openStoryReplyCard(StoryReplyContext replyContext) async {
-    final story = _storyForReply(replyContext);
-    if (story == null) {
+    final resolved = _storyForReply(replyContext);
+    if (resolved == null) {
       return;
     }
-    // Open the item that was replied to, not the ring's first one.
-    final segmentId = replyContext.segmentId;
-    final index = segmentId == null
-        ? null
-        : story.segments.indexWhere((segment) => segment.id == segmentId);
+    final (story, segmentIndex) = resolved;
     await openStatusStoryViewer(
       context,
       controller: widget.updatesController,
       story: story,
-      initialSegmentIndex: index != null && index >= 0 ? index : null,
+      // Open the item that was replied to, not the ring's first one.
+      initialSegmentIndex: segmentIndex,
       chatsController: widget.controller,
     );
   }
@@ -1087,12 +1158,27 @@ class _ConversationScreenState extends State<ConversationScreen> {
     }
     _scrollToLatestIfNeeded(wasNearLatest: wasNearLatest);
 
-    final didSend = await widget.controller.sendAttachmentMessage(
-      threadId: threadId,
-      attachments: attachments,
-      caption: trimmedCaption.isEmpty ? null : trimmedCaption,
-      replyPreview: replyPreview,
-    );
+    final transfer = MediaTransfer();
+    _outboundTransfers[localMessage.id] = transfer;
+    // The ring is driven by the transfer's own notifications, but the map
+    // entry appearing has to reach the list too, or the first frame of the
+    // upload renders without it.
+    if (mounted) {
+      setState(() {});
+    }
+
+    final bool didSend;
+    try {
+      didSend = await widget.controller.sendAttachmentMessage(
+        threadId: threadId,
+        attachments: attachments,
+        caption: trimmedCaption.isEmpty ? null : trimmedCaption,
+        replyPreview: replyPreview,
+        transfer: transfer,
+      );
+    } finally {
+      _outboundTransfers.remove(localMessage.id)?.dispose();
+    }
 
     if (!mounted) {
       return;
@@ -1121,15 +1207,34 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
   Future<void> _handleAttachmentPreviewTap(
     ChatAttachment attachment, {
+    required List<ChatAttachment> album,
     required String threadName,
   }) async {
     // Location attachments now open the same in-app full preview as every
     // other attachment type (a real map with a pin), rather than jumping
     // straight out to an external Maps app -- "Open in Maps" inside that
     // preview (see LocationMapCanvas) is the deliberate exit point.
+    //
+    // The viewer opens on the tapped attachment but carries the whole
+    // message's album, so the photos an album bubble had to hide behind
+    // "+12" are still reachable -- by swiping, or from the filmstrip.
+    //
+    // Only a run of photos/videos pages: a bubble that mixes in a PDF or a
+    // pinned location isn't a gallery, and swiping from a photo into a
+    // document viewer would be nonsense.
+    final gallery = album
+        .where(
+          (item) =>
+              item.type == ChatAttachmentType.photo ||
+              item.type == ChatAttachmentType.video ||
+              item.isImageDocument,
+        )
+        .toList(growable: false);
+    final index = gallery.indexWhere((item) => item.id == attachment.id);
     await showAttachmentPreview(
       context,
-      attachment: attachment,
+      attachments: index < 0 ? [attachment] : gallery,
+      initialIndex: index < 0 ? 0 : index,
       threadName: threadName,
     );
   }
@@ -2055,11 +2160,23 @@ class _ConversationScreenState extends State<ConversationScreen> {
     required ChatAttachmentType type,
   }) async {
     if (type == ChatAttachmentType.photo) {
-      final pickedFiles = await _imagePicker.pickMultiImage();
+      // requestFullMetadata: false skips the per-asset metadata fetch the
+      // plugin otherwise does on iOS. Nothing here reads EXIF, and on a
+      // sixteen-photo pick that fetch was most of the wait between the
+      // picker closing and the preview opening.
+      final pickedFiles =
+          await _imagePicker.pickMultiImage(requestFullMetadata: false);
       if (!mounted || pickedFiles.isEmpty) {
         return null;
       }
       final messageSeed = DateTime.now().millisecondsSinceEpoch;
+      // Real dimensions, read from each file's header. Without them every
+      // attachment keeps ChatAttachment's 1.25 default, which laid a
+      // portrait photo out in a landscape slot and cropped it to fit, and
+      // left an album unable to tell tall photos from wide ones.
+      final aspects = await Future.wait(
+        pickedFiles.map((file) => encodedImageAspectRatio(file.path)),
+      );
       return [
         for (var index = 0; index < pickedFiles.length; index++)
           ChatAttachment(
@@ -2068,6 +2185,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
             title: 'Photo',
             details: '',
             tintColor: AppPalette.green,
+            aspectRatio: aspects[index] ?? 1.25,
             localMediaPath: pickedFiles[index].path,
           ),
       ];
@@ -2308,10 +2426,18 @@ class _ConversationAppBarHost extends StatelessWidget
   }
 }
 
-class _BlockedContactBanner extends StatelessWidget {
-  const _BlockedContactBanner({required this.name});
+/// Replaces the composer when the viewer cannot send -- a blocked contact,
+/// or a community announcements channel they are not an admin of.
+class _ComposerNotice extends StatelessWidget {
+  const _ComposerNotice({
+    required this.icon,
+    required this.label,
+    this.iconColor,
+  });
 
-  final String name;
+  final IconData icon;
+  final String label;
+  final Color? iconColor;
 
   @override
   Widget build(BuildContext context) {
@@ -2335,14 +2461,15 @@ class _BlockedContactBanner extends StatelessWidget {
       child: Row(
         children: [
           Icon(
-            Icons.block_rounded,
+            icon,
             size: 20,
-            color: theme.colorScheme.error,
+            color: iconColor ??
+                theme.colorScheme.onSurface.withValues(alpha: 0.62),
           ),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              'You blocked $name',
+              label,
               style: theme.textTheme.bodyMedium?.copyWith(
                 fontWeight: FontWeight.w600,
                 color: theme.colorScheme.onSurface.withValues(alpha: 0.78),
@@ -3004,6 +3131,7 @@ class _MessageBubble extends StatelessWidget {
     required this.thread,
     required this.message,
     required this.onAttachmentTap,
+    this.uploadTransfer,
     required this.onReactionTap,
     required this.onAction,
     this.onRetryTap,
@@ -3023,6 +3151,11 @@ class _MessageBubble extends StatelessWidget {
 
   final ChatThread thread;
   final ChatMessage message;
+
+  /// The in-flight upload this (still optimistic) outgoing message's media
+  /// belongs to, or null once there is nothing to report -- see
+  /// ConversationScreen._outboundTransfers.
+  final MediaTransfer? uploadTransfer;
 
   /// True once any message in the thread is selected -- see
   /// ConversationScreen._isSelecting. Suppresses the long-press reaction
@@ -3112,7 +3245,9 @@ class _MessageBubble extends StatelessWidget {
               clipBehavior: Clip.none,
               children: [
                 ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 320),
+                  constraints: BoxConstraints(
+                    maxWidth: _hasFullBleedMedia ? kChatMediaWidth : 320,
+                  ),
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 300),
                     decoration: BoxDecoration(
@@ -3147,15 +3282,30 @@ class _MessageBubble extends StatelessWidget {
                         bottomRight: Radius.circular(isMine ? 5 : 18),
                       ),
                     ),
-                    padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
+                    // Full-bleed media gets no padding at all and is clipped
+                    // to the bubble's own radius; everything that sits
+                    // alongside it (sender name, caption, timestamp) carries
+                    // its own inset instead. See _hasFullBleedMedia.
+                    clipBehavior:
+                        _hasFullBleedMedia ? Clip.antiAlias : Clip.none,
+                    padding: _hasFullBleedMedia
+                        ? const EdgeInsets.only(bottom: 6)
+                        : const EdgeInsets.fromLTRB(10, 6, 10, 6),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         if (thread.isGroup && !isMine)
                           Padding(
-                            padding: const EdgeInsets.only(bottom: 2),
+                            // Text alongside full-bleed media carries the
+                            // inset the bubble gave up.
+                            padding: EdgeInsets.only(
+                              bottom: 2,
+                              top: _hasFullBleedMedia ? 6 : 0,
+                              left: _hasFullBleedMedia ? 10 : 0,
+                              right: _hasFullBleedMedia ? 10 : 0,
+                            ),
                             child: Text(
-                              message.senderName,
+                              _senderLabel,
                               style: theme.textTheme.labelMedium?.copyWith(
                                 color: thread.accentColor,
                                 fontWeight: FontWeight.w700,
@@ -3213,14 +3363,19 @@ class _MessageBubble extends StatelessWidget {
                               // Caption with the time tucked inline bottom-
                               // right -- same line when it fits, end of the
                               // last line when it wraps.
-                              _captionWithInlineMeta(
-                                context,
-                                caption: message.text,
-                                contentColor: contentColor,
-                                captionStyle:
-                                    theme.textTheme.bodyMedium?.copyWith(
-                                  color: contentColor,
-                                  height: 1.28,
+                              Padding(
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: _hasFullBleedMedia ? 10 : 0,
+                                ),
+                                child: _captionWithInlineMeta(
+                                  context,
+                                  caption: message.text,
+                                  contentColor: contentColor,
+                                  captionStyle:
+                                      theme.textTheme.bodyMedium?.copyWith(
+                                    color: contentColor,
+                                    height: 1.28,
+                                  ),
                                 ),
                               ),
                             ] else if (!_hasSoleInlineVoiceNoteAttachment) ...[
@@ -3231,9 +3386,14 @@ class _MessageBubble extends StatelessWidget {
                               // (matching WhatsApp's single combined line),
                               // so it must not be duplicated here.
                               const SizedBox(height: 4),
-                              Align(
-                                alignment: Alignment.centerRight,
-                                child: _metaRow(context, contentColor),
+                              Padding(
+                                padding: EdgeInsets.symmetric(
+                                  horizontal: _hasFullBleedMedia ? 10 : 0,
+                                ),
+                                child: Align(
+                                  alignment: Alignment.centerRight,
+                                  child: _metaRow(context, contentColor),
+                                ),
                               ),
                             ],
                           ] else if (message.hasText)
@@ -3525,7 +3685,7 @@ class _MessageBubble extends StatelessWidget {
             _deliveryIcon(message.deliveryState),
             size: 14,
             color: switch (message.deliveryState) {
-              MessageDeliveryState.read => AppPalette.green,
+              MessageDeliveryState.read => AppPalette.readReceipt,
               MessageDeliveryState.failed => theme.colorScheme.error,
               _ => contentColor.withValues(alpha: 0.72),
             },
@@ -3658,6 +3818,96 @@ class _MessageBubble extends StatelessWidget {
         statusMediaSourceExists(localPath);
   }
 
+  /// Whether this message's media should run to the bubble's own edges.
+  ///
+  /// Photos, video and a map are the picture -- padding around them reads as
+  /// a frame the message does not need, and WhatsApp gives them none. Files,
+  /// contacts and voice notes are cards *about* something and keep theirs.
+  bool get _hasFullBleedMedia {
+    final attachments = message.attachments;
+    if (attachments.isEmpty) {
+      return false;
+    }
+    final isMediaGroup = attachments.every(
+      (attachment) =>
+          attachment.type == ChatAttachmentType.photo ||
+          attachment.type == ChatAttachmentType.video ||
+          attachment.isImageDocument,
+    );
+    if (isMediaGroup) {
+      return true;
+    }
+    return attachments.length == 1 &&
+        attachments.single.type == ChatAttachmentType.location &&
+        attachments.single.hasCoordinates;
+  }
+
+  /// Wraps media in whichever transfer affordance applies: the upload ring
+  /// while this message is still being sent, or the download gate when its
+  /// media is a URL the reader has not fetched yet. Neither applies to
+  /// media that is already on the device, which renders untouched.
+  Widget _withTransferChrome(
+    BuildContext context, {
+    required MediaGateBuilder child,
+  }) {
+    final transfer = uploadTransfer;
+    if (transfer != null) {
+      return MediaTransferOverlay(
+        transfer: transfer,
+        ringKey: Key('media_upload_progress_${message.id}'),
+        // The upload ring is centred over the media, same as the download
+        // gate's -- without this a video being sent drew its play badge
+        // underneath the ring.
+        child: child(
+          context,
+          suppressRemoteMedia: false,
+          transferChromeOnTop: true,
+        ),
+      );
+    }
+    // Never on your own media. Once the upload finishes the attachment
+    // points at its Storage URL, which is not in the reader's disk cache --
+    // so the gate offered to download a photo this device had just sent,
+    // over placeholder tiles, which is nonsense to anyone looking at it.
+    // Outgoing media loads from the network like any other image instead.
+    if (message.isFromCurrentUser) {
+      return child(
+        context,
+        suppressRemoteMedia: false,
+        transferChromeOnTop: false,
+      );
+    }
+    return MediaDownloadGate(
+      messageId: message.id,
+      attachments: message.attachments,
+      builder: child,
+    );
+  }
+
+  /// The sender's name as it is *now*, not as it was when they sent this.
+  ///
+  /// ChatMessage.senderName is a snapshot taken at send time, so renaming
+  /// someone left every message they had already sent labelled with their
+  /// old name forever. Resolving against the live roster by uid fixes the
+  /// whole history at once, with no migration of stored messages.
+  ///
+  /// Falls back to the snapshot when the roster cannot answer: a member who
+  /// has since left the group, a backend that does not record senderUid, or
+  /// an optimistic message that has not round-tripped yet. A stale name
+  /// beats a blank one.
+  String get _senderLabel {
+    final uid = message.senderUid;
+    if (uid == null) {
+      return message.senderName;
+    }
+    for (final participant in thread.participants ?? const <GroupParticipant>[]) {
+      if (participant.uid == uid) {
+        return participant.name;
+      }
+    }
+    return message.senderName;
+  }
+
   Widget _buildAttachmentsContent(BuildContext context, Color contentColor) {
     final attachments = message.attachments;
     final isMediaGroup = attachments.every(
@@ -3667,21 +3917,36 @@ class _MessageBubble extends StatelessWidget {
           attachment.isImageDocument,
     );
 
-    if (isMediaGroup && attachments.length > 1) {
-      return _AttachmentPhotoGrid(
-        attachments: attachments,
-        onAttachmentTap: onAttachmentTap,
-      );
-    }
-
-    if (isMediaGroup && attachments.length == 1) {
-      final attachment = attachments.single;
-      return ConstrainedBox(
-        constraints: const BoxConstraints(maxHeight: 260),
-        child: _MediaAttachmentTile(
-          attachment: attachment,
-          onTap: () => onAttachmentTap(attachment),
-        ),
+    if (isMediaGroup) {
+      // One ring, and one download button, for the whole message -- an
+      // album uploads its photos in parallel and WhatsApp reports the
+      // message, not the tile.
+      return _withTransferChrome(
+        context,
+        child: (
+          context, {
+          required bool suppressRemoteMedia,
+          required bool transferChromeOnTop,
+        }) {
+          if (attachments.length > 1) {
+            return _AttachmentPhotoGrid(
+              attachments: attachments,
+              onAttachmentTap: onAttachmentTap,
+              suppressRemoteMedia: suppressRemoteMedia,
+              transferChromeOnTop: transferChromeOnTop,
+            );
+          }
+          // No height cap: the bubble already caps the width at
+          // kChatMediaWidth and the tile's own aspect ratio sets the height
+          // from there. A height cap on top of that made a portrait photo
+          // narrower than an album of the same subject.
+          return _MediaAttachmentTile(
+            attachment: attachments.single,
+            suppressRemoteMedia: suppressRemoteMedia,
+            transferChromeOnTop: transferChromeOnTop,
+            onTap: () => onAttachmentTap(attachments.single),
+          );
+        },
       );
     }
 
@@ -3689,25 +3954,21 @@ class _MessageBubble extends StatelessWidget {
         attachments.single.type == ChatAttachmentType.location &&
         attachments.single.hasCoordinates) {
       final attachment = attachments.single;
-      // The map has a fixed 1.45 aspect ratio, so at the bubble's ~300px
-      // content width its natural height is ~207. The height cap has to sit
-      // above that (240) or it clamps the height first and the map ends up
-      // narrower than the bubble -- which left a gap on its right once the
-      // timestamp row stretched the bubble to full width. With the cap
-      // above the natural height, width binds and the map fills the bubble.
-      return ConstrainedBox(
-        constraints: const BoxConstraints(maxHeight: 240),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(14),
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              key: Key('attachment_preview_${attachment.id}'),
-              onTap: () => onAttachmentTap(attachment),
-              child: LazyLocationMapSnippet(
-                latitude: attachment.latitude!,
-                longitude: attachment.longitude!,
-              ),
+      // The map has a fixed 1.45 aspect ratio, so at the bubble's
+      // kChatMediaWidth it is ~172 tall. No height cap: one above that
+      // natural height does nothing, and one below it clamps the height
+      // first and leaves the map narrower than the bubble -- a gap down the
+      // right once the timestamp row stretches the bubble to full width.
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            key: Key('attachment_preview_${attachment.id}'),
+            onTap: () => onAttachmentTap(attachment),
+            child: LazyLocationMapSnippet(
+              latitude: attachment.latitude!,
+              longitude: attachment.longitude!,
             ),
           ),
         ),
@@ -4206,41 +4467,189 @@ class _ReactionBadge extends StatelessWidget {
   }
 }
 
-/// A 2-column grid of full-bleed photo tiles for a message that bundles
-/// several photos together (e.g. picked via a multi-select gallery pick),
-/// matching how WhatsApp/iMessage group multiple photos into one bubble
-/// instead of stacking separate bubbles.
+/// How wide a media message gets: photo, album, video, map.
+///
+/// Media is a preview, not the photos themselves -- the viewer is one tap
+/// away. Capping it keeps a sixteen-photo message from dominating the
+/// thread, and pinning every media type to the same number stops a map
+/// being one width, a lone photo another and an album a third.
+///
+/// Deliberately below the 320 a text bubble gets: the caption row inside a
+/// media bubble stretches to the bubble's full width, so a bubble capped at
+/// 320 around a 250-wide mosaic left a band of empty green down the right.
+const double kChatMediaWidth = 250;
+
+/// The mosaic a message bundling several photos renders as, matching
+/// WhatsApp's album bubble: one block with round outer corners only, its
+/// tiles separated by a hairline seam rather than a gap, and a layout that
+/// changes with the count instead of always being a 2-column wrap.
 class _AttachmentPhotoGrid extends StatelessWidget {
   const _AttachmentPhotoGrid({
     required this.attachments,
     required this.onAttachmentTap,
+    this.suppressRemoteMedia = false,
+    this.transferChromeOnTop = false,
   });
 
   final List<ChatAttachment> attachments;
   final ValueChanged<ChatAttachment> onAttachmentTap;
+  final bool suppressRemoteMedia;
+  final bool transferChromeOnTop;
+
+  /// Tiles an album shows before it stops and counts the rest.
+  ///
+  /// A bubble that renders every attachment grows without limit -- sixteen
+  /// photos became a column taller than the screen that pushed the rest of
+  /// the conversation out of reach. Four fills the mosaic and leaves the
+  /// bubble a readable size whatever was sent.
+  static const int _maxVisibleTiles = 4;
+
+  /// Wide enough to read as a seam, narrow enough not to read as a gap.
+  /// Each tile used to carry its own 14pt radius inside a 4pt gap, which
+  /// left four separated cards rather than one album.
+  static const double _seam = 2;
 
   @override
   Widget build(BuildContext context) {
-    const spacing = 4.0;
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final tileWidth = (constraints.maxWidth - spacing) / 2;
-        return Wrap(
-          spacing: spacing,
-          runSpacing: spacing,
+    var visible = attachments.take(_maxVisibleTiles).toList(growable: false);
+    final hiddenCount = attachments.length - visible.length;
+
+    if (visible.length == 3) {
+      // The hero slot is half the width and the full height, so it wants
+      // the tallest photo of the three. Taking whichever happened to be
+      // picked first put a landscape photo in a portrait slot and cropped
+      // its subject out.
+      final heroIndex = _tallestIndex(visible);
+      if (heroIndex != 0) {
+        final reordered = [...visible];
+        reordered.insert(0, reordered.removeAt(heroIndex));
+        visible = reordered;
+      }
+    }
+
+    // Square, whatever the count. Every album in a thread is then the same
+    // height, so scrolling past a run of them has a steady rhythm instead
+    // of each one being its own size. A pair sits side by side rather than
+    // stacked, which is what gives each of the two an upright slot -- a
+    // square block split into two rows would have made each photo a wide
+    // strip.
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: AspectRatio(
+        aspectRatio: 1,
+        child: _layout(context, visible, hiddenCount),
+      ),
+    );
+  }
+
+  static int _tallestIndex(List<ChatAttachment> photos) {
+    var best = 0;
+    for (var index = 1; index < photos.length; index++) {
+      if (photos[index].aspectRatio < photos[best].aspectRatio) {
+        best = index;
+      }
+    }
+    return best;
+  }
+
+  Widget _layout(
+    BuildContext context,
+    List<ChatAttachment> visible,
+    int hiddenCount,
+  ) {
+    Widget tile(int index) => _tile(context, visible, index, hiddenCount);
+
+    return switch (visible.length) {
+      2 => Row(
           children: [
-            for (final attachment in attachments)
-              SizedBox(
-                width: tileWidth,
-                child: _MediaAttachmentTile(
-                  attachment: attachment,
-                  aspectRatio: 1,
-                  onTap: () => onAttachmentTap(attachment),
-                ),
-              ),
+            Expanded(child: tile(0)),
+            const SizedBox(width: _seam),
+            Expanded(child: tile(1)),
           ],
-        );
-      },
+        ),
+      // One tall photo beside a stack of two -- the same shape the group
+      // icon uses for three members (see CompositeGroupAvatar).
+      3 => Row(
+          children: [
+            Expanded(child: tile(0)),
+            const SizedBox(width: _seam),
+            Expanded(
+              child: Column(
+                children: [
+                  Expanded(child: tile(1)),
+                  const SizedBox(height: _seam),
+                  Expanded(child: tile(2)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      _ => Column(
+          children: [
+            Expanded(
+              child: Row(
+                children: [
+                  Expanded(child: tile(0)),
+                  const SizedBox(width: _seam),
+                  Expanded(child: tile(1)),
+                ],
+              ),
+            ),
+            const SizedBox(height: _seam),
+            Expanded(
+              child: Row(
+                children: [
+                  Expanded(child: tile(2)),
+                  const SizedBox(width: _seam),
+                  Expanded(child: tile(3)),
+                ],
+              ),
+            ),
+          ],
+        ),
+    };
+  }
+
+  Widget _tile(
+    BuildContext context,
+    List<ChatAttachment> visible,
+    int index,
+    int hiddenCount,
+  ) {
+    final attachment = visible[index];
+    final tile = _MediaAttachmentTile(
+      attachment: attachment,
+      fill: true,
+      suppressRemoteMedia: suppressRemoteMedia,
+      transferChromeOnTop: transferChromeOnTop,
+      onTap: () => onAttachmentTap(attachment),
+    );
+    if (hiddenCount == 0 || index != visible.length - 1) {
+      return tile;
+    }
+    // The count sits *on* the last thumbnail rather than replacing it, so
+    // the album still reads as photos and the tile keeps opening the viewer
+    // -- where the rest of them are one swipe away.
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        tile,
+        IgnorePointer(
+          child: ColoredBox(
+            color: Colors.black.withValues(alpha: 0.55),
+            child: Center(
+              child: Text(
+                '+$hiddenCount',
+                key: const Key('chat_album_overflow_count'),
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -4254,16 +4663,50 @@ class _AttachmentPhotoGrid extends StatelessWidget {
 /// jcenter() Maven repo and fails to compile on any current Android
 /// Gradle setup). Falls back to a tinted swatch with a type icon when
 /// there's no local media to show, or thumbnail generation fails.
+/// [AspectRatio] when given one, a passthrough when not.
+class _MaybeAspectRatio extends StatelessWidget {
+  const _MaybeAspectRatio({required this.aspectRatio, required this.child});
+
+  final double? aspectRatio;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final ratio = aspectRatio;
+    if (ratio == null) {
+      return child;
+    }
+    return AspectRatio(aspectRatio: ratio, child: child);
+  }
+}
+
 class _MediaAttachmentTile extends StatefulWidget {
   const _MediaAttachmentTile({
     required this.attachment,
     required this.onTap,
-    this.aspectRatio,
+    this.fill = false,
+    this.suppressRemoteMedia = false,
+    this.transferChromeOnTop = false,
   });
 
   final ChatAttachment attachment;
   final VoidCallback onTap;
-  final double? aspectRatio;
+
+  /// A download button or a transfer ring is already centred over this
+  /// tile, so the video play badge -- also centred, same 46pt circle --
+  /// must stand down or the two render one on top of the other: the
+  /// download arrow superimposed on the play glyph.
+  final bool transferChromeOnTop;
+
+  /// Render the placeholder instead of fetching, while a download gate is
+  /// still offering to fetch. Without this the cached-network provider
+  /// pulls the bytes down anyway, behind the button asking whether to.
+  final bool suppressRemoteMedia;
+
+  /// Fill the slot the parent gives, with no rounding of its own -- for a
+  /// tile inside an album mosaic, where only the mosaic's outer corners are
+  /// round and each tile's own radius would cut a notch into its neighbour.
+  final bool fill;
 
   @override
   State<_MediaAttachmentTile> createState() => _MediaAttachmentTileState();
@@ -4289,29 +4732,48 @@ class _MediaAttachmentTileState extends State<_MediaAttachmentTile> {
     final localPath = attachment.localMediaPath;
     final isPhoto = attachment.type == ChatAttachmentType.photo ||
         attachment.isImageDocument;
-    final hasRealPhoto =
-        isPhoto && localPath != null && statusMediaSourceExists(localPath);
-    final hasRealVideo = attachment.type == ChatAttachmentType.video &&
+    final isGated = widget.suppressRemoteMedia &&
+        localPath != null &&
+        isRemoteStatusMediaPath(localPath);
+    final hasRealPhoto = isPhoto &&
+        !isGated &&
         localPath != null &&
         statusMediaSourceExists(localPath);
-    final resolvedAspectRatio =
-        (widget.aspectRatio ?? attachment.aspectRatio).clamp(0.7, 1.5);
+    final hasRealVideo = attachment.type == ChatAttachmentType.video &&
+        !isGated &&
+        localPath != null &&
+        statusMediaSourceExists(localPath);
+    // 0.56 is 9:16 -- a phone portrait shot held upright. The old 0.7
+    // floor cropped the top and bottom off every one of them; now that
+    // aspectRatio carries the file's real shape (see
+    // encodedImageAspectRatio) the clamp only has to stop the extremes.
+    final resolvedAspectRatio = attachment.aspectRatio.clamp(0.56, 1.9);
 
     return ClipRRect(
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: widget.fill ? BorderRadius.zero : BorderRadius.circular(14),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
           key: Key('attachment_preview_${attachment.id}'),
           onTap: widget.onTap,
-          child: AspectRatio(
-            aspectRatio: resolvedAspectRatio,
+          child: _MaybeAspectRatio(
+            aspectRatio: widget.fill ? null : resolvedAspectRatio,
             child: Stack(
               fit: StackFit.expand,
               children: [
                 if (hasRealPhoto)
                   Image(
-                    image: imageProviderForStatusMediaPath(localPath)!,
+                    image: imageProviderForStatusMediaPath(
+                      localPath,
+                      // A bubble tile is at most kChatMediaWidth wide, and
+                      // half that inside a mosaic. Decoding at the real
+                      // device pixels it occupies -- rather than the
+                      // camera's -- is what keeps a thread of albums
+                      // scrollable while it loads.
+                      maxDecodeWidth: (kChatMediaWidth *
+                              MediaQuery.devicePixelRatioOf(context))
+                          .round(),
+                    )!,
                     fit: BoxFit.cover,
                     gaplessPlayback: true,
                     loadingBuilder: (context, child, loadingProgress) {
@@ -4339,7 +4801,8 @@ class _MediaAttachmentTileState extends State<_MediaAttachmentTile> {
                   )
                 else
                   _placeholder(),
-                if (attachment.type == ChatAttachmentType.video)
+                if (attachment.type == ChatAttachmentType.video &&
+                    !widget.transferChromeOnTop)
                   Center(
                     child: Container(
                       width: 46,

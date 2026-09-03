@@ -338,6 +338,7 @@ abstract final class DemoData {
       required String previewText,
       required DateTime sentAt,
       required String senderName,
+      bool isAnnouncementOnly = false,
     }) {
       return ChatThread(
         id: id,
@@ -346,6 +347,7 @@ abstract final class DemoData {
         accentColor: accentColor,
         isGroup: true,
         isCommunityGroup: true,
+        isAnnouncementOnly: isAnnouncementOnly,
         unreadCount: unreadCount,
         participants: const [me],
         messages: List<ChatMessage>.unmodifiable([
@@ -371,6 +373,7 @@ abstract final class DemoData {
             'QA closes at 6 PM, release notes at 7 PM, and the announcement thread opens right after sign-off.',
         sentAt: now.subtract(const Duration(hours: 3, minutes: 15)),
         senderName: 'Studio admin',
+        isAnnouncementOnly: true,
       ),
       communityThread(
         id: 'studio-launch-room',
@@ -412,6 +415,7 @@ abstract final class DemoData {
             'Terminal maps, baggage rules, and the airport meetup point are all in the announcement channel now.',
         sentAt: now.subtract(const Duration(days: 1, hours: 5)),
         senderName: 'Noah',
+        isAnnouncementOnly: true,
       ),
       communityThread(
         id: 'trip-flights',
@@ -718,6 +722,10 @@ abstract final class DemoData {
     ),
   ];
 
+  /// The demo user is the creator of every sample community, so each one
+  /// comes back with `viewerIsAdmin: true` -- that flag is what gates the
+  /// admin-only deactivate action against a member's exit
+  /// (https://faq.whatsapp.com/785738926054798).
   static List<CommunityHub> buildCommunities() {
     final now = DateTime.now();
     return <CommunityHub>[
@@ -728,6 +736,7 @@ abstract final class DemoData {
             'Announcements, launch rooms, critiques, and cross-functional coordination in one place.',
         avatarLabel: 'SC',
         accentColor: AppPalette.green,
+        viewerIsAdmin: true,
         memberCount: 48,
         unreadCount: 9,
         announcementThreadId: 'studio-community-announcements',
@@ -774,6 +783,7 @@ abstract final class DemoData {
             'Trip planning, flights, stay details, and shared memories for the whole crew.',
         avatarLabel: 'FT',
         accentColor: AppPalette.amber,
+        viewerIsAdmin: true,
         memberCount: 11,
         unreadCount: 2,
         announcementThreadId: 'friends-trip-2026-announcements',
@@ -834,7 +844,14 @@ abstract final class DemoData {
           .map((part) => part[0].toUpperCase())
           .join(),
       accentColor: AppPalette.emerald,
-      memberCount: 1,
+      // You just created it, so you are its admin -- the role that gates
+      // deactivating a community against a member's exit
+      // (https://faq.whatsapp.com/785738926054798).
+      viewerIsAdmin: true,
+      // The count is the people you added, not the access roster you are
+      // already on -- counting the creator here is what made a community read
+      // one member higher than its own membership list.
+      memberCount: 0,
       unreadCount: 0,
       announcement: CommunityAnnouncement(
         headline: 'Welcome to $title',

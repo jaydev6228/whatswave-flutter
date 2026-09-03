@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 
-/// Shared motion for the whole status/story feature.
+/// Shared motion for in-place mode changes anywhere in the app.
+///
+/// Tuned on the status/story composer, then lifted out of that feature so
+/// group info's Edit/Done swap uses the same timing instead of a second,
+/// slightly-different one.
 ///
 /// Every tool in the composer used to swap its chrome in a single frame --
 /// tapping crop, draw or blur snapped the toolbar, the trays and the frame
@@ -24,6 +28,14 @@ const Curve kStatusMotionCurve = Curves.easeOutCubic;
 /// Leaving: accelerates away, so a dismissal never feels like it lingers.
 const Curve kStatusMotionReverseCurve = Curves.easeInCubic;
 
+/// The shared duration, or none at all when the platform asks for reduced
+/// motion -- the same contract ShellTabMotion.durationFor honours for the
+/// tab bar.
+Duration statusMotionDuration(BuildContext context) =>
+    MediaQuery.disableAnimationsOf(context)
+        ? Duration.zero
+        : kStatusMotionDuration;
+
 /// Cross-fades [child] against whatever it replaced, on the shared timing.
 ///
 /// Used for chrome that swaps wholesale between tool modes; the [ValueKey]
@@ -33,16 +45,26 @@ class StatusModeSwitcher extends StatelessWidget {
   const StatusModeSwitcher({
     required this.child,
     this.alignment = Alignment.center,
+    this.unboundedWidth = false,
     super.key,
   });
 
   final Widget child;
   final AlignmentGeometry alignment;
 
+  /// Let the outgoing child keep its own width as well as its own height.
+  ///
+  /// Off by default because the composer's trays are Rows with Expanded
+  /// children, which assert under an unbounded width. Turn it on when the
+  /// two variants are different widths and neither flexes -- group info's
+  /// app bar swaps a lone "Edit" for a "Cancel/Done" pair, and squeezing
+  /// the outgoing pair into "Edit"'s box overflowed it by 117pt.
+  final bool unboundedWidth;
+
   @override
   Widget build(BuildContext context) {
     return AnimatedSwitcher(
-      duration: kStatusMotionDuration,
+      duration: statusMotionDuration(context),
       switchInCurve: kStatusMotionCurve,
       switchOutCurve: kStatusMotionReverseCurve,
       // Staggered, not overlapped: the outgoing chrome is gone before the
@@ -89,9 +111,12 @@ class StatusModeSwitcher extends StatelessWidget {
                   // taller row visibly collapsed as it faded. Width stays
                   // inherited (null passes the parent's constraint straight
                   // through) because these rows are Rows of buttons, which
-                  // cannot lay out unbounded horizontally.
+                  // cannot lay out unbounded horizontally -- unless the
+                  // caller opts in with [unboundedWidth].
                   minHeight: 0,
                   maxHeight: double.infinity,
+                  minWidth: unboundedWidth ? 0 : null,
+                  maxWidth: unboundedWidth ? double.infinity : null,
                   child: previousChild,
                 ),
               ),

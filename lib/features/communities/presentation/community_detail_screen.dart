@@ -81,19 +81,42 @@ class CommunityDetailScreen extends StatelessWidget {
                         controller: controller,
                         community: community,
                       );
+                    case _CommunityDetailMenuAction.exit:
+                      await _confirmAndExitCommunity(
+                        context,
+                        controller: controller,
+                        community: community,
+                      );
                   }
                 },
+                // Deleting is the admin's action; a member exits instead.
+                // Both were "Delete community" before, so a member tapped a
+                // destructive-looking item that the security rules then
+                // refused -- they were told the delete failed, when what
+                // they actually wanted (leaving) was never on offer at all.
                 itemBuilder: (menuContext) => [
-                  PopupMenuItem(
-                    key: const Key('community_detail_delete_menu_item'),
-                    value: _CommunityDetailMenuAction.delete,
-                    child: Text(
-                      'Delete community',
-                      style: TextStyle(
-                        color: Theme.of(menuContext).colorScheme.error,
+                  if (community.viewerIsAdmin)
+                    PopupMenuItem(
+                      key: const Key('community_detail_delete_menu_item'),
+                      value: _CommunityDetailMenuAction.delete,
+                      child: Text(
+                        'Deactivate community',
+                        style: TextStyle(
+                          color: Theme.of(menuContext).colorScheme.error,
+                        ),
+                      ),
+                    )
+                  else
+                    PopupMenuItem(
+                      key: const Key('community_detail_exit_menu_item'),
+                      value: _CommunityDetailMenuAction.exit,
+                      child: Text(
+                        'Exit community',
+                        style: TextStyle(
+                          color: Theme.of(menuContext).colorScheme.error,
+                        ),
                       ),
                     ),
-                  ),
                 ],
               ),
             ],
@@ -199,7 +222,53 @@ class CommunityDetailScreen extends StatelessWidget {
   }
 }
 
-enum _CommunityDetailMenuAction { delete }
+enum _CommunityDetailMenuAction { delete, exit }
+
+Future<void> _confirmAndExitCommunity(
+  BuildContext context, {
+  required CommunitiesController controller,
+  required CommunityHub community,
+}) async {
+  final shouldExit = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) {
+      return LiquidGlassDialog(
+        title: const Text('Exit community?'),
+        content: Text(
+          'You will stop receiving announcements from "${community.title}". '
+          'The community and its groups stay for everyone else.',
+        ),
+        actions: [
+          TextButton(
+            key: const Key('community_detail_cancel_exit_button'),
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            key: const Key('community_detail_confirm_exit_button'),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(
+              'Exit',
+              style: TextStyle(
+                color: Theme.of(dialogContext).colorScheme.error,
+              ),
+            ),
+          ),
+        ],
+      );
+    },
+  );
+  if (shouldExit != true || !context.mounted) {
+    return;
+  }
+  final didExit = await controller.exitCommunity(community.id);
+  if (!context.mounted) {
+    return;
+  }
+  if (didExit) {
+    Navigator.of(context).pop();
+  }
+}
 
 Future<void> _confirmAndDeleteCommunity(
   BuildContext context, {
@@ -210,10 +279,17 @@ Future<void> _confirmAndDeleteCommunity(
     context: context,
     builder: (dialogContext) {
       return LiquidGlassDialog(
-        title: const Text('Delete community?'),
+        title: const Text('Deactivate community?'),
+        // Says what deactivation actually does, which is not what this
+        // used to claim ("permanently removes X and its groups for
+        // everyone"): the groups are disconnected and survive as ordinary
+        // group chats, only the community and its announcement group go,
+        // and it cannot be undone
+        // (https://faq.whatsapp.com/785738926054798).
         content: Text(
-          'This permanently removes "${community.title}" and its groups '
-          'for everyone.',
+          '"${community.title}" disappears for everyone. Its groups keep '
+          'working as ordinary group chats, its announcements close, and '
+          'this cannot be undone.',
         ),
         actions: [
           TextButton(
@@ -223,7 +299,7 @@ Future<void> _confirmAndDeleteCommunity(
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(true),
             child: Text(
-              'Delete',
+              'Deactivate',
               style: TextStyle(
                 color: Theme.of(dialogContext).colorScheme.error,
               ),
@@ -238,7 +314,7 @@ Future<void> _confirmAndDeleteCommunity(
     return;
   }
 
-  final didDelete = await controller.deleteCommunity(community.id);
+  final didDelete = await controller.deactivateCommunity(community.id);
   if (!context.mounted) {
     return;
   }
@@ -764,8 +840,11 @@ class _CommunityDetailInviteSheetState
     required CommunityContact contact,
   }) {
     final membershipState = contact.membershipStateFor(community.id);
-    final isBusy = controller.isContactBusy(contact.id) ||
-        (contact.isOnWhatsWave && controller.isCommunityBusy(community.id));
+    // Only the row being added may go busy. isCommunityBusy is a single
+    // per-community flag the invite mutation sets for the whole community,
+    // so ORing it in here flipped every contact's button to "Adding..." at
+    // once when one row was tapped.
+    final isBusy = controller.isContactBusy(contact.id);
 
     late final String label;
     late final VoidCallback? onPressed;

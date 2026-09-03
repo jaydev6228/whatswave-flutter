@@ -50,15 +50,22 @@ class SessionSplashScreen extends StatelessWidget {
                     color: theme.colorScheme.onSurface,
                   ),
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  message ??
-                      'Restoring your session, chats, and recent activity.',
-                  textAlign: TextAlign.center,
-                  style: theme.textTheme.bodyLarge?.copyWith(
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.72),
+                // Only a real status message from the auth controller. There
+                // used to be a fallback line describing what the app was
+                // doing, which said the same thing the spinner already does
+                // and showed on every launch whether or not anything was
+                // being restored.
+                if (message?.trim().isNotEmpty ?? false) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    message!,
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      color:
+                          theme.colorScheme.onSurface.withValues(alpha: 0.72),
+                    ),
                   ),
-                ),
+                ],
                 const SizedBox(height: 24),
                 const SizedBox(
                   width: 28,

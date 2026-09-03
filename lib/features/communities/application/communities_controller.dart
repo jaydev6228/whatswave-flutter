@@ -19,6 +19,7 @@ typedef GroupThreadCreator = Future<String?> Function({
   required String name,
   required List<String> memberUids,
   bool isCommunityGroup,
+  bool isAnnouncementOnly,
 });
 
 class CommunitiesController extends ChangeNotifier {
@@ -301,6 +302,29 @@ class CommunitiesController extends ChangeNotifier {
     return null;
   }
 
+  /// This device's own address-book number for a matched user, or null.
+  ///
+  /// Only the profile owner's session can write `userProfiles/{uid}
+  /// .phoneNumber`, so a contact who hasn't opened a build that writes it
+  /// publishes no number at all and Contact info showed no number for them.
+  /// The viewer's phone book already holds it -- that's how the contact was
+  /// matched in the first place -- so this reads it back out. Empty when
+  /// contacts were never loaded (e.g. permission not granted), which is
+  /// exactly the "no number, no row" case.
+  ///
+  /// Matches [CommunityContact.id] too because demo threads carry no
+  /// participantUid and fall back to their thread id, which is the slug the
+  /// demo contacts are keyed by (same fallback as
+  /// FakeChatRepository.fetchContactProfile).
+  String? phoneNumberForUid(String uid) {
+    for (final contact in _contacts) {
+      if (contact.matchedUid == uid || contact.id == uid) {
+        return contact.phoneNumber;
+      }
+    }
+    return null;
+  }
+
   bool isCommunityBusy(String communityId) =>
       _busyCommunityIds.contains(communityId);
 
@@ -353,21 +377,73 @@ class CommunitiesController extends ChangeNotifier {
     );
   }
 
-  Future<bool> deleteCommunity(String communityId) async {
+  /// Deactivates [communityId] -- it leaves every member's list, its
+  /// groups carry on as ordinary group chats, and its announcement group
+  /// closes (https://faq.whatsapp.com/785738926054798). Cannot be undone.
+  Future<bool> deactivateCommunity(String communityId) async {
+    // Deactivating a community is an admin-only action on WhatsApp; a
+    // member's equivalent is [exitCommunity]
+    // (https://faq.whatsapp.com/785738926054798). Refusing here rather than
+    // waiting for the backend keeps a member from being told a community is
+    // gone when it is not.
+    final community = communityById(communityId);
+    if (community != null && !community.viewerIsAdmin) {
+      _errorMessage =
+          'Only community admins can delete a community. You can exit it '
+          'instead.';
+      notifyListeners();
+      return false;
+    }
+
+    return _runCommunityAction(
+      communityId,
+      () => _repository.deactivateCommunity(communityId),
+      fallbackError: 'We could not delete that community right now.',
+    );
+  }
+
+  /// Leaves [communityId] without touching it for anyone else.
+  ///
+  /// WhatsApp lets any member exit a community at any time -- exiting takes
+  /// you out of the community and its announcement group while the
+  /// community carries on (https://faq.whatsapp.com/1312647189536807). The
+  /// admin who created it deactivates instead, which is why that case is
+  /// turned back here.
+  Future<bool> exitCommunity(String communityId) async {
+    final community = communityById(communityId);
+    if (community != null && community.viewerIsAdmin) {
+      _errorMessage =
+          'You created this community. Delete it instead of exiting.';
+      notifyListeners();
+      return false;
+    }
+
+    return _runCommunityAction(
+      communityId,
+      () => _repository.exitCommunity(communityId),
+      fallbackError: 'We could not exit that community right now.',
+    );
+  }
+
+  Future<bool> _runCommunityAction(
+    String communityId,
+    Future<CommunitiesOverview> Function() action, {
+    required String fallbackError,
+  }) async {
     _busyCommunityIds.add(communityId);
     _errorMessage = null;
     notifyListeners();
 
     var didSucceed = false;
     try {
-      final overview = await _repository.deleteCommunity(communityId);
+      final overview = await action();
       _communities = overview.communities;
       _contacts = overview.contacts;
       didSucceed = true;
     } on CommunitiesRepositoryException catch (error) {
       _errorMessage = error.message;
     } catch (_) {
-      _errorMessage = 'We could not delete that community right now.';
+      _errorMessage = fallbackError;
     }
 
     _busyCommunityIds.remove(communityId);
@@ -435,6 +511,11 @@ class CommunitiesController extends ChangeNotifier {
         name: 'Announcements',
         memberUids: memberUids,
         isCommunityGroup: true,
+        // Only the community admin creating this thread may post into it
+        // -- it is created by the owner, so it is their uid that lands in
+        // the thread's groupAdminUids and passes the firestore.rules
+        // message-create gate. See ChatThread.isAnnouncementOnly.
+        isAnnouncementOnly: true,
       );
       if (threadId == null) {
         return;

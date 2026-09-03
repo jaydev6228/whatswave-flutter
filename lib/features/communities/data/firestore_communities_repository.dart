@@ -41,6 +41,12 @@ import 'device_contacts_service.dart';
 /// `inviteContactToCommunity`) -- there's no self-service join/invite-link
 /// flow yet, and no separate pending-invite/accept step: being invited by
 /// the owner immediately grants membership.
+///
+/// The one write a non-owner may make is removing their own uid from
+/// `memberUids` (see [exitCommunity]) -- WhatsApp guarantees every member a
+/// way out of a community independently of its admins
+/// (https://faq.whatsapp.com/1312647189536807), and without that carve-out
+/// an owner-only write rule means being added is permanent.
 class FirestoreCommunitiesRepository implements CommunitiesRepository {
   FirestoreCommunitiesRepository({
     FirebaseFirestore? firestore,
@@ -83,7 +89,7 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
       final snapshot =
           await _communitiesRef.where('memberUids', arrayContains: uid).get();
       final communities = snapshot.docs
-          .map(_communityFromDoc)
+          .map((doc) => _communityFromDoc(doc, uid))
           .whereType<CommunityHub>()
           .toList(growable: false);
       return CommunitiesOverview(
@@ -200,6 +206,15 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
     try {
       await _communitiesRef.doc(communityId).update({'unreadCount': 0});
     } on FirebaseException catch (e) {
+      // `unreadCount` lives on the shared community document, which only the
+      // owner may write, so a plain member opening a community always gets
+      // permission-denied here. Opening is a read, not a mutation the member
+      // asked for -- surfacing it would put an error banner on every single
+      // community a member opens -- so this one code is swallowed while any
+      // other failure still surfaces.
+      if (e.code == 'permission-denied') {
+        return fetchOverview();
+      }
       throw CommunitiesRepositoryException(
         e.message ?? 'Could not update that community.',
       );
@@ -208,16 +223,119 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
   }
 
   @override
-  Future<CommunitiesOverview> deleteCommunity(String communityId) async {
-    _requireCurrentUid;
+  Future<CommunitiesOverview> deactivateCommunity(String communityId) async {
+    final uid = _requireCurrentUid;
     try {
-      await _communitiesRef.doc(communityId).delete();
+      // Deactivating a community is admin-only on WhatsApp -- a member's
+      // equivalent action is to exit
+      // (https://faq.whatsapp.com/785738926054798). `firestore.rules`
+      // already enforces this, but checking first turns a raw
+      // permission-denied into the reason, and stops a member believing
+      // they removed a community that is still standing.
+      final doc = await _communitiesRef.doc(communityId).get();
+      final data = doc.data();
+      if (data == null) {
+        throw const CommunitiesRepositoryException(
+          'That community is no longer available.',
+        );
+      }
+      final owner = data['ownerUid'] as String?;
+      if (owner != null && owner != uid) {
+        throw const CommunitiesRepositoryException(
+          'Only community admins can delete a community. You can exit it '
+          'instead.',
+        );
+      }
+      // Release the groups BEFORE the community goes, not after: if this
+      // half fails the community is still standing and the action can be
+      // retried, whereas the other order strands threads nothing can
+      // reach.
+      await _releaseGroupThreads(data);
+      // A state change, not a delete. Deactivation must leave the member
+      // groups intact (https://faq.whatsapp.com/785738926054798), and a
+      // hard delete took the `groups` roster -- the only record of which
+      // threads belonged here -- down with the document.
+      // `deactivatedAt` is what `_communityFromDoc` filters on, so this
+      // one write is what removes the community from every member's list.
+      await _communitiesRef.doc(communityId).update({
+        'deactivatedAt': FieldValue.serverTimestamp(),
+      });
     } on FirebaseException catch (e) {
       throw CommunitiesRepositoryException(
-        e.message ?? 'Could not delete that community.',
+        e.message ?? 'Could not deactivate that community.',
       );
     }
     return fetchOverview();
+  }
+
+  /// Turns every member group's backing thread back into an ordinary group
+  /// chat, so it survives its community and shows up in Chats.
+  ///
+  /// WhatsApp's deactivation disconnects the member groups and they stay
+  /// usable (https://faq.whatsapp.com/785738926054798). Here "disconnected"
+  /// has to mean clearing `isCommunityGroup`: ChatsController hides
+  /// community-backed threads from every Chats list view because the
+  /// Communities tab owns them, so a thread still flagged after its
+  /// community is gone belongs to nobody and is reachable from nowhere.
+  ///
+  /// The announcement thread is deliberately NOT released. WhatsApp closes
+  /// the announcement group on deactivation, and leaving it flagged is
+  /// exactly that: it stays out of Chats and its only entry point (this
+  /// community) is gone, so nobody can post to it again -- without
+  /// deleting anyone's announcement history, which `firestore.rules`
+  /// forbids for chat threads anyway (`allow delete: if false`).
+  ///
+  /// Writes `chatThreads` from the communities side on purpose: it is one
+  /// field, permitted by the existing any-participant thread update rule,
+  /// and the alternative (teaching Chats to un-hide orphaned community
+  /// threads) would spread the same decision across two features.
+  Future<void> _releaseGroupThreads(Map<String, dynamic> data) async {
+    final groups = (data['groups'] as List<dynamic>?) ?? const [];
+    for (final group in groups.whereType<Map<String, dynamic>>()) {
+      final threadId = group['threadId'] as String?;
+      if (threadId == null) {
+        continue;
+      }
+      await _firestore
+          .collection('chatThreads')
+          .doc(threadId)
+          .update({'isCommunityGroup': false});
+    }
+  }
+
+  @override
+  Future<CommunitiesOverview> exitCommunity(String communityId) async {
+    final uid = _requireCurrentUid;
+    try {
+      final owner = await _ownerUid(communityId);
+      if (owner == uid) {
+        // WhatsApp keeps a community's own admin out of the plain "exit"
+        // path -- the admin-side action is deactivating it
+        // (https://faq.whatsapp.com/785738926054798). Letting the owner
+        // drop out of `memberUids` here would strand a community nobody
+        // can read or delete any more, since read access is the roster.
+        throw const CommunitiesRepositoryException(
+          'You created this community. Delete it instead of exiting.',
+        );
+      }
+      // Removing yourself from `memberUids` is the whole exit: that array is
+      // both the read-access roster and the membership list, so this drops
+      // the community out of your list while leaving it intact for everyone
+      // else (https://faq.whatsapp.com/1312647189536807).
+      await _communitiesRef.doc(communityId).update({
+        'memberUids': FieldValue.arrayRemove([uid]),
+      });
+    } on FirebaseException catch (e) {
+      throw CommunitiesRepositoryException(
+        e.message ?? 'Could not exit that community.',
+      );
+    }
+    return fetchOverview();
+  }
+
+  Future<String?> _ownerUid(String communityId) async {
+    final doc = await _communitiesRef.doc(communityId).get();
+    return doc.data()?['ownerUid'] as String?;
   }
 
   @override
@@ -367,8 +485,20 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
 
   CommunityHub? _communityFromDoc(
     QueryDocumentSnapshot<Map<String, dynamic>> doc,
+    String currentUid,
   ) {
     final data = doc.data();
+    // A deactivated community is gone for everyone, not just for the admin
+    // who deactivated it, and deactivation cannot be undone
+    // (https://faq.whatsapp.com/785738926054798). The document deliberately
+    // survives now (a delete took the group roster with it), so the list is
+    // filtered here rather than relying on the document being gone.
+    // Filtered client-side rather than in the query because pairing an
+    // equality filter with the `memberUids` array-contains would need a
+    // composite index for a handful of documents per user.
+    if (data['deactivatedAt'] != null) {
+      return null;
+    }
     final announcementRaw = data['announcement'];
     if (announcementRaw is! Map<String, dynamic>) {
       return null;
@@ -388,7 +518,9 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
         .map(_groupFromMap)
         .toList(growable: false);
 
-    final memberUids = (data['memberUids'] as List<dynamic>?)?.cast<String>();
+    final memberUids =
+        (data['memberUids'] as List<dynamic>?)?.cast<String>() ??
+            const <String>[];
 
     return CommunityHub(
       id: doc.id,
@@ -396,9 +528,14 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
       description: (data['description'] as String?) ?? '',
       avatarLabel: (data['avatarLabel'] as String?) ?? '',
       accentColor: Color((data['accentColorArgb'] as int?) ?? 0xFF000000),
-      memberCount: memberUids != null && memberUids.isNotEmpty
-          ? memberUids.length
-          : (data['memberCount'] as int?) ?? 1,
+      // `memberUids` is the read-access roster and is always seeded with the
+      // creator, so its raw length read one higher than every membership view
+      // in the app -- "3 members" over a two-person "Already added" list.
+      // Count the people who were actually added, and derive it from the
+      // roster rather than the stored `memberCount`, which was written once at
+      // create time and never recomputed as members joined.
+      memberCount:
+          memberUids.where((memberUid) => memberUid != currentUid).length,
       announcement: announcement,
       groups: groups,
       unreadCount: (data['unreadCount'] as int?) ?? 0,
@@ -407,6 +544,7 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
             const <String>[],
       ),
       announcementThreadId: data['announcementThreadId'] as String?,
+      viewerIsAdmin: (data['ownerUid'] as String?) == currentUid,
     );
   }
 
@@ -431,7 +569,9 @@ class FirestoreCommunitiesRepository implements CommunitiesRepository {
       'description': community.description,
       'avatarLabel': community.avatarLabel,
       'accentColorArgb': community.accentColor.toARGB32(),
-      'memberCount': community.memberCount,
+      // No 'memberCount' -- a denormalized copy written only at create time
+      // goes stale the moment someone is added, and nothing reads it now that
+      // the count is derived from `memberUids` on read.
       'unreadCount': community.unreadCount,
       if (community.announcementThreadId != null)
         'announcementThreadId': community.announcementThreadId,

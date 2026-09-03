@@ -4,12 +4,15 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../../../core/media/avatar_photo_picker.dart';
+import '../../../core/utils/user_profile_lookup.dart';
 import '../../calls/application/calls_controller.dart';
 import '../../communities/application/communities_controller.dart';
 import '../../communities/domain/community_hub.dart';
 import '../../communities/presentation/community_detail_screen.dart';
 import '../../shared/widgets/avatar_badge.dart';
 import '../../shared/widgets/error_dialog.dart';
+import '../../shared/widgets/avatar_preview.dart';
+import '../../shared/widgets/status_motion.dart';
 import '../../shared/widgets/thread_avatar.dart';
 import '../../updates/application/updates_controller.dart';
 import '../application/chats_controller.dart';
@@ -49,16 +52,24 @@ class ContactInfoScreen extends StatefulWidget {
 class _ContactInfoScreenState extends State<ContactInfoScreen> {
   List<ChatThread> _commonGroups = const <ChatThread>[];
   bool _hasLoadedCommonGroups = false;
+  UserProfileSnapshot? _contactProfile;
   bool _isEditingGroup = false;
-  TextEditingController? _groupNameController;
-  TextEditingController? _groupDescriptionController;
+  // Long-lived, not created on entering edit mode and disposed on leaving
+  // it. The name/description fields now fade out over 300ms, so they are
+  // still building for a while after edit mode ends -- disposing on leave
+  // threw "A TextEditingController was used after being disposed" on the
+  // first frame of the exit, and re-entering edit mid-fade would have done
+  // the same to the field on its way out.
+  final TextEditingController _groupNameController = TextEditingController();
+  final TextEditingController _groupDescriptionController =
+      TextEditingController();
   File? _pendingGroupIconPhoto;
   bool _pendingRemoveGroupIcon = false;
 
   @override
   void dispose() {
-    _groupNameController?.dispose();
-    _groupDescriptionController?.dispose();
+    _groupNameController.dispose();
+    _groupDescriptionController.dispose();
     super.dispose();
   }
 
@@ -66,6 +77,7 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
   void initState() {
     super.initState();
     _loadCommonGroups();
+    _loadContactProfile();
     // Refetches from the repository directly rather than relying on
     // whatever's already cached -- see ChatsController.refreshStarredMessages
     // doc comment. Without this, opening Contact/Group info before ever
@@ -89,6 +101,22 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
     });
   }
 
+  Future<void> _loadContactProfile() async {
+    final thread = widget.controller.threadById(widget.threadId);
+    if (thread == null || thread.isGroup) {
+      return;
+    }
+    // Same key fallback as _loadCommonGroups: demo threads carry no
+    // participantUid, and their id is the contact slug the demo profile is
+    // keyed by. A real thread always has the uid, so the fallback never
+    // matters there.
+    final profile = await widget.controller.contactProfile(
+      thread.participantUid ?? thread.id,
+    );
+    if (!mounted) return;
+    setState(() => _contactProfile = profile);
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
@@ -105,8 +133,6 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
         );
         final isCommunityAnnouncement =
             communityContext?.isAnnouncement ?? false;
-        final isCommunityGroup =
-            thread?.isCommunityGroup ?? communityContext != null;
 
         if (thread == null) {
           return Scaffold(
@@ -138,6 +164,28 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
             .where((entry) => entry.thread.id == thread.id)
             .length;
 
+        // One style for both the editable field and the static header, so
+        // entering edit mode doesn't resize the name and reflow the page.
+        // titleLarge made a group name the loudest thing on the screen,
+        // louder than the app bar title naming the screen.
+        final nameStyle = theme.textTheme.titleMedium?.copyWith(
+          fontWeight: FontWeight.w700,
+        );
+
+        final about = _contactProfile?.about?.trim() ?? '';
+        // Published profile first (the owner registered it, so it's
+        // authoritative), then this device's address book. Without the
+        // fallback a contact who hasn't run a build that publishes
+        // phoneNumber shows no number at all -- see
+        // CommunitiesController.phoneNumberForUid.
+        final publishedPhone = _contactProfile?.phoneNumber?.trim() ?? '';
+        final phone = publishedPhone.isNotEmpty
+            ? publishedPhone
+            : widget.communitiesController
+                    .phoneNumberForUid(thread.participantUid ?? thread.id)
+                    ?.trim() ??
+                '';
+
         final canEditGroup = thread.isGroup &&
             thread.currentUserIsGroupAdmin &&
             !isCommunityAnnouncement;
@@ -147,32 +195,54 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
           appBar: AppBar(
             title: Text(thread.isGroup ? 'Group info' : 'Contact info'),
             actions: [
-              if (canEditGroup && !_isEditingGroup)
-                TextButton(
-                  key: const Key('contact_info_edit_button'),
-                  onPressed:
-                      isGroupIconBusy ? null : () => _startGroupEdit(thread),
-                  child: const Text('Edit'),
+              // One switcher rather than three conditional children: the
+              // action area swaps wholesale between "Edit" and
+              // "Cancel/Done", and cross-fading the whole row is what stops
+              // Done appearing on top of where Edit was standing. Keyed on
+              // the mode only, so the Done button's busy spinner rebuilds in
+              // place instead of restarting the transition.
+              StatusModeSwitcher(
+                alignment: Alignment.centerRight,
+                unboundedWidth: true,
+                child: KeyedSubtree(
+                  key: ValueKey<bool>(_isEditingGroup),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (canEditGroup && !_isEditingGroup)
+                        TextButton(
+                          key: const Key('contact_info_edit_button'),
+                          onPressed: isGroupIconBusy
+                              ? null
+                              : () => _startGroupEdit(thread),
+                          child: const Text('Edit'),
+                        ),
+                      if (_isEditingGroup) ...[
+                        TextButton(
+                          key: const Key('contact_info_cancel_edit_button'),
+                          onPressed: isGroupIconBusy ? null : _cancelGroupEdit,
+                          child: const Text('Cancel'),
+                        ),
+                        TextButton(
+                          key: const Key('contact_info_save_button'),
+                          onPressed: isGroupIconBusy
+                              ? null
+                              : () => _saveGroupEdit(thread),
+                          child: isGroupIconBusy
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Text('Done'),
+                        ),
+                      ],
+                    ],
+                  ),
                 ),
-              if (_isEditingGroup) ...[
-                TextButton(
-                  key: const Key('contact_info_cancel_edit_button'),
-                  onPressed: isGroupIconBusy ? null : _cancelGroupEdit,
-                  child: const Text('Cancel'),
-                ),
-                TextButton(
-                  key: const Key('contact_info_save_button'),
-                  onPressed:
-                      isGroupIconBusy ? null : () => _saveGroupEdit(thread),
-                  child: isGroupIconBusy
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('Done'),
-                ),
-              ],
+              ),
             ],
           ),
           body: SafeArea(
@@ -181,100 +251,28 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
               slivers: [
                 SliverPadding(
                   padding: EdgeInsets.fromLTRB(
-                    20,
-                    12,
-                    20,
-                    24 + MediaQuery.paddingOf(context).bottom,
+                    16,
+                    8,
+                    16,
+                    20 + MediaQuery.paddingOf(context).bottom,
                   ),
                   sliver: SliverToBoxAdapter(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Center(
-                          child: Column(
-                            children: [
-                              _buildGroupAvatarHeader(
-                                thread: thread,
-                                theme: theme,
-                                isBusy: isGroupIconBusy,
-                              ),
-                              const SizedBox(height: 14),
-                              if (_isEditingGroup && canEditGroup)
-                                Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                  ),
-                                  child: TextField(
-                                    key: const Key('rename_group_field'),
-                                    controller: _groupNameController,
-                                    textAlign: TextAlign.center,
-                                    maxLength: 60,
-                                    textCapitalization:
-                                        TextCapitalization.words,
-                                    decoration: const InputDecoration(
-                                      hintText: 'Group name',
-                                      counterText: '',
-                                    ),
-                                    style: theme.textTheme.headlineSmall
-                                        ?.copyWith(fontWeight: FontWeight.w800),
-                                  ),
-                                )
-                              else
-                                Text(
-                                  thread.name,
-                                  textAlign: TextAlign.center,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: theme.textTheme.headlineSmall
-                                      ?.copyWith(fontWeight: FontWeight.w800),
-                                ),
-                              const SizedBox(height: 4),
-                              Text(
-                                _groupSubtitle(
-                                  thread: thread,
-                                  isCommunityGroup: isCommunityGroup,
-                                  isCommunityAnnouncement:
-                                      isCommunityAnnouncement,
-                                ),
-                                style: theme.textTheme.bodyMedium?.copyWith(
-                                  color: theme.colorScheme.onSurface
-                                      .withValues(alpha: 0.64),
-                                ),
-                              ),
-                              if (thread.isBlocked) ...[
-                                const SizedBox(height: 10),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 6,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: theme.colorScheme.error
-                                        .withValues(alpha: 0.12),
-                                    borderRadius: BorderRadius.circular(999),
-                                  ),
-                                  child: Text(
-                                    'Blocked',
-                                    style:
-                                        theme.textTheme.labelMedium?.copyWith(
-                                      color: theme.colorScheme.error,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
+                        _buildIdentityCard(
+                          context: context,
+                          thread: thread,
+                          theme: theme,
+                          nameStyle: nameStyle,
+                          canEditGroup: canEditGroup,
+                          isGroupIconBusy: isGroupIconBusy,
+                          about: about,
+                          phone: phone,
                         ),
-                        const SizedBox(height: 28),
+                        const SizedBox(height: 14),
                         if (communityContext != null) ...[
-                          Text(
-                            'Community',
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
+                          _SectionHeading('Community'),
                           _FlatInfoPanel(
                             padding: EdgeInsets.zero,
                             child: _CommunityLinkRow(
@@ -284,7 +282,7 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                               ),
                             ),
                           ),
-                          const SizedBox(height: 28),
+                          const SizedBox(height: 14),
                         ],
                         if (isCommunityAnnouncement) ...[
                           _FlatInfoPanel(
@@ -309,46 +307,10 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                               ],
                             ),
                           ),
-                          const SizedBox(height: 28),
-                        ],
-                        if (thread.isGroup) ...[
-                          if (_isEditingGroup && canEditGroup)
-                            TextField(
-                              key: const Key('edit_group_description_field'),
-                              controller: _groupDescriptionController,
-                              minLines: 2,
-                              maxLines: 4,
-                              maxLength: 200,
-                              textCapitalization: TextCapitalization.sentences,
-                              decoration: const InputDecoration(
-                                labelText: 'Group description',
-                                hintText: 'What is this group about?',
-                              ),
-                            )
-                          else
-                            Text(
-                              (thread.groupDescription?.isNotEmpty ?? false)
-                                  ? thread.groupDescription!
-                                  : 'Add a group description',
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                color: theme.colorScheme.onSurface.withValues(
-                                  alpha: (thread.groupDescription?.isNotEmpty ??
-                                          false)
-                                      ? 0.8
-                                      : 0.5,
-                                ),
-                              ),
-                            ),
-                          const SizedBox(height: 28),
+                          const SizedBox(height: 14),
                         ],
                         if (mediaAttachments.isNotEmpty) ...[
-                          Text(
-                            'Shared media',
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
+                          _SectionHeading('Shared media'),
                           _FlatInfoPanel(
                             padding: EdgeInsets.zero,
                             child: _SharedMediaDisclosureRow(
@@ -356,16 +318,10 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                               threadName: thread.name,
                             ),
                           ),
-                          const SizedBox(height: 28),
+                          const SizedBox(height: 14),
                         ],
                         if (threadStarredCount > 0) ...[
-                          Text(
-                            'Starred messages',
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
+                          _SectionHeading('Starred messages'),
                           _FlatInfoPanel(
                             padding: EdgeInsets.zero,
                             child: _StarredMessagesDisclosureRow(
@@ -376,17 +332,13 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                               ),
                             ),
                           ),
-                          const SizedBox(height: 28),
+                          const SizedBox(height: 14),
                         ],
                         if (thread.isGroup &&
                             (thread.participants?.isNotEmpty ?? false)) ...[
-                          Text(
+                          _SectionHeading(
                             '${thread.participants!.length} participants',
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w800,
-                            ),
                           ),
-                          const SizedBox(height: 12),
                           _FlatInfoPanel(
                             padding: EdgeInsets.zero,
                             child: Column(
@@ -404,7 +356,7 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                                   Divider(
                                     height: 1,
                                     color: theme.colorScheme.outlineVariant
-                                        .withValues(alpha: 0.24),
+                                        .withValues(alpha: 0.22),
                                   ),
                                 ],
                                 for (var index = 0;
@@ -414,7 +366,7 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                                     Divider(
                                       height: 1,
                                       color: theme.colorScheme.outlineVariant
-                                          .withValues(alpha: 0.24),
+                                          .withValues(alpha: 0.22),
                                     ),
                                   _ParticipantRow(
                                     participant: thread.participants![index],
@@ -429,18 +381,12 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                               ],
                             ),
                           ),
-                          const SizedBox(height: 28),
+                          const SizedBox(height: 14),
                         ],
                         if (!thread.isGroup &&
                             _hasLoadedCommonGroups &&
                             _commonGroups.isNotEmpty) ...[
-                          Text(
-                            'Common groups',
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
+                          _SectionHeading('Common groups'),
                           _FlatInfoPanel(
                             padding: EdgeInsets.zero,
                             child: Column(
@@ -452,22 +398,16 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                                     Divider(
                                       height: 1,
                                       color: theme.colorScheme.outlineVariant
-                                          .withValues(alpha: 0.24),
+                                          .withValues(alpha: 0.22),
                                     ),
                                   _CommonGroupRow(group: _commonGroups[index]),
                                 ],
                               ],
                             ),
                           ),
-                          const SizedBox(height: 28),
+                          const SizedBox(height: 14),
                         ],
-                        Text(
-                          'Actions',
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
+                        _SectionHeading('Actions'),
                         _FlatInfoPanel(
                           padding: EdgeInsets.zero,
                           child: Column(
@@ -484,7 +424,7 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                               Divider(
                                 height: 1,
                                 color: theme.colorScheme.outlineVariant
-                                    .withValues(alpha: 0.24),
+                                    .withValues(alpha: 0.22),
                               ),
                               if (thread.isGroup && !isCommunityAnnouncement)
                                 _ActionRow(
@@ -639,6 +579,201 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
     }
   }
 
+  /// Everything that identifies this thread, in one card above the lists.
+  ///
+  /// The identity used to be scattered: a bare centred avatar and name, an
+  /// "About" list row that read like a setting rather than a fact about the
+  /// person, and -- for groups -- a description floating unowned between two
+  /// sections. One card, styled unlike the rows below it, says "this is who
+  /// this is" and leaves the panels underneath to be what you can do.
+  ///
+  /// The "Contact" / "Group - N messages" subtitle is gone. Neither told the
+  /// reader anything they did not already know from the screen they opened.
+  Widget _buildIdentityCard({
+    required BuildContext context,
+    required ChatThread thread,
+    required ThemeData theme,
+    required TextStyle? nameStyle,
+    required bool canEditGroup,
+    required bool isGroupIconBusy,
+    required String about,
+    required String phone,
+  }) {
+    final details = <Widget>[];
+
+    // The group description swaps between a read-only line, an editable
+    // field, and nothing at all (a group with no description yet). One
+    // switcher covering all three keeps its own top spacing, because a
+    // spacer in the caller's loop would leave an 8pt phantom gap under the
+    // name for every description-less group.
+    Widget? groupDescription;
+    if (thread.isGroup) {
+      Widget descriptionChild = const SizedBox.shrink();
+      if (_isEditingGroup && canEditGroup) {
+        descriptionChild = Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: TextField(
+            key: const Key('edit_group_description_field'),
+            controller: _groupDescriptionController,
+            minLines: 1,
+            maxLines: 3,
+            maxLength: 200,
+            textAlign: TextAlign.center,
+            textCapitalization: TextCapitalization.sentences,
+            // isDense alone does nothing here -- the app theme sets an
+            // explicit 18/16 contentPadding, which with a two-line rest
+            // height left a 15-character description standing taller than
+            // two participant rows. The counter is chrome for a limit a
+            // description never approaches.
+            decoration: const InputDecoration(
+              isDense: true,
+              contentPadding:
+                  EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              hintText: 'What is this group about?',
+              counterText: '',
+            ),
+          ),
+        );
+      } else if (thread.groupDescription?.trim().isNotEmpty ?? false) {
+        descriptionChild = Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: _identityDetail(theme, thread.groupDescription!.trim()),
+        );
+      }
+      groupDescription = StatusModeSwitcher(
+        child: KeyedSubtree(
+          key: ValueKey<String>(
+            _isEditingGroup && canEditGroup ? 'edit' : 'read',
+          ),
+          child: descriptionChild,
+        ),
+      );
+    } else {
+      if (about.isNotEmpty) {
+        details.add(
+          _identityDetail(theme, about,
+              rowKey: const Key('contact_info_about_row')),
+        );
+      }
+      if (phone.isNotEmpty) {
+        details.add(
+          _identityDetail(
+            theme,
+            phone,
+            rowKey: const Key('contact_info_phone_row'),
+            emphasise: true,
+          ),
+        );
+      }
+    }
+
+    return LiquidGlassSurface(
+      borderRadius: const BorderRadius.all(Radius.circular(22)),
+      blurred: false,
+      showShadow: false,
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 22),
+      child: SizedBox(
+        width: double.infinity,
+        // The fields are taller than the text they replace. Without this the
+        // card snapped to its edit-mode height on the first frame and then
+        // spent the whole crossfade with the new content arriving into a box
+        // that had already finished moving.
+        child: AnimatedSize(
+          // One millisecond, not statusMotionDuration's Duration.zero, under
+          // reduced motion: RenderAnimatedSize settles inside its own
+          // performLayout at zero and asserts "a RenderObject must not
+          // re-dirty itself while still being laid out". A single frame is
+          // below the threshold of motion anyway.
+          duration: MediaQuery.disableAnimationsOf(context)
+              ? const Duration(milliseconds: 1)
+              : kStatusMotionDuration,
+          curve: kStatusMotionCurve,
+          alignment: Alignment.topCenter,
+          child: Column(
+            children: [
+              _buildGroupAvatarHeader(
+                thread: thread,
+                theme: theme,
+                isBusy: isGroupIconBusy,
+              ),
+              const SizedBox(height: 10),
+              StatusModeSwitcher(
+                child: KeyedSubtree(
+                  key: ValueKey<bool>(_isEditingGroup && canEditGroup),
+                  child: (_isEditingGroup && canEditGroup)
+                      ? TextField(
+                          key: const Key('rename_group_field'),
+                          controller: _groupNameController,
+                          textAlign: TextAlign.center,
+                          maxLength: 60,
+                          textCapitalization: TextCapitalization.words,
+                          decoration: const InputDecoration(
+                            hintText: 'Group name',
+                            counterText: '',
+                          ),
+                          style: nameStyle,
+                        )
+                      : Text(
+                          thread.name,
+                          textAlign: TextAlign.center,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: nameStyle,
+                        ),
+                ),
+              ),
+              if (groupDescription != null) groupDescription,
+              for (final detail in details) ...[
+                const SizedBox(height: 8),
+                detail,
+              ],
+              if (thread.isBlocked) ...[
+                const SizedBox(height: 10),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.error.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    'Blocked',
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      color: theme.colorScheme.error,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// A line of identity under the name -- an About, a phone number, a group
+  /// description. No leading icon and no caption underneath: in a card that
+  /// is plainly about this one person, "About" labelled the obvious and
+  /// made a fact read like a settings row.
+  Widget _identityDetail(
+    ThemeData theme,
+    String value, {
+    Key? rowKey,
+    bool emphasise = false,
+  }) {
+    return Text(
+      value,
+      key: rowKey,
+      textAlign: TextAlign.center,
+      style: theme.textTheme.bodyMedium?.copyWith(
+        color: theme.colorScheme.onSurface
+            .withValues(alpha: emphasise ? 0.9 : 0.72),
+        fontWeight: emphasise ? FontWeight.w600 : null,
+      ),
+    );
+  }
+
   Widget _buildGroupAvatarHeader({
     required ChatThread thread,
     required ThemeData theme,
@@ -649,64 +784,74 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
         ? ClipOval(
             child: Image.file(
               _pendingGroupIconPhoto!,
-              width: 84,
-              height: 84,
+              width: 68,
+              height: 68,
               fit: BoxFit.cover,
             ),
           )
         : _pendingRemoveGroupIcon
             ? ThreadAvatar(
                 thread: thread.copyWith(clearAvatarUrl: true),
-                size: 84,
+                size: 68,
               )
-            : ThreadAvatar(thread: thread, size: 84);
+            : ThreadAvatar(thread: thread, size: 68);
 
     if (!_isEditingGroup || !canEdit) {
-      return avatar;
+      // Tapping opens it full screen, the same way a photo in the thread
+      // does. ThreadAvatar is handed the larger size rather than the 68pt
+      // one being scaled up, so a group's composite icon re-composes its
+      // members' avatars at that size instead of blurring.
+      return GestureDetector(
+        key: const Key('contact_info_avatar'),
+        onTap: () => showAvatarPreview(
+          context,
+          label: thread.name,
+          builder: (size) => ThreadAvatar(thread: thread, size: size),
+        ),
+        child: avatar,
+      );
     }
 
-    return GestureDetector(
-      key: const Key('contact_info_change_group_icon_button'),
-      onTap: isBusy ? null : () => _showGroupPhotoOptions(thread),
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          avatar,
-          AvatarCameraBadge(isBusy: isBusy),
-        ],
+    // Builder so the options bubble anchors to the avatar itself. Handed
+    // the screen's context it would measure the whole page and open in the
+    // middle of nowhere.
+    return Builder(
+      builder: (anchorContext) => GestureDetector(
+        key: const Key('contact_info_change_group_icon_button'),
+        onTap:
+            isBusy ? null : () => _showGroupPhotoOptions(anchorContext, thread),
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            avatar,
+            AvatarCameraBadge(isBusy: isBusy),
+          ],
+        ),
       ),
     );
   }
 
   void _startGroupEdit(ChatThread thread) {
-    _groupNameController?.dispose();
-    _groupDescriptionController?.dispose();
+    _groupNameController.text = thread.name;
+    _groupDescriptionController.text = thread.groupDescription ?? '';
     setState(() {
       _isEditingGroup = true;
       _pendingGroupIconPhoto = null;
       _pendingRemoveGroupIcon = false;
-      _groupNameController = TextEditingController(text: thread.name);
-      _groupDescriptionController = TextEditingController(
-        text: thread.groupDescription ?? '',
-      );
     });
   }
 
   void _cancelGroupEdit() {
-    _groupNameController?.dispose();
-    _groupDescriptionController?.dispose();
     setState(() {
       _isEditingGroup = false;
       _pendingGroupIconPhoto = null;
       _pendingRemoveGroupIcon = false;
-      _groupNameController = null;
-      _groupDescriptionController = null;
     });
   }
 
   Future<void> _saveGroupEdit(ChatThread thread) async {
-    final name = _groupNameController?.text.trim() ?? thread.name;
-    final description = _groupDescriptionController?.text.trim() ?? '';
+    final name = _groupNameController.text.trim();
+    final description = _groupDescriptionController.text.trim();
 
     if (name.isEmpty) {
       await showErrorDialog(context, 'Give the group a name.');
@@ -771,11 +916,14 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
     _cancelGroupEdit();
   }
 
-  Future<void> _showGroupPhotoOptions(ChatThread thread) async {
+  Future<void> _showGroupPhotoOptions(
+    BuildContext anchorContext,
+    ChatThread thread,
+  ) async {
     final canRemove = _pendingGroupIconPhoto != null ||
         (!_pendingRemoveGroupIcon && thread.avatarUrl?.isNotEmpty == true);
     final action = await showAvatarPhotoOptionsSheet(
-      context,
+      anchorContext,
       canRemove: canRemove,
     );
     if (!mounted || action == null) {
@@ -947,22 +1095,31 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
 
 enum _ParticipantAction { toggleAdmin, remove }
 
-String _groupSubtitle({
-  required ChatThread thread,
-  required bool isCommunityGroup,
-  required bool isCommunityAnnouncement,
-}) {
-  final messageCount = '${thread.messages.length} messages';
-  if (isCommunityAnnouncement) {
-    return 'Announcements · $messageCount';
+/// Section labels read as list-section captions, not page titles -- the
+/// screen stacks up to six of them, and at title size they pushed most of
+/// the content below the fold on a compact phone.
+class _SectionHeading extends StatelessWidget {
+  const _SectionHeading(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 0, 4, 6),
+      child: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: theme.textTheme.labelMedium?.copyWith(
+          color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.6,
+        ),
+      ),
+    );
   }
-  if (isCommunityGroup) {
-    return 'Community group · $messageCount';
-  }
-  if (thread.isGroup) {
-    return 'Group · $messageCount';
-  }
-  return 'Contact';
 }
 
 class _CommunityLinkRow extends StatelessWidget {
@@ -984,13 +1141,13 @@ class _CommunityLinkRow extends StatelessWidget {
         key: Key('contact_info_community_link_${community.id}'),
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           child: Row(
             children: [
               AvatarBadge(
                 label: community.avatarLabel,
                 color: community.accentColor,
-                size: 44,
+                size: 38,
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -1002,7 +1159,7 @@ class _CommunityLinkRow extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w400,
                       ),
                     ),
                     const SizedBox(height: 2),
@@ -1033,7 +1190,7 @@ class _CommunityLinkRow extends StatelessWidget {
 class _FlatInfoPanel extends StatelessWidget {
   const _FlatInfoPanel({
     required this.child,
-    this.padding = const EdgeInsets.all(4),
+    this.padding = const EdgeInsets.all(2),
   });
 
   final Widget child;
@@ -1042,15 +1199,14 @@ class _FlatInfoPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Container(
+    return LiquidGlassSurface(
+      // Unblurred: the panel sits on an opaque scaffold, so a BackdropFilter
+      // would cost a saveLayer per section for no visible frost.
+      blurred: false,
+      showShadow: false,
+      borderRadius: const BorderRadius.all(Radius.circular(16)),
+      borderColor: theme.colorScheme.outlineVariant.withValues(alpha: 0.24),
       padding: padding,
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: theme.colorScheme.outlineVariant.withValues(alpha: 0.24),
-        ),
-      ),
       child: child,
     );
   }
@@ -1091,22 +1247,22 @@ class _SharedMediaDisclosureRow extends StatelessWidget {
           ),
         ),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           child: Row(
             children: [
               SizedBox(
-                width: 48,
-                height: 48,
+                width: 40,
+                height: 40,
                 child: SharedMediaThumbnail(attachment: previewAttachment),
               ),
-              const SizedBox(width: 14),
+              const SizedBox(width: 12),
               Expanded(
                 child: Text(
                   attachments.length == 1
                       ? '1 item'
                       : '${attachments.length} items',
                   style: theme.textTheme.titleSmall
-                      ?.copyWith(fontWeight: FontWeight.w700),
+                      ?.copyWith(fontWeight: FontWeight.w400),
                 ),
               ),
               Icon(
@@ -1144,27 +1300,28 @@ class _StarredMessagesDisclosureRow extends StatelessWidget {
         key: const Key('contact_info_starred_messages_row'),
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           child: Row(
             children: [
               Container(
-                width: 48,
-                height: 48,
+                width: 40,
+                height: 40,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: theme.colorScheme.primary.withValues(alpha: 0.12),
                 ),
                 child: Icon(
                   Icons.star_rounded,
+                  size: 20,
                   color: theme.colorScheme.primary,
                 ),
               ),
-              const SizedBox(width: 14),
+              const SizedBox(width: 12),
               Expanded(
                 child: Text(
                   count == 1 ? '1 starred message' : '$count starred messages',
                   style: theme.textTheme.titleSmall
-                      ?.copyWith(fontWeight: FontWeight.w700),
+                      ?.copyWith(fontWeight: FontWeight.w400),
                 ),
               ),
               Icon(
@@ -1179,6 +1336,9 @@ class _StarredMessagesDisclosureRow extends StatelessWidget {
   }
 }
 
+/// One line of the contact's own published profile -- the value reads
+/// first and its caption underneath, matching how [_CommunityLinkRow]
+/// stacks title over subtitle rather than introducing a second row idiom.
 class _CommonGroupRow extends StatelessWidget {
   const _CommonGroupRow({required this.group});
 
@@ -1188,11 +1348,11 @@ class _CommonGroupRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       child: Row(
         children: [
           AvatarBadge(
-              label: group.avatarLabel, color: group.accentColor, size: 40),
+              label: group.avatarLabel, color: group.accentColor, size: 36),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
@@ -1200,7 +1360,7 @@ class _CommonGroupRow extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: theme.textTheme.titleSmall
-                  ?.copyWith(fontWeight: FontWeight.w700),
+                  ?.copyWith(fontWeight: FontWeight.w400),
             ),
           ),
         ],
@@ -1233,14 +1393,14 @@ class _ParticipantRow extends StatelessWidget {
         key: Key('participant_row_${participant.uid}'),
         onTap: canManage ? onTap : null,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           child: Row(
             children: [
               AvatarBadge(
                 label: participant.avatarLabel,
                 color: participant.accentColor,
                 avatarUrl: participant.avatarUrl,
-                size: 40,
+                size: 36,
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -1249,7 +1409,7 @@ class _ParticipantRow extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.titleSmall
-                      ?.copyWith(fontWeight: FontWeight.w700),
+                      ?.copyWith(fontWeight: FontWeight.w400),
                 ),
               ),
               if (participant.isAdmin) ...[
@@ -1305,18 +1465,18 @@ class _ActionRow extends StatelessWidget {
         key: actionKey,
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           child: Row(
             children: [
-              Icon(icon, size: 22, color: color),
-              const SizedBox(width: 14),
+              Icon(icon, size: 20, color: color),
+              const SizedBox(width: 12),
               Expanded(
                 child: Text(
                   label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w400,
                     color: color,
                   ),
                 ),

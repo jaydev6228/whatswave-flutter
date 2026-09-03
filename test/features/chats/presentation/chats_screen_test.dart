@@ -9,6 +9,7 @@ import 'package:whatswave/app/theme/app_theme.dart';
 import 'package:whatswave/core/models/status_story.dart';
 import 'package:whatswave/core/permissions/app_permission_service.dart';
 import 'package:whatswave/core/permissions/device_location_service.dart';
+import 'package:whatswave/core/utils/user_profile_lookup.dart';
 import 'package:whatswave/features/auth/application/auth_controller.dart';
 import 'package:whatswave/features/auth/data/fake_auth_repository.dart';
 import 'package:whatswave/features/calls/application/calls_controller.dart';
@@ -18,6 +19,7 @@ import 'package:whatswave/features/communities/data/fake_communities_repository.
 import 'package:whatswave/features/updates/application/updates_controller.dart';
 import 'package:whatswave/features/updates/data/fake_updates_repository.dart';
 import 'package:whatswave/features/chats/application/chats_controller.dart';
+import 'package:whatswave/core/media/media_transfer.dart';
 import 'package:whatswave/features/chats/data/chat_repository.dart';
 import 'package:whatswave/features/chats/data/fake_chat_repository.dart';
 import 'package:whatswave/features/chats/domain/chat_attachment.dart';
@@ -188,7 +190,7 @@ void main() {
     await tester.tap(find.byKey(const Key('chat_tile_ava-patel')));
     await tester.pumpAndSettle();
 
-    expect(find.text('Secure chat preview'), findsOneWidget);
+    expect(find.text('Secure chat preview'), findsNothing);
     expect(find.byKey(composerFieldKey), findsOneWidget);
     expect(
       find.byKey(const Key('conversation_attachment_menu_button')),
@@ -1045,6 +1047,63 @@ void main() {
     );
   });
 
+  testWidgets('contact info: shows the contact about and phone number',
+      (tester) async {
+    await _pumpChatsScreen(
+      tester,
+      device: iphoneProProfile,
+      controller: ChatsController(
+        repository: FakeChatRepository(latency: Duration.zero),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('chat_tile_ava-patel')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Ava Patel'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('contact_info_about_row')), findsOneWidget);
+    expect(
+      find.text('Shipping launch polish and keeping reviews calm.'),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('contact_info_phone_row')), findsOneWidget);
+    expect(find.text('+81 90 3000 1122'), findsOneWidget);
+  });
+
+  for (final scenario in <({String label, UserProfileSnapshot? profile})>[
+    (label: 'is missing', profile: null),
+    (
+      label: 'has blank fields',
+      profile: const UserProfileSnapshot(
+        name: 'Ava Patel',
+        about: '   ',
+        phoneNumber: '',
+      ),
+    ),
+  ]) {
+    testWidgets(
+        'contact info: omits the about and phone rows when the profile '
+        '${scenario.label}', (tester) async {
+      await _pumpChatsScreen(
+        tester,
+        device: iphoneProProfile,
+        controller: ChatsController(
+          repository: _StubProfileChatRepository(scenario.profile),
+        ),
+      );
+
+      await tester.tap(find.byKey(const Key('chat_tile_ava-patel')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Ava Patel'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Contact info'), findsOneWidget);
+      expect(find.byKey(const Key('contact_info_about_row')), findsNothing);
+      expect(find.byKey(const Key('contact_info_phone_row')), findsNothing);
+    });
+  }
+
   testWidgets(
       'contact info: shared media shows as a disclosure row that opens the '
       'full grid', (tester) async {
@@ -1354,6 +1413,115 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('chat_tile_family')), findsNothing);
+  });
+
+  testWidgets(
+      'group info fits header through Exit group on a compact phone without '
+      'scrolling', (tester) async {
+    await _pumpChatsScreen(
+      tester,
+      device: iphoneSeProfile,
+      controller: ChatsController(
+        repository: FakeChatRepository(latency: Duration.zero),
+      ),
+    );
+
+    await tester.enterText(
+      find.byKey(const Key('chat_search_field')),
+      'Design',
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('chat_tile_design-sprint')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Design Sprint'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Group info'), findsOneWidget);
+
+    // Section labels are list-section captions, not page titles -- at
+    // title size they were most of what pushed the actions off the bottom
+    // of a 667pt-tall screen.
+    expect(
+      tester.widget<Text>(find.text('Actions')).style?.fontSize,
+      lessThan(14),
+    );
+
+    // Everything from the avatar header down to the last destructive
+    // action has to fit an iPhone SE in one screenful.
+    expect(
+      tester
+          .getRect(find.byKey(const Key('contact_info_exit_group_button')))
+          .bottom,
+      lessThan(iphoneSeProfile.size.height),
+    );
+  });
+
+  testWidgets(
+      'group info rows read as content, and edit mode keeps the name at title '
+      'size with a single-line description', (tester) async {
+    await _pumpChatsScreen(
+      tester,
+      device: iphoneProProfile,
+      controller: ChatsController(
+        repository: FakeChatRepository(latency: Duration.zero),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('chat_tile_design-sprint')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Design Sprint'));
+    await tester.pumpAndSettle();
+
+    // Scoped to the row keys for the same reason as the rename test above.
+    final participantName = tester.widget<Text>(
+      find.descendant(
+        of: find.byKey(const Key('participant_row_me')),
+        matching: find.text('You'),
+      ),
+    );
+    expect(participantName.style?.fontWeight, isNot(FontWeight.w700));
+    expect(participantName.style?.fontWeight, isNot(FontWeight.w800));
+
+    final exitGroupLabel = tester.widget<Text>(
+      find.descendant(
+        of: find.byKey(const Key('contact_info_exit_group_button')),
+        matching: find.text('Exit group'),
+      ),
+    );
+    expect(exitGroupLabel.style?.fontWeight, isNot(FontWeight.w700));
+    expect(exitGroupLabel.style?.fontWeight, isNot(FontWeight.w800));
+    // Only the weight went down -- exiting a group still reads destructive.
+    expect(
+      exitGroupLabel.style?.color,
+      Theme.of(
+        tester.element(find.byKey(const Key('contact_info_exit_group_button'))),
+      ).colorScheme.error,
+    );
+
+    await tester.tap(find.byKey(const Key('contact_info_edit_button')));
+    await tester.pumpAndSettle();
+
+    // The group name is a title, not a headline -- at titleLarge it was
+    // louder than the app bar naming the screen.
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('rename_group_field')))
+          .style
+          ?.fontSize,
+      lessThan(20),
+    );
+
+    // A short description shouldn't outweigh two participant rows: it used
+    // to rest two lines tall inside the theme's 18/16 capsule padding with a
+    // character counter underneath, which is 124pt for one line of text.
+    expect(
+      tester
+          .getSize(find.byKey(const Key('edit_group_description_field')))
+          .height,
+      lessThan(
+        tester.getSize(find.byKey(const Key('participant_row_me'))).height * 2,
+      ),
+    );
   });
 
   testWidgets('keeps the attachment sheet overflow-free on compact phones',
@@ -1983,12 +2151,16 @@ void main() {
 }
 
 int _groupChatVisibleMessageCount(WidgetTester tester) {
-  final subtitleFinder = find.textContaining(' messages');
-  expect(subtitleFinder, findsOneWidget);
-  final text = tester.widget<Text>(subtitleFinder).data!;
-  final match = RegExp(r'(\d+) messages').firstMatch(text);
-  expect(match, isNotNull);
-  return int.parse(match!.group(1)!);
+  // Counted off the rendered message items rather than parsed out of the
+  // header: the group header lists member names now, not a message count.
+  return find
+      .byWidgetPredicate((widget) {
+        final key = widget.key;
+        return key is ValueKey<String> &&
+            key.value.startsWith('conversation_message_');
+      })
+      .evaluate()
+      .length;
 }
 
 Future<void> _openLocationSendPreview(WidgetTester tester) async {
@@ -2126,6 +2298,7 @@ class _FailingChatRepository implements ChatRepository {
     required String name,
     required List<String> memberUids,
     bool isCommunityGroup = false,
+    bool isAnnouncementOnly = false,
   }) {
     throw UnimplementedError();
   }
@@ -2149,11 +2322,15 @@ class _FailingChatRepository implements ChatRepository {
   }
 
   @override
+  Future<UserProfileSnapshot?> fetchContactProfile(String uid) async => null;
+
+  @override
   Future<List<Never>> sendAttachmentMessage({
     required String threadId,
     required List<ChatAttachment> attachments,
     String? caption,
     MessageReplyPreview? replyPreview,
+    MediaTransfer? transfer,
   }) {
     throw UnimplementedError();
   }
@@ -2336,11 +2513,13 @@ class _FlakySendChatRepository implements ChatRepository {
     required String name,
     required List<String> memberUids,
     bool isCommunityGroup = false,
+    bool isAnnouncementOnly = false,
   }) =>
       _delegate.createGroup(
         name: name,
         memberUids: memberUids,
         isCommunityGroup: isCommunityGroup,
+        isAnnouncementOnly: isAnnouncementOnly,
       );
 
   @override
@@ -2359,11 +2538,16 @@ class _FlakySendChatRepository implements ChatRepository {
       _delegate.groupThreadsSharedWith(participantUid);
 
   @override
+  Future<UserProfileSnapshot?> fetchContactProfile(String uid) =>
+      _delegate.fetchContactProfile(uid);
+
+  @override
   Future<List<ChatThread>> sendAttachmentMessage({
     required String threadId,
     required List<ChatAttachment> attachments,
     String? caption,
     MessageReplyPreview? replyPreview,
+    MediaTransfer? transfer,
   }) =>
       _delegate.sendAttachmentMessage(
         threadId: threadId,
@@ -2511,4 +2695,16 @@ class _FakeDeviceLocationService implements DeviceLocationService {
 
   @override
   Future<DeviceLocationFix> getCurrentLocation() async => fix;
+}
+
+/// Drives Contact info's "nothing to show" states -- a contact with no
+/// published profile at all, and one whose about/phone are blank.
+class _StubProfileChatRepository extends FakeChatRepository {
+  _StubProfileChatRepository(this._profile) : super(latency: Duration.zero);
+
+  final UserProfileSnapshot? _profile;
+
+  @override
+  Future<UserProfileSnapshot?> fetchContactProfile(String uid) async =>
+      _profile;
 }

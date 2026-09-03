@@ -7,6 +7,7 @@ import '../../features/auth/data/auth_repository.dart';
 import '../../features/calls/data/calls_overview.dart';
 import '../../features/calls/data/calls_repository.dart';
 import '../../features/calls/domain/call_history_entry.dart';
+import '../media/media_transfer.dart';
 import '../../features/chats/data/chat_repository.dart';
 import '../../features/chats/domain/chat_attachment.dart';
 import '../../features/chats/domain/chat_attachment.dart' as chat_attachment;
@@ -21,6 +22,7 @@ import '../../features/updates/data/updates_repository.dart' as updates_data;
 import '../../core/models/app_user.dart';
 import '../../core/models/status_story.dart';
 import '../../core/models/story_viewer.dart';
+import '../utils/user_profile_lookup.dart';
 import 'integration_hub_controller.dart';
 
 class TrackedAuthRepository implements AuthRepository {
@@ -332,11 +334,13 @@ class TrackedChatRepository implements ChatRepository {
     required String name,
     required List<String> memberUids,
     bool isCommunityGroup = false,
+    bool isAnnouncementOnly = false,
   }) {
     return _delegate.createGroup(
       name: name,
       memberUids: memberUids,
       isCommunityGroup: isCommunityGroup,
+      isAnnouncementOnly: isAnnouncementOnly,
     );
   }
 
@@ -544,11 +548,17 @@ class TrackedChatRepository implements ChatRepository {
   }
 
   @override
+  Future<UserProfileSnapshot?> fetchContactProfile(String uid) {
+    return _delegate.fetchContactProfile(uid);
+  }
+
+  @override
   Future<List<ChatThread>> sendAttachmentMessage({
     required String threadId,
     required List<ChatAttachment> attachments,
     String? caption,
     MessageReplyPreview? replyPreview,
+    MediaTransfer? transfer,
   }) async {
     final combinedLabel = attachments.length == 1
         ? attachments.single.compactLabel
@@ -821,6 +831,11 @@ class TrackedCommunitiesRepository implements CommunitiesRepository {
   }
 
   @override
+  Future<CommunitiesOverview> exitCommunity(String communityId) {
+    return _delegate.exitCommunity(communityId);
+  }
+
+  @override
   Future<CommunitiesOverview> attachGroupThread({
     required String communityId,
     required String groupId,
@@ -845,13 +860,13 @@ class TrackedCommunitiesRepository implements CommunitiesRepository {
   }
 
   @override
-  Future<CommunitiesOverview> deleteCommunity(String communityId) async {
+  Future<CommunitiesOverview> deactivateCommunity(String communityId) async {
     try {
-      final overview = await _delegate.deleteCommunity(communityId);
+      final overview = await _delegate.deactivateCommunity(communityId);
       unawaited(
         _integrations.recordSyncSuccess(
           source: 'Communities',
-          title: 'Community deleted',
+          title: 'Community deactivated',
         ),
       );
       return overview;
@@ -859,7 +874,7 @@ class TrackedCommunitiesRepository implements CommunitiesRepository {
       unawaited(
         _integrations.recordSyncFailure(
           source: 'Communities',
-          title: 'Community deletion failed',
+          title: 'Community deactivation failed',
           details: error.message,
         ),
       );
@@ -868,7 +883,7 @@ class TrackedCommunitiesRepository implements CommunitiesRepository {
       unawaited(
         _integrations.recordSyncFailure(
           source: 'Communities',
-          title: 'Community deletion failed',
+          title: 'Community deactivation failed',
         ),
       );
       rethrow;
