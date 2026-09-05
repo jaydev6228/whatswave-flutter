@@ -23,6 +23,7 @@ import '../application/chats_controller.dart';
 import '../domain/chat_message.dart';
 import '../domain/chat_thread.dart';
 import 'conversation_screen.dart';
+import 'widgets/typing_indicator.dart';
 
 const double _kChatsScreenHorizontalPadding = 16;
 const double _kChatsRowHorizontalPadding = 18;
@@ -823,11 +824,13 @@ class _ChatTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final viewerUid = chatsController.currentUserId;
+    final isTyping = thread.isTypingForViewer(viewerUid);
     final previewStyle = theme.textTheme.bodyMedium?.copyWith(
-      color: thread.isTyping
+      color: isTyping
           ? theme.colorScheme.primary
           : theme.colorScheme.onSurface.withValues(alpha: 0.72),
-      fontWeight: thread.isTyping ? FontWeight.w700 : FontWeight.w500,
+      fontWeight: isTyping ? FontWeight.w700 : FontWeight.w500,
     );
 
     return Material(
@@ -900,12 +903,13 @@ class _ChatTile extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 4),
-                    if (thread.isTyping)
-                      _TypingStatusLine(
+                    if (isTyping)
+                      TypingStatusLine(
                         threadId: thread.id,
-                        label: thread.typingParticipantLabel,
+                        label: thread.typingListLabelForViewer(viewerUid),
                         color: theme.colorScheme.primary,
                         animate: animateTypingIndicators,
+                        isDirectChat: !thread.isGroup,
                         style: previewStyle?.copyWith(height: 1.12),
                       )
                     else
@@ -1038,152 +1042,6 @@ class _ChatAvatar extends StatelessWidget {
       behavior: HitTestBehavior.opaque,
       onTap: onTap,
       child: avatar,
-    );
-  }
-}
-
-class _TypingStatusLine extends StatelessWidget {
-  const _TypingStatusLine({
-    required this.threadId,
-    required this.label,
-    required this.color,
-    required this.animate,
-    this.style,
-  });
-
-  final String threadId;
-  final String label;
-  final Color color;
-  final bool animate;
-  final TextStyle? style;
-
-  @override
-  Widget build(BuildContext context) {
-    final effectiveLabel = label.trim().isEmpty ? 'Typing' : label.trim();
-    return Semantics(
-      label: '$effectiveLabel is typing',
-      child: ExcludeSemantics(
-        child: Row(
-          children: [
-            Flexible(
-              child: Text(
-                effectiveLabel,
-                key: Key('chat_typing_name_$threadId'),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: style,
-              ),
-            ),
-            const SizedBox(width: 6),
-            _TypingDotsIndicator(
-              key: Key('chat_typing_indicator_$threadId'),
-              threadId: threadId,
-              color: color,
-              animate: animate,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _TypingDotsIndicator extends StatefulWidget {
-  const _TypingDotsIndicator({
-    required this.threadId,
-    required this.color,
-    required this.animate,
-    super.key,
-  });
-
-  final String threadId;
-  final Color color;
-  final bool animate;
-
-  @override
-  State<_TypingDotsIndicator> createState() => _TypingDotsIndicatorState();
-}
-
-class _TypingDotsIndicatorState extends State<_TypingDotsIndicator>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 900),
-    );
-    if (widget.animate) {
-      _controller.repeat();
-    } else {
-      _controller.value = 0.32;
-    }
-  }
-
-  @override
-  void didUpdateWidget(covariant _TypingDotsIndicator oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.animate == widget.animate) {
-      return;
-    }
-    if (widget.animate) {
-      _controller.repeat();
-    } else {
-      _controller
-        ..stop()
-        ..value = 0.32;
-    }
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  double _opacityForDot(int index) {
-    final progress = (_controller.value + (index * 0.18)) % 1.0;
-    final triangle = 1.0 - ((progress * 2) - 1).abs();
-    return 0.24 + (triangle * 0.76);
-  }
-
-  double _scaleForDot(int index) {
-    final progress = (_controller.value + (index * 0.18)) % 1.0;
-    final triangle = 1.0 - ((progress * 2) - 1).abs();
-    return 0.82 + (triangle * 0.24);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, _) {
-        return Row(
-          mainAxisSize: MainAxisSize.min,
-          children: List<Widget>.generate(3, (index) {
-            return Padding(
-              padding: EdgeInsets.only(right: index == 2 ? 0 : 4),
-              child: Transform.scale(
-                scale: _scaleForDot(index),
-                child: Opacity(
-                  key: Key('chat_typing_dot_${widget.threadId}_$index'),
-                  opacity: _opacityForDot(index),
-                  child: Container(
-                    width: 5,
-                    height: 5,
-                    decoration: BoxDecoration(
-                      color: widget.color,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                ),
-              ),
-            );
-          }),
-        );
-      },
     );
   }
 }

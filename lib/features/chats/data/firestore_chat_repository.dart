@@ -15,6 +15,7 @@ import '../domain/chat_thread.dart';
 import '../domain/group_participant.dart';
 import '../domain/message_reply_preview.dart';
 import '../domain/story_reply_context.dart';
+import '../domain/typing_state.dart';
 import 'chat_repository.dart';
 
 /// Firestore-backed [ChatRepository].
@@ -484,6 +485,7 @@ class FirestoreChatRepository implements ChatRepository {
       final update = <String, Object?>{'isArchived': isArchived};
       if (isArchived) {
         update['typingPreview'] = null;
+        update['typingByUid'] = FieldValue.delete();
       }
       await _threadsRef.doc(threadId).update(update);
     } on FirebaseException catch (e) {
@@ -570,6 +572,37 @@ class FirestoreChatRepository implements ChatRepository {
       await _threadsRef.doc(threadId).update({'unreadCounts.$uid': 0});
     } on FirebaseException catch (e) {
       throw ChatRepositoryException(e.message ?? 'Could not update that chat.');
+    }
+  }
+
+  @override
+  Future<void> setTypingState({
+    required String threadId,
+    required bool isTyping,
+  }) async {
+    final uid = _requireCurrentUid;
+    final displayName = _firebaseAuth.currentUser?.displayName?.trim();
+    final effectiveName =
+        (displayName == null || displayName.isEmpty) ? 'Someone' : displayName;
+
+    try {
+      if (!isTyping) {
+        await _threadsRef.doc(threadId).update({
+          'typingByUid.$uid': FieldValue.delete(),
+        });
+        return;
+      }
+
+      await _threadsRef.doc(threadId).update({
+        'typingByUid.$uid': {
+          'displayName': effectiveName,
+          'startedAt': FieldValue.serverTimestamp(),
+        },
+      });
+    } on FirebaseException catch (e) {
+      throw ChatRepositoryException(
+        e.message ?? 'Could not update typing right now.',
+      );
     }
   }
 
@@ -816,6 +849,8 @@ class FirestoreChatRepository implements ChatRepository {
         // "deleted" chat reappears if the other person messages you again.
         'hiddenFor': <String>[],
         'unreadCounts.$uid': 0,
+        'typingByUid.$uid': FieldValue.delete(),
+        'typingPreview': FieldValue.delete(),
       };
       for (final participantUid in participantUids) {
         if (participantUid != uid) {
@@ -937,6 +972,9 @@ class FirestoreChatRepository implements ChatRepository {
       isArchived: (data['isArchived'] as bool?) ?? false,
       isBlocked: (data['isBlocked'] as bool?) ?? false,
       typingPreview: data['typingPreview'] as String?,
+      typingByUid: _typingByUidFromFirestore(
+        data['typingByUid'] as Map<String, dynamic>?,
+      ),
       participantUid: otherUid,
       isCommunityGroup: (data['isCommunityGroup'] as bool?) ?? false,
       isAnnouncementOnly: (data['isAnnouncementOnly'] as bool?) ?? false,
@@ -1129,5 +1167,40 @@ class FirestoreChatRepository implements ChatRepository {
       (value) => value.name == name,
       orElse: () => MessageDeliveryState.sent,
     );
+  }
+
+  Map<String, TypingParticipantState>? _typingByUidFromFirestore(
+    Map<String, dynamic>? raw,
+  ) {
+    if (raw == null || raw.isEmpty) {
+      return null;
+    }
+
+    final parsed = <String, TypingParticipantState>{};
+    for (final entry in raw.entries) {
+      final value = entry.value;
+      if (value is! Map<String, dynamic>) {
+        continue;
+      }
+      final displayName = (value['displayName'] as String?)?.trim() ?? '';
+      final startedAtRaw = value['startedAt'];
+      final startedAt = switch (startedAtRaw) {
+        Timestamp(:final seconds, :final nanoseconds) =>
+          DateTime.fromMillisecondsSinceEpoch(
+            seconds * 1000 + (nanoseconds ~/ 1000000),
+            isUtc: true,
+          ).toLocal(),
+        DateTime() => startedAtRaw,
+        _ => null,
+      };
+      if (displayName.isEmpty || startedAt == null) {
+        continue;
+      }
+      parsed[entry.key] = TypingParticipantState(
+        displayName: displayName,
+        startedAt: startedAt,
+      );
+    }
+    return parsed.isEmpty ? null : parsed;
   }
 }

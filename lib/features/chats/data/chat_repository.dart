@@ -172,6 +172,13 @@ abstract class ChatRepository {
   /// Clears unread for the caller only -- does not refetch the whole inbox.
   Future<void> markThreadRead(String threadId);
 
+  /// Publishes or clears the caller's typing activity on [threadId].
+  /// Best-effort and safe to call repeatedly -- debounced by the controller.
+  Future<void> setTypingState({
+    required String threadId,
+    required bool isTyping,
+  });
+
   /// Removes a thread from the caller's own chat list only -- the other
   /// participant keeps theirs, and it reappears for the caller if that
   /// person messages them again (matching how "delete chat" behaves in a

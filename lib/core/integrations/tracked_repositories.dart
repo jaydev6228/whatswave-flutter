@@ -429,6 +429,14 @@ class TrackedChatRepository implements ChatRepository {
   }
 
   @override
+  Future<void> setTypingState({
+    required String threadId,
+    required bool isTyping,
+  }) {
+    return _delegate.setTypingState(threadId: threadId, isTyping: isTyping);
+  }
+
+  @override
   Future<List<ChatThread>> sendTextMessage({
     required String threadId,
     required String text,

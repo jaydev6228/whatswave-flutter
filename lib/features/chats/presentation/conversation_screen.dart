@@ -48,6 +48,7 @@ import 'widgets/chat_media_thumbnail.dart';
 import 'widgets/media_transfer_chrome.dart';
 import 'widgets/voice_note_bubble.dart';
 import 'widgets/composer_voice_button.dart';
+import 'widgets/typing_indicator.dart';
 
 class ConversationScreen extends StatefulWidget {
   const ConversationScreen({
@@ -197,6 +198,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
   @override
   void dispose() {
+    widget.controller.stopTyping(widget.threadId);
     widget.controller.removeListener(_reconcileOutboundSendWithController);
     _composerUnlockTimer?.cancel();
     _animatedMessageCleanupTimer?.cancel();
@@ -221,6 +223,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
     if (oldWidget.threadId == widget.threadId) {
       return;
     }
+
+    oldWidget.controller.stopTyping(oldWidget.threadId);
+    widget.controller.stopTyping(widget.threadId);
 
     _localMessages.clear();
     _lastRenderedThreadId = null;
@@ -572,6 +577,14 @@ class _ConversationScreenState extends State<ConversationScreen> {
         !widget.controller.hasMoreOlderMessages(thread.id) &&
         displayMessages.length <= _kShortThreadMessageThreshold;
 
+    final viewerUid = widget.controller.currentUserId;
+    final isTyping = thread.isTypingForViewer(viewerUid);
+    final typingSenderLabel = thread.isGroup
+        ? thread.typingListLabelForViewer(viewerUid)
+        : '';
+    final typingSemanticsLabel =
+        thread.conversationTypingLineForViewer(viewerUid);
+
     final messageList = ListView.builder(
       key: const Key('conversation_message_list'),
       controller: _messageListController,
@@ -610,18 +623,34 @@ class _ConversationScreenState extends State<ConversationScreen> {
         16,
         _messageListBottomPadding,
       ),
-      itemCount: displayMessages.length + (showOlderLoader ? 1 : 0),
+      itemCount: displayMessages.length +
+          (showOlderLoader ? 1 : 0) +
+          (isTyping ? 1 : 0),
       itemBuilder: (context, index) {
+        if (isTyping && index == 0) {
+          return RepaintBoundary(
+            child: ConversationTypingBubble(
+              threadId: thread.id,
+              isGroup: thread.isGroup,
+              senderLabel: typingSenderLabel,
+              semanticsLabel: typingSemanticsLabel,
+              accentColor: thread.accentColor,
+            ),
+          );
+        }
+
+        final messageIndex = index - (isTyping ? 1 : 0);
+
         // reverse:true -> the extra trailing index is the visual top,
         // where older history is being paged in.
-        if (index == displayMessages.length) {
+        if (messageIndex == displayMessages.length) {
           return const _OlderMessagesLoader();
         }
-        final message = displayMessages[index];
+        final message = displayMessages[messageIndex];
         // reverse:true / newest-first: the older neighbour is the next
         // index. Show a day chip above the first message of each day.
-        final olderMessage = index + 1 < displayMessages.length
-            ? displayMessages[index + 1]
+        final olderMessage = messageIndex + 1 < displayMessages.length
+            ? displayMessages[messageIndex + 1]
             : null;
         final shouldShowDayChip = olderMessage == null ||
             !_isSameDay(message.sentAt, olderMessage.sentAt);
@@ -773,6 +802,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
           threadId: thread.id,
           controller: _composerController,
           focusNode: _composerFocusNode,
+          chatsController: widget.controller,
           isBusy: widget.controller.isThreadBusy(thread.id),
           lockedMinHeight: _composerLockedMinHeight,
           onAttachmentTap: (type) async {
@@ -1268,6 +1298,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
       text: trimmedDraft,
       replyPreview: replyPreview,
     );
+    widget.controller.stopTyping(threadId);
     _composerUnlockTimer?.cancel();
     _beginOutboundSend(threadId: threadId, localMessage: localMessage);
     _markMessageForAnimation(localMessage.id);
@@ -2487,6 +2518,7 @@ class _ComposerBar extends StatefulWidget {
     required this.composerBarKey,
     required this.threadId,
     required this.controller,
+    required this.chatsController,
     required this.isBusy,
     required this.lockedMinHeight,
     required this.onAttachmentTap,
@@ -2498,6 +2530,7 @@ class _ComposerBar extends StatefulWidget {
   final GlobalKey composerBarKey;
   final String threadId;
   final TextEditingController controller;
+  final ChatsController chatsController;
   final bool isBusy;
   final double? lockedMinHeight;
   final ValueChanged<ChatAttachmentType> onAttachmentTap;
@@ -2541,6 +2574,10 @@ class _ComposerBarState extends State<_ComposerBar> {
   }
 
   void _handleComposerDraftChanged() {
+    widget.chatsController.notifyComposerTyping(
+      widget.threadId,
+      hasDraft: widget.controller.text.isNotEmpty,
+    );
     if (mounted) {
       setState(() {});
     }

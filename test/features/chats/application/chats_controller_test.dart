@@ -977,6 +977,13 @@ class _SummaryOnlyAfterSendRepository implements ChatRepository {
       _delegate.markThreadRead(threadId);
 
   @override
+  Future<void> setTypingState({
+    required String threadId,
+    required bool isTyping,
+  }) =>
+      _delegate.setTypingState(threadId: threadId, isTyping: isTyping);
+
+  @override
   Future<List<ChatThread>> sendAttachmentMessage({
     required String threadId,
     required List<ChatAttachment> attachments,
@@ -1066,6 +1073,13 @@ class _WatchSummaryRepository implements ChatRepository {
       );
 
   @override
+  Future<void> setTypingState({
+    required String threadId,
+    required bool isTyping,
+  }) =>
+      _delegate.setTypingState(threadId: threadId, isTyping: isTyping);
+
+  @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
@@ -1128,6 +1142,13 @@ class _StaleSummaryAfterSendRepository implements ChatRepository {
     );
     return _preSendSnapshot!;
   }
+
+  @override
+  Future<void> setTypingState({
+    required String threadId,
+    required bool isTyping,
+  }) =>
+      _delegate.setTypingState(threadId: threadId, isTyping: isTyping);
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
@@ -1199,6 +1220,12 @@ class _FailingChatRepository implements ChatRepository {
   Future<void> markThreadRead(String threadId) {
     throw UnimplementedError();
   }
+
+  @override
+  Future<void> setTypingState({
+    required String threadId,
+    required bool isTyping,
+  }) async {}
 
   @override
   Future<ChatThread> createGroup({
@@ -1395,6 +1422,13 @@ class _SendFailingChatRepository implements ChatRepository {
   @override
   Future<void> markThreadRead(String threadId) =>
       _delegate.markThreadRead(threadId);
+
+  @override
+  Future<void> setTypingState({
+    required String threadId,
+    required bool isTyping,
+  }) =>
+      _delegate.setTypingState(threadId: threadId, isTyping: isTyping);
 
   @override
   Future<ChatThread> createGroup({

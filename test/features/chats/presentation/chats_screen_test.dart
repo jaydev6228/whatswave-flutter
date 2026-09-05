@@ -2280,6 +2280,12 @@ class _FailingChatRepository implements ChatRepository {
   }
 
   @override
+  Future<void> setTypingState({
+    required String threadId,
+    required bool isTyping,
+  }) async {}
+
+  @override
   Future<ChatThread> fetchThreadWithMessages(String threadId) {
     throw UnimplementedError();
   }
@@ -2507,6 +2513,13 @@ class _FlakySendChatRepository implements ChatRepository {
   @override
   Future<void> markThreadRead(String threadId) =>
       _delegate.markThreadRead(threadId);
+
+  @override
+  Future<void> setTypingState({
+    required String threadId,
+    required bool isTyping,
+  }) =>
+      _delegate.setTypingState(threadId: threadId, isTyping: isTyping);
 
   @override
   Future<ChatThread> createGroup({

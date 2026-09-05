@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'chat_message.dart';
 import 'group_participant.dart';
+import 'typing_state.dart';
 
 class ChatThread {
   const ChatThread({
@@ -18,6 +19,7 @@ class ChatThread {
     this.isArchived = false,
     this.isBlocked = false,
     this.typingPreview,
+    this.typingByUid,
     this.participantUid,
     this.isCommunityGroup = false,
     this.isAnnouncementOnly = false,
@@ -40,6 +42,10 @@ class ChatThread {
   final bool isArchived;
   final bool isBlocked;
   final String? typingPreview;
+
+  /// Per-participant typing activity keyed by Firebase uid. Authoritative
+  /// source for who is typing; [typingPreview] is a legacy/demo fallback.
+  final Map<String, TypingParticipantState>? typingByUid;
 
   /// The other participant's real Firebase uid, if known -- lets calling
   /// (see CallsController.startOutgoingCall) place a real call instead of
@@ -114,6 +120,35 @@ class ChatThread {
   DateTime? get latestActivityAt => latestMessage?.sentAt;
 
   bool get isTyping => typingPreview?.trim().isNotEmpty ?? false;
+
+  List<TypingParticipantState> activeTypistsForViewer(String viewerUid) {
+    return resolveActiveTypistsForViewer(
+      viewerUid: viewerUid,
+      typingByUid: typingByUid,
+      legacyTypingPreview: typingPreview,
+    );
+  }
+
+  bool isTypingForViewer(String viewerUid) =>
+      activeTypistsForViewer(viewerUid).isNotEmpty;
+
+  String typingListLabelForViewer(String viewerUid) => typingListLabel(
+        activeTypistsForViewer(viewerUid),
+        isGroup: isGroup,
+      );
+
+  String conversationTypingLineForViewer(String viewerUid) =>
+      conversationTypingLine(
+        activeTypistsForViewer(viewerUid),
+        isGroup: isGroup,
+      );
+
+  String listPreviewForViewer(String viewerUid) {
+    if (isTypingForViewer(viewerUid)) {
+      return conversationTypingLineForViewer(viewerUid);
+    }
+    return listPreview;
+  }
 
   String get typingParticipantLabel {
     final preview = typingPreview?.trim() ?? '';
@@ -191,7 +226,9 @@ class ChatThread {
     bool? isArchived,
     bool? isBlocked,
     String? typingPreview,
+    Map<String, TypingParticipantState>? typingByUid,
     bool clearTypingPreview = false,
+    bool clearTypingByUid = false,
     String? participantUid,
     bool? isCommunityGroup,
     bool? isAnnouncementOnly,
@@ -216,6 +253,7 @@ class ChatThread {
       isBlocked: isBlocked ?? this.isBlocked,
       typingPreview:
           clearTypingPreview ? null : typingPreview ?? this.typingPreview,
+      typingByUid: clearTypingByUid ? null : typingByUid ?? this.typingByUid,
       participantUid: participantUid ?? this.participantUid,
       isCommunityGroup: isCommunityGroup ?? this.isCommunityGroup,
       isAnnouncementOnly: isAnnouncementOnly ?? this.isAnnouncementOnly,

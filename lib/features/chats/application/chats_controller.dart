@@ -67,6 +67,13 @@ class ChatsController extends ChangeNotifier {
   final Map<String, bool> _hasMoreOlderMessages = <String, bool>{};
   final Set<String> _loadingOlderThreadIds = <String>{};
 
+  String? _typingThreadId;
+  Timer? _typingIdleTimer;
+  Timer? _typingHeartbeatTimer;
+  bool _typingPublished = false;
+  static const Duration _typingIdleTimeout = Duration(seconds: 3);
+  static const Duration _typingHeartbeatInterval = Duration(seconds: 2);
+
   bool get hasLoaded => _hasLoaded;
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
@@ -74,6 +81,7 @@ class ChatsController extends ChangeNotifier {
   ChatListFilter get selectedFilter => _selectedFilter;
   bool get showArchivedOnly => _showArchivedOnly;
   List<ChatThread> get threads => List<ChatThread>.unmodifiable(_threads);
+  String get currentUserId => _repository.currentUserReactionKey;
 
   /// Threads eligible for the Chats tab's own list views/counts --
   /// everything except community-backed group threads, which are a
@@ -895,6 +903,8 @@ class ChatsController extends ChangeNotifier {
       return false;
     }
 
+    stopTyping(threadId);
+
     return _runThreadMutation(
       threadId,
       () => _repository.sendTextMessage(
@@ -963,6 +973,7 @@ class ChatsController extends ChangeNotifier {
     MessageReplyPreview? replyPreview,
     MediaTransfer? transfer,
   }) {
+    stopTyping(threadId);
     return _runThreadMutation(
       threadId,
       () => _repository.sendAttachmentMessage(
@@ -1537,5 +1548,64 @@ class ChatsController extends ChangeNotifier {
         hiddenName.startsWith('$normalizedName ') ||
         normalizedName.startsWith(hiddenName) ||
         hiddenName.startsWith(normalizedName);
+  }
+
+  /// Called while the composer draft changes. Publishes typing activity with
+  /// debounce/heartbeat semantics and clears it when the draft is empty.
+  void notifyComposerTyping(String threadId, {required bool hasDraft}) {
+    final thread = threadById(threadId);
+    if (thread == null || thread.isBlocked || !thread.currentUserCanSend) {
+      stopTyping(threadId);
+      return;
+    }
+
+    if (!hasDraft) {
+      stopTyping(threadId);
+      return;
+    }
+
+    if (_typingThreadId != null && _typingThreadId != threadId) {
+      stopTyping(_typingThreadId!);
+    }
+    _typingThreadId = threadId;
+
+    _typingIdleTimer?.cancel();
+    _typingIdleTimer = Timer(_typingIdleTimeout, () => stopTyping(threadId));
+
+    if (_typingPublished) {
+      return;
+    }
+
+    _typingPublished = true;
+    unawaited(_publishTyping(threadId, isTyping: true));
+    _typingHeartbeatTimer?.cancel();
+    _typingHeartbeatTimer = Timer.periodic(
+      _typingHeartbeatInterval,
+      (_) => unawaited(_publishTyping(threadId, isTyping: true)),
+    );
+  }
+
+  /// Clears the caller's typing activity for [threadId].
+  void stopTyping(String threadId) {
+    _typingIdleTimer?.cancel();
+    _typingIdleTimer = null;
+    if (_typingThreadId == threadId) {
+      _typingThreadId = null;
+    }
+    if (!_typingPublished) {
+      return;
+    }
+    _typingPublished = false;
+    _typingHeartbeatTimer?.cancel();
+    _typingHeartbeatTimer = null;
+    unawaited(_publishTyping(threadId, isTyping: false));
+  }
+
+  Future<void> _publishTyping(String threadId, {required bool isTyping}) async {
+    try {
+      await _repository.setTypingState(threadId: threadId, isTyping: isTyping);
+    } catch (_) {
+      // Best-effort only.
+    }
   }
 }

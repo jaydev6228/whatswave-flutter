@@ -12,6 +12,7 @@ import '../domain/chat_thread.dart';
 import '../domain/group_participant.dart';
 import '../domain/message_reply_preview.dart';
 import '../domain/story_reply_context.dart';
+import '../domain/typing_state.dart';
 import 'chat_repository.dart';
 
 class FakeChatRepository implements ChatRepository {
@@ -425,6 +426,39 @@ class FakeChatRepository implements ChatRepository {
   }
 
   @override
+  Future<void> setTypingState({
+    required String threadId,
+    required bool isTyping,
+  }) async {
+    await _wait();
+    final uid = currentUserReactionKey;
+    final thread = _threadForId(threadId);
+    final existing = Map<String, TypingParticipantState>.from(
+      thread.typingByUid ?? const <String, TypingParticipantState>{},
+    );
+    if (isTyping) {
+      existing[uid] = TypingParticipantState(
+        displayName: 'You',
+        startedAt: DateTime.now(),
+      );
+    } else {
+      existing.remove(uid);
+    }
+
+    _threads = _threads
+        .map(
+          (entry) => entry.id == thread.id
+              ? entry.copyWith(
+                  typingByUid: existing.isEmpty ? null : existing,
+                  clearTypingByUid: existing.isEmpty,
+                  clearTypingPreview: !isTyping,
+                )
+              : entry,
+        )
+        .toList(growable: false);
+  }
+
+  @override
   Future<List<ChatThread>> sendTextMessage({
     required String threadId,
     required String text,
@@ -461,6 +495,7 @@ class FakeChatRepository implements ChatRepository {
                   unreadCount: 0,
                   isArchived: false,
                   clearTypingPreview: true,
+                  clearTypingByUid: true,
                 )
               : entry,
         )
@@ -578,6 +613,7 @@ class FakeChatRepository implements ChatRepository {
                   unreadCount: 0,
                   isArchived: false,
                   clearTypingPreview: true,
+                  clearTypingByUid: true,
                 )
               : entry,
         )
