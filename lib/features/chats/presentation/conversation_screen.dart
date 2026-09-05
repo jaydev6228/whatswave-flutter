@@ -198,7 +198,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
   @override
   void dispose() {
-    widget.controller.stopTyping(widget.threadId);
+    widget.controller.stopTyping(widget.threadId, force: true);
     widget.controller.removeListener(_reconcileOutboundSendWithController);
     _composerUnlockTimer?.cancel();
     _animatedMessageCleanupTimer?.cancel();
@@ -2577,6 +2577,7 @@ class _ComposerBarState extends State<_ComposerBar> {
     widget.chatsController.notifyComposerTyping(
       widget.threadId,
       hasDraft: widget.controller.text.isNotEmpty,
+      isComposerFocused: widget.focusNode?.hasFocus ?? false,
     );
     if (mounted) {
       setState(() {});

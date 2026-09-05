@@ -1550,16 +1550,20 @@ class ChatsController extends ChangeNotifier {
         hiddenName.startsWith(normalizedName);
   }
 
-  /// Called while the composer draft changes. Publishes typing activity with
-  /// debounce/heartbeat semantics and clears it when the draft is empty.
-  void notifyComposerTyping(String threadId, {required bool hasDraft}) {
+  /// Called while the composer draft or focus changes. Publishes typing
+  /// activity only while the composer is focused and non-empty.
+  void notifyComposerTyping(
+    String threadId, {
+    required bool hasDraft,
+    required bool isComposerFocused,
+  }) {
     final thread = threadById(threadId);
     if (thread == null || thread.isBlocked || !thread.currentUserCanSend) {
       stopTyping(threadId);
       return;
     }
 
-    if (!hasDraft) {
+    if (!hasDraft || !isComposerFocused) {
       stopTyping(threadId);
       return;
     }
@@ -1586,13 +1590,13 @@ class ChatsController extends ChangeNotifier {
   }
 
   /// Clears the caller's typing activity for [threadId].
-  void stopTyping(String threadId) {
+  void stopTyping(String threadId, {bool force = false}) {
     _typingIdleTimer?.cancel();
     _typingIdleTimer = null;
     if (_typingThreadId == threadId) {
       _typingThreadId = null;
     }
-    if (!_typingPublished) {
+    if (!_typingPublished && !force) {
       return;
     }
     _typingPublished = false;

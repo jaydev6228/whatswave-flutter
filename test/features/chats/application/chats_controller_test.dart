@@ -841,7 +841,68 @@ void main() {
           .firstWhere((candidate) => candidate.id == 'm1');
       expect(message.isStarred, isTrue);
     });
+
+    test(
+        'does not republish typing when the composer loses focus but still '
+        'has draft text -- regression for the back-navigation flash',
+        () async {
+      final repository = _CountingFakeChatRepository(
+        initialThreads: DemoData.buildChatThreads(),
+        latency: Duration.zero,
+      );
+      final typingController = ChatsController(repository: repository);
+      addTearDown(typingController.dispose);
+
+      await typingController.loadThreads();
+
+      typingController.notifyComposerTyping(
+        'ava-patel',
+        hasDraft: true,
+        isComposerFocused: true,
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(repository.typingTrueCount, 1);
+
+      repository.resetTypingCounts();
+      typingController.notifyComposerTyping(
+        'ava-patel',
+        hasDraft: true,
+        isComposerFocused: false,
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(repository.typingTrueCount, 0);
+      expect(repository.typingFalseCount, 1);
+    });
   });
+}
+
+/// Fake repo that counts typing publishes for controller regression tests.
+class _CountingFakeChatRepository extends FakeChatRepository {
+  _CountingFakeChatRepository({
+    required super.initialThreads,
+    super.latency,
+  });
+
+  int typingTrueCount = 0;
+  int typingFalseCount = 0;
+
+  void resetTypingCounts() {
+    typingTrueCount = 0;
+    typingFalseCount = 0;
+  }
+
+  @override
+  Future<void> setTypingState({
+    required String threadId,
+    required bool isTyping,
+  }) async {
+    if (isTyping) {
+      typingTrueCount++;
+    } else {
+      typingFalseCount++;
+    }
+    return super.setTypingState(threadId: threadId, isTyping: isTyping);
+  }
 }
 
 /// A thread with chronological messages `m0`..`m{count-1}`, for exercising
