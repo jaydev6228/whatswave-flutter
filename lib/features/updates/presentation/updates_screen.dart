@@ -1,6 +1,3 @@
-import 'dart:io';
-import 'dart:ui' as ui;
-
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -10,7 +7,7 @@ import '../../shared/widgets/avatar_badge.dart';
 import '../../shared/widgets/empty_state_card.dart';
 import '../../shared/widgets/error_dialog.dart';
 import '../application/updates_controller.dart';
-import 'media_status_composer_screen.dart';
+import 'status_compose_actions.dart';
 import 'story_viewer_launcher.dart';
 import 'text_status_composer_screen.dart';
 import 'widgets/status_media_source.dart';
@@ -118,7 +115,11 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
                             ? _openMyStatusManager
                             : null,
                         onTextTap: _openTextStatusComposer,
-                        onMediaTap: _pickStatusMedia,
+                        onMediaTap: (buttonContext) => showStatusComposeChoice(
+                          buttonContext,
+                          widget.controller,
+                          _imagePicker,
+                        ),
                         isBusy: widget.controller.isComposingStatus,
                       ),
                       const SizedBox(height: 18),
@@ -229,156 +230,6 @@ class _UpdatesScreenState extends State<UpdatesScreen> {
             'We could not post that status right now.',
       );
     }
-  }
-
-  Future<void> _pickStatusMedia() async {
-    if (widget.controller.isComposingStatus) {
-      return;
-    }
-
-    try {
-      final pickedMedia = await _imagePicker.pickMedia(
-        requestFullMetadata: false,
-      );
-      if (!mounted || pickedMedia == null) {
-        return;
-      }
-
-      final statusType = _statusTypeForPickedMedia(pickedMedia);
-      if (statusType == null) {
-        await _showStatusError(
-          'That media type is not supported for status updates yet.',
-        );
-        return;
-      }
-
-      final initialSourceSizeHint = await _resolveInitialStatusMediaSize(
-        pickedMedia,
-        statusType,
-      );
-      if (!mounted) {
-        return;
-      }
-
-      final draft = await Navigator.of(context).push<MediaStatusComposerDraft>(
-        appSheetRoute<MediaStatusComposerDraft>(
-          name: 'status/compose/media',
-          builder: (_) => MediaStatusComposerScreen(
-            type: statusType,
-            localMediaPath: pickedMedia.path,
-            initialSourceSizeHint: initialSourceSizeHint,
-          ),
-        ),
-      );
-      if (!mounted || draft == null) {
-        return;
-      }
-
-      final didCreate = await widget.controller.createStatus(
-        type: statusType,
-        caption: draft.caption,
-        localMediaPath: pickedMedia.path,
-        textStyle: draft.textStyle,
-        mediaTransform: draft.mediaTransform,
-        overlayItems: draft.overlayItems,
-        emoji: draft.emoji,
-        stickers: draft.stickers,
-        musicTrack: draft.musicTrack,
-        durationMillis: draft.durationMillis,
-      );
-      if (!mounted) {
-        return;
-      }
-      if (!didCreate) {
-        // Previously silent beyond the passive errorMessage banner
-        // elsewhere on this screen -- an explicit dialog here gives
-        // immediate feedback right where the user just tapped, the same
-        // as status_compose_actions.dart's equivalent entry point (the
-        // ChatsScreen status strip, which has no such banner at all).
-        await _showStatusError(
-          widget.controller.errorMessage ??
-              'We could not post that status right now.',
-        );
-      }
-    } catch (_) {
-      if (!mounted) {
-        return;
-      }
-      await _showStatusError(
-        'We could not open your gallery right now. Please try again.',
-      );
-    }
-  }
-
-  Future<Size?> _resolveInitialStatusMediaSize(
-    XFile pickedMedia,
-    StatusStoryType statusType,
-  ) async {
-    if (statusType != StatusStoryType.photo) {
-      return null;
-    }
-
-    try {
-      final bytes = await File(pickedMedia.path).readAsBytes();
-      if (bytes.isEmpty) {
-        return null;
-      }
-
-      final codec = await ui.instantiateImageCodec(bytes);
-      final frame = await codec.getNextFrame();
-      final size = Size(
-        frame.image.width.toDouble(),
-        frame.image.height.toDouble(),
-      );
-      frame.image.dispose();
-      codec.dispose();
-      return size;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  StatusStoryType? _statusTypeForPickedMedia(XFile media) {
-    final normalizedMimeType = media.mimeType?.trim().toLowerCase();
-    if (normalizedMimeType?.startsWith('image/') == true) {
-      return StatusStoryType.photo;
-    }
-    if (normalizedMimeType?.startsWith('video/') == true) {
-      return StatusStoryType.video;
-    }
-
-    final lowerPath = media.path.trim().toLowerCase();
-    const photoExtensions = <String>[
-      '.jpg',
-      '.jpeg',
-      '.png',
-      '.heic',
-      '.heif',
-      '.gif',
-      '.webp',
-    ];
-    for (final extension in photoExtensions) {
-      if (lowerPath.endsWith(extension)) {
-        return StatusStoryType.photo;
-      }
-    }
-
-    const videoExtensions = <String>[
-      '.mp4',
-      '.mov',
-      '.m4v',
-      '.avi',
-      '.mkv',
-      '.webm',
-      '.3gp',
-    ];
-    for (final extension in videoExtensions) {
-      if (lowerPath.endsWith(extension)) {
-        return StatusStoryType.video;
-      }
-    }
-
-    return null;
   }
 
   Future<void> _showStatusError(String message) {
@@ -501,7 +352,7 @@ class _MyStatusCard extends StatelessWidget {
   final VoidCallback? onTap;
   final VoidCallback? onManageTap;
   final VoidCallback onTextTap;
-  final VoidCallback onMediaTap;
+  final void Function(BuildContext buttonContext) onMediaTap;
   final bool isBusy;
 
   @override
@@ -546,41 +397,49 @@ class _MyStatusCard extends StatelessWidget {
                       Positioned(
                         right: -2,
                         bottom: -2,
-                        child: Material(
-                          color: theme.colorScheme.primary,
-                          shape: const CircleBorder(),
-                          child: InkWell(
-                            key: const Key('updates_my_status_media_button'),
-                            customBorder: const CircleBorder(),
-                            onTap: isBusy ? null : onMediaTap,
-                            child: Container(
-                              width: 28,
-                              height: 28,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: theme.colorScheme.surface,
-                                  width: 2,
+                        child: Builder(
+                          builder: (buttonContext) {
+                            return Material(
+                              color: theme.colorScheme.primary,
+                              shape: const CircleBorder(),
+                              child: InkWell(
+                                key: const Key('updates_my_status_media_button'),
+                                customBorder: const CircleBorder(),
+                                onTap: isBusy
+                                    ? null
+                                    : () => onMediaTap(buttonContext),
+                                child: Container(
+                                  width: 28,
+                                  height: 28,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    border: Border.all(
+                                      color: theme.colorScheme.surface,
+                                      width: 2,
+                                    ),
+                                  ),
+                                  child: Center(
+                                    child: isBusy
+                                        ? SizedBox(
+                                            width: 12,
+                                            height: 12,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 1.8,
+                                              color:
+                                                  theme.colorScheme.onPrimary,
+                                            ),
+                                          )
+                                        : Icon(
+                                            Icons.add_rounded,
+                                            size: 18,
+                                            color:
+                                                theme.colorScheme.onPrimary,
+                                          ),
+                                  ),
                                 ),
                               ),
-                              child: Center(
-                                child: isBusy
-                                    ? SizedBox(
-                                        width: 12,
-                                        height: 12,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 1.8,
-                                          color: theme.colorScheme.onPrimary,
-                                        ),
-                                      )
-                                    : Icon(
-                                        Icons.add_rounded,
-                                        size: 18,
-                                        color: theme.colorScheme.onPrimary,
-                                      ),
-                              ),
-                            ),
-                          ),
+                            );
+                          },
                         ),
                       ),
                     ],

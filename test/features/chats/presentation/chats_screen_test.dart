@@ -150,8 +150,11 @@ void main() {
     expect(find.byKey(const Key('status_compose_choice_text')), findsOneWidget);
     expect(
         find.byKey(const Key('status_compose_choice_media')), findsOneWidget);
+    expect(
+        find.byKey(const Key('status_compose_choice_layout')), findsOneWidget);
     expect(find.text('Text status'), findsOneWidget);
     expect(find.text('Photo or video'), findsOneWidget);
+    expect(find.text('Layout and shapes'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('status_compose_choice_text')));
     await tester.pumpAndSettle();

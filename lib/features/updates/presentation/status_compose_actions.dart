@@ -7,11 +7,13 @@ import '../../../core/models/status_story.dart';
 import '../../shared/widgets/error_dialog.dart';
 import '../../shared/widgets/liquid_glass.dart';
 import '../application/updates_controller.dart';
+import '../layout/models/layout_models.dart';
+import '../layout/presentation/layout_status_composer_screen.dart';
 import 'media_status_composer_screen.dart';
 import 'text_status_composer_screen.dart';
 import '../../shared/sheet_route.dart';
 
-enum _StatusComposeChoice { text, media }
+enum _StatusComposeChoice { text, media, layout }
 
 /// A compact "Text status" / "Photo or video" choice bubble -- the shared
 /// entry point for starting a new status wherever there's only room for one
@@ -40,6 +42,12 @@ Future<void> showStatusComposeChoice(
         label: 'Photo or video',
         onTap: () => Navigator.of(sheetContext).pop(_StatusComposeChoice.media),
       ),
+      LiquidGlassBubbleItem(
+        key: const Key('status_compose_choice_layout'),
+        icon: Icons.dashboard_customize_outlined,
+        label: 'Layout and shapes',
+        onTap: () => Navigator.of(sheetContext).pop(_StatusComposeChoice.layout),
+      ),
     ],
   );
   if (!anchorContext.mounted || choice == null) {
@@ -52,6 +60,47 @@ Future<void> showStatusComposeChoice(
       await openTextStatusComposer(context, controller);
     case _StatusComposeChoice.media:
       await pickStatusMedia(context, controller, imagePicker);
+    case _StatusComposeChoice.layout:
+      await openLayoutStatusComposer(context, controller);
+  }
+}
+
+Future<void> openLayoutStatusComposer(
+  BuildContext context,
+  UpdatesController controller,
+) async {
+  if (controller.isComposingStatus) {
+    return;
+  }
+
+  final draft = await Navigator.of(context).push<LayoutStatusComposerDraft>(
+    appSheetRoute<LayoutStatusComposerDraft>(
+      name: 'status/compose/layout',
+      builder: (_) => const LayoutStatusComposerScreen(),
+    ),
+  );
+  if (!context.mounted || draft == null) {
+    return;
+  }
+
+  final didCreate = await controller.createStatus(
+    type: StatusStoryType.photo,
+    localMediaPath: draft.exportedImagePath,
+    // The export is already the composed collage. Without this the viewer
+    // cover-fits it into the whole (taller) screen and crops the edges
+    // away, so the posted story no longer matches the composer.
+    mediaTransform: StatusMediaTransform(
+      frameAspectRatio: draft.aspectRatio,
+    ),
+  );
+  if (!context.mounted) {
+    return;
+  }
+  if (!didCreate) {
+    await _showStatusError(
+      context,
+      controller.errorMessage ?? 'We could not post that status right now.',
+    );
   }
 }
 

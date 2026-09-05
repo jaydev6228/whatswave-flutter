@@ -4,9 +4,41 @@ import 'package:whatswave/core/models/status_story.dart';
 import 'package:whatswave/core/models/story_viewer.dart';
 import 'package:whatswave/features/updates/application/updates_controller.dart';
 import 'package:whatswave/features/updates/data/updates_repository.dart';
+import 'package:whatswave/features/updates/data/fake_updates_repository.dart';
+import 'package:whatswave/features/updates/layout/models/layout_models.dart';
 import 'package:whatswave/features/updates/presentation/status_compose_actions.dart';
 
 import '../../../support/device_matrix.dart';
+
+/// Records what the compose actions ask the repository to post, without the
+/// media import [FakeUpdatesRepository] does (which needs a real temp
+/// directory that widget tests don't have).
+class _RecordingCreateStatusRepository extends _FailingCreateStatusRepository {
+  StatusStoryType? lastType;
+  String? lastMediaPath;
+  StatusMediaTransform? lastMediaTransform;
+
+  @override
+  Future<List<StatusStory>> createStatus({
+    required StatusStoryType type,
+    String? caption,
+    String? localMediaPath,
+    StatusTextStyle? textStyle,
+    StatusMediaTransform? mediaTransform,
+    List<StatusMediaOverlayItem>? overlayItems,
+    String? emoji,
+    List<String>? stickers,
+    StatusMusicTrack? musicTrack,
+    int? durationMillis,
+    int? trimStartMillis,
+    List<StatusDrawingStroke>? drawingStrokes,
+  }) async {
+    lastType = type;
+    lastMediaPath = localMediaPath;
+    lastMediaTransform = mediaTransform;
+    return const <StatusStory>[];
+  }
+}
 
 /// A repository whose createStatus always fails -- used to verify that a
 /// failed post now actually tells the user, instead of silently doing
@@ -128,5 +160,79 @@ void main() {
     // and in its place is an explicit failure dialog -- not silence.
     expect(find.byKey(const Key('updates_composer_sheet')), findsNothing);
     expect(find.text('Storage is unreachable right now.'), findsOneWidget);
+  });
+
+  testWidgets('openLayoutStatusComposer opens the layout and shapes screen',
+      (tester) async {
+    await tester.binding.setSurfaceSize(iphoneSeProfile.size);
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final controller = UpdatesController(
+      repository: FakeUpdatesRepository(latency: Duration.zero),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) {
+            return ElevatedButton(
+              onPressed: () => openLayoutStatusComposer(context, controller),
+              child: const Text('Open'),
+            );
+          },
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const Key('layout_status_composer_screen')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('layout_template_picker')), findsOneWidget);
+    expect(find.text('Layouts'), findsOneWidget);
+    expect(find.text('Shapes'), findsOneWidget);
+  });
+
+  testWidgets('a posted layout keeps its 9:16 frame so the viewer never crops it',
+      (tester) async {
+    await tester.binding.setSurfaceSize(iphoneSeProfile.size);
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final repository = _RecordingCreateStatusRepository();
+    final controller = UpdatesController(repository: repository);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) {
+            return ElevatedButton(
+              onPressed: () => openLayoutStatusComposer(context, controller),
+              child: const Text('Open'),
+            );
+          },
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+
+    // Stand in for the export, which needs a real temp directory.
+    Navigator.of(
+      tester.element(find.byKey(const Key('layout_status_composer_screen'))),
+    ).pop(
+      const LayoutStatusComposerDraft(exportedImagePath: '/fake/layout.png'),
+    );
+    await tester.pumpAndSettle();
+
+    expect(repository.lastType, StatusStoryType.photo);
+    expect(repository.lastMediaPath, '/fake/layout.png');
+    expect(
+      repository.lastMediaTransform?.frameAspectRatio,
+      kLayoutStoryAspectRatio,
+    );
   });
 }

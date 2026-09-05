@@ -14,6 +14,8 @@ class FakeImagePickerPlatform extends ImagePickerPlatform {
 
   final List<String> multiImagePaths;
   final String? videoPath;
+  int imageFromSourceCallCount = 0;
+  int multiImageCallCount = 0;
 
   /// Backs [ImagePicker.pickImage] (e.g. the profile-photo picker) --
   /// distinct from [multiImagePaths], which backs the multi-select gallery
@@ -24,6 +26,7 @@ class FakeImagePickerPlatform extends ImagePickerPlatform {
   Future<List<XFile>> getMultiImageWithOptions({
     MultiImagePickerOptions options = const MultiImagePickerOptions(),
   }) async {
+    multiImageCallCount++;
     return [for (final path in multiImagePaths) XFile(path)];
   }
 
@@ -32,6 +35,7 @@ class FakeImagePickerPlatform extends ImagePickerPlatform {
     required ImageSource source,
     ImagePickerOptions options = const ImagePickerOptions(),
   }) async {
+    imageFromSourceCallCount++;
     final path = singleImagePath;
     return path == null ? null : XFile(path);
   }

@@ -6,6 +6,7 @@
 build/
 coverage/
 pubspec.lock
+test/.tmp_layout/
 
 # IDE
 .idea/
