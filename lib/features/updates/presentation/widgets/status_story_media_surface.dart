@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui';
 
@@ -6,6 +7,7 @@ import 'package:video_player/video_player.dart';
 
 import '../../../../app/theme/app_palette.dart';
 import '../../../../core/models/status_story.dart';
+import '../../../shared/widgets/avatar_badge.dart';
 import 'status_media_source.dart';
 
 Size statusStoryFrameSizeFor(Size canvasSize, double? aspectRatio) {
@@ -218,6 +220,8 @@ class StatusStoryMediaSurface extends StatefulWidget {
     this.cropInsetFactor = 1,
     this.unavailableMessage,
     this.drawingStrokes = const <StatusDrawingStroke>[],
+    this.loadingPlaceholderLabel,
+    this.loadingPlaceholderColor,
     this.onSourceSizeResolved,
     this.onPhotoLoadSettled,
     this.onTap,
@@ -252,6 +256,8 @@ class StatusStoryMediaSurface extends StatefulWidget {
   /// the same frame -- shared by composer, viewer, and thumbnails since
   /// they all render through this one surface.
   final List<StatusDrawingStroke> drawingStrokes;
+  final String? loadingPlaceholderLabel;
+  final Color? loadingPlaceholderColor;
   final ValueChanged<Size>? onSourceSizeResolved;
 
   /// Fires exactly once per photo load attempt, whether it succeeded or
@@ -546,38 +552,26 @@ class _StatusStoryMediaSurfaceState extends State<StatusStoryMediaSurface> {
                                 if (widget.type == StatusStoryType.photo &&
                                     _photoIntrinsicSize == null &&
                                     !_photoLoadFailed)
-                                  const IgnorePointer(
-                                    child: ColoredBox(
-                                      color: Colors.black,
-                                      child: Center(
-                                        child: CircularProgressIndicator(
-                                          color: Colors.white,
-                                        ),
-                                      ),
-                                    ),
+                                  _DeferredStoryMediaLoadingOverlay(
+                                    placeholderLabel:
+                                        widget.loadingPlaceholderLabel,
+                                    placeholderColor:
+                                        widget.loadingPlaceholderColor,
                                   ),
                                 if (widget.type == StatusStoryType.video)
                                   IgnorePointer(
                                     child: FutureBuilder<void>(
                                       future: widget.videoInitialization,
                                       builder: (context, snapshot) {
-                                        // Settled, whether it succeeded or
-                                        // failed -- checking isInitialized too
-                                        // would leave this spinning forever
-                                        // on a video that fails to initialize
-                                        // (the future still completes, just
-                                        // with an error).
                                         if (snapshot.connectionState ==
                                             ConnectionState.done) {
                                           return const SizedBox.shrink();
                                         }
-                                        return const ColoredBox(
-                                          color: Colors.black,
-                                          child: Center(
-                                            child: CircularProgressIndicator(
-                                              color: Colors.white,
-                                            ),
-                                          ),
+                                        return _DeferredStoryMediaLoadingOverlay(
+                                          placeholderLabel:
+                                              widget.loadingPlaceholderLabel,
+                                          placeholderColor:
+                                              widget.loadingPlaceholderColor,
                                         );
                                       },
                                     ),
@@ -1075,5 +1069,64 @@ class _MaybeTransform extends StatelessWidget {
       return child;
     }
     return Transform(transform: matrix, child: child);
+  }
+}
+
+/// Holds a calm black frame first, then only shows a spinner once loading
+/// is genuinely slow -- prefetched media usually resolves before this fires.
+class _DeferredStoryMediaLoadingOverlay extends StatefulWidget {
+  const _DeferredStoryMediaLoadingOverlay({
+    this.placeholderLabel,
+    this.placeholderColor,
+  });
+
+  final String? placeholderLabel;
+  final Color? placeholderColor;
+
+  @override
+  State<_DeferredStoryMediaLoadingOverlay> createState() =>
+      _DeferredStoryMediaLoadingOverlayState();
+}
+
+class _DeferredStoryMediaLoadingOverlayState
+    extends State<_DeferredStoryMediaLoadingOverlay> {
+  static const Duration _spinnerDelay = Duration(milliseconds: 450);
+
+  bool _showSpinner = false;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer(_spinnerDelay, () {
+      if (mounted) {
+        setState(() => _showSpinner = true);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final label = widget.placeholderLabel?.trim();
+    final color = widget.placeholderColor ?? AppPalette.slate;
+
+    return IgnorePointer(
+      child: ColoredBox(
+        color: Colors.black,
+        child: Center(
+          child: _showSpinner
+              ? const CircularProgressIndicator(color: Colors.white)
+              : (label == null || label.isEmpty
+                  ? const SizedBox.shrink()
+                  : AvatarBadge(label: label, color: color, size: 72)),
+        ),
+      ),
+    );
   }
 }

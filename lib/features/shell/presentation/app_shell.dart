@@ -55,6 +55,7 @@ class _AppShellState extends State<AppShell> {
   void initState() {
     super.initState();
     widget.chatsController.ensureLoaded();
+    widget.updatesController.ensureLoaded();
   }
 
   @override

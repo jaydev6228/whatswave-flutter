@@ -421,6 +421,20 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
     );
   }
 
+  bool _segmentWaitsForMediaLoad(
+    StatusStorySegment? segment,
+    StatusStoryType type,
+  ) {
+    if (type == StatusStoryType.text) {
+      return false;
+    }
+    final path = segment?.displayMediaPath?.trim() ?? '';
+    if (path.isEmpty) {
+      return false;
+    }
+    return statusMediaSourceExists(path);
+  }
+
   Duration _segmentDurationFor({
     required StatusStoryType type,
     StatusStorySegment? segment,
@@ -534,11 +548,14 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
         _videoInitialization = null;
         _activeVideoPath = null;
       }
+      _markCurrentSegmentMediaReady(segment);
     }
 
     if (!mounted) {
       return;
     }
+
+    _markCurrentSegmentMediaReady(segment);
 
     if (restartProgress) {
       _restartSegmentPlayback(
@@ -611,16 +628,16 @@ class _StatusStoryViewerScreenState extends State<StatusStoryViewerScreen>
         segment?.musicTrack?.previewAssetPath?.trim().isNotEmpty == true;
     final isLocalVideoSegment = _currentSegmentType == StatusStoryType.video &&
         segment?.hasLocalMedia == true;
-    final isPhotoSegment = _currentSegmentType == StatusStoryType.photo &&
-        segment?.hasLocalMedia == true;
+    final waitsForMediaLoad = _segmentWaitsForMediaLoad(
+      segment,
+      _currentSegmentType,
+    );
+    _isCurrentSegmentMediaReady = !waitsForMediaLoad;
 
-    // A fresh photo needs to actually be on screen before its time starts
-    // counting down -- _markCurrentSegmentMediaReady flips this back to
-    // true (and un-pauses the progress bar) once StatusStoryMediaSurface
-    // reports the photo has finished decoding (or failed -- either way,
-    // loading has settled). Video has its own separate gating inside
-    // _configureSegmentPlayback below; text has nothing to wait for.
-    _isCurrentSegmentMediaReady = !isPhotoSegment;
+    prefetchAdjacentStorySegments(
+      story: _storyData,
+      currentSegmentIndex: _currentSegmentIndex,
+    );
 
     if (!isLocalVideoSegment && !hasMusic) {
       unawaited(_disposeVideoController());
@@ -1691,6 +1708,8 @@ class _LocalMediaStoryCard extends StatelessWidget {
             videoInitialization: videoInitialization,
             unavailableMessage: 'This local media is no longer available.',
             drawingStrokes: segment.drawingStrokes,
+            loadingPlaceholderLabel: story.avatarLabel,
+            loadingPlaceholderColor: story.accentColor,
             onPhotoLoadSettled: onPhotoLoadSettled,
           ),
           SafeArea(

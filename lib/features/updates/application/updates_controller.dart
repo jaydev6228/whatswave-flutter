@@ -8,6 +8,7 @@ import '../../../core/models/status_story.dart';
 import '../../../core/models/story_viewer.dart';
 import '../data/status_music_repository.dart';
 import '../data/updates_repository.dart';
+import 'status_media_cache_cleanup.dart';
 import 'status_media_prefetch.dart';
 
 class UpdatesController extends ChangeNotifier {
@@ -44,6 +45,7 @@ class UpdatesController extends ChangeNotifier {
   List<ChannelPreview> _channels = const <ChannelPreview>[];
   final Set<String> _busyStoryIds = <String>{};
   final Map<String, int> _pendingSeenSegmentsByStoryId = <String, int>{};
+  Set<String> _knownLiveRemoteMediaPaths = <String>{};
 
   bool get hasLoaded => _hasLoaded;
   bool get isLoading => _isLoading;
@@ -147,6 +149,7 @@ class UpdatesController extends ChangeNotifier {
       _channels = feed.channels;
       _hasLoaded = true;
       _listenForLiveUpdates();
+      _syncStoryMediaCaches(_stories);
     } on UpdatesRepositoryException catch (error) {
       _errorMessage = error.message;
     } catch (_) {
@@ -172,6 +175,7 @@ class UpdatesController extends ChangeNotifier {
     _liveUpdatesSubscription = stream.listen((feed) {
       _stories = _mergeStoriesPreservingLocalProgress(feed.stories);
       _channels = feed.channels;
+      _syncStoryMediaCaches(_stories);
       notifyListeners();
     });
   }
@@ -179,7 +183,22 @@ class UpdatesController extends ChangeNotifier {
   @override
   void dispose() {
     _liveUpdatesSubscription?.cancel();
+    unawaited(clearAllStatusMediaCaches());
     super.dispose();
+  }
+
+  void _syncStoryMediaCaches(List<StatusStory> stories) {
+    final livePaths = remoteStoryMediaPaths(stories);
+    final stalePaths = _knownLiveRemoteMediaPaths.difference(livePaths);
+    _knownLiveRemoteMediaPaths = livePaths;
+
+    prefetchStoriesFeed(stories);
+    unawaited(
+      reconcileStatusMediaCaches(
+        liveStories: stories,
+        explicitlyEvictPaths: stalePaths,
+      ),
+    );
   }
 
   void clearError() {
@@ -229,11 +248,10 @@ class UpdatesController extends ChangeNotifier {
         drawingStrokes: drawingStrokes,
       );
       didSucceed = true;
-      // Fire-and-forget: warms the cache for the segment we just posted so
-      // the very first time it's opened -- including by us, moments later
-      // -- doesn't cold-fetch over the network. See
-      // prefetchStatusMedia's doc comment for why this is needed at all.
-      unawaited(prefetchStatusMedia(myStatus?.latestSegment));
+      final mine = myStatus;
+      if (mine != null) {
+        _syncStoryMediaCaches(_stories);
+      }
     } on UpdatesRepositoryException catch (error) {
       _errorMessage = error.message;
     } catch (_) {
@@ -362,6 +380,7 @@ class UpdatesController extends ChangeNotifier {
         storyId: status.id,
         segmentId: segmentId,
       );
+      _syncStoryMediaCaches(_stories);
       didSucceed = true;
     } on UpdatesRepositoryException catch (error) {
       _errorMessage = error.message;
@@ -387,6 +406,7 @@ class UpdatesController extends ChangeNotifier {
     var didSucceed = false;
     try {
       _stories = await _repository.clearStory(storyId: status.id);
+      _syncStoryMediaCaches(_stories);
       didSucceed = true;
     } on UpdatesRepositoryException catch (error) {
       _errorMessage = error.message;

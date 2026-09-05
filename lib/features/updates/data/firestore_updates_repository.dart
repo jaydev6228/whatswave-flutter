@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
@@ -12,6 +13,7 @@ import '../../../core/utils/user_profile_lookup.dart';
 import 'status_media_store.dart';
 import 'updates_repository.dart';
 import 'status_media_local_cache.dart';
+import '../presentation/widgets/status_media_source.dart';
 
 /// Firestore-backed [UpdatesRepository].
 ///
@@ -258,6 +260,20 @@ class FirestoreUpdatesRepository implements UpdatesRepository {
 
       final storedMediaPath =
           await _maybeImportMedia(type: type, localMediaPath: localMediaPath);
+      if (storedMediaPath != null &&
+          isRemoteStatusMediaPath(storedMediaPath) &&
+          localMediaPath != null &&
+          localMediaPath.trim().isNotEmpty) {
+        final localFile = File(localMediaPath.trim());
+        if (localFile.existsSync()) {
+          unawaited(
+            cacheUploadedMedia(
+              remoteUrl: storedMediaPath,
+              localFile: localFile,
+            ),
+          );
+        }
+      }
       final postedAt = DateTime.now();
       final segmentId = 'status-${postedAt.microsecondsSinceEpoch}';
       // The upload above repoints this segment at a Storage URL, which is

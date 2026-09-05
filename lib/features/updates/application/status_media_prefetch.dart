@@ -1,27 +1,15 @@
 import 'dart:async';
+import 'dart:collection';
 
 import 'package:flutter/painting.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../../core/models/status_story.dart';
 import '../presentation/widgets/status_media_source.dart';
+import '../data/status_media_remote_cache_index.dart';
 
-/// Warms the media caches for a just-posted segment right after
-/// [UpdatesController.createStatus] succeeds, so the first time it's opened
-/// -- including by the poster, seconds later -- doesn't cold-fetch over the
-/// network. Firebase-backed status media is uploaded to Storage and its
-/// `localMediaPath` field is repointed to the resulting `https://` URL (see
-/// FirebaseStatusMediaStore), so status_media_source.dart resolves a fresh
-/// NetworkImage/VideoPlayerController.networkUrl on every open with no
-/// caching in between. A no-op for any local/asset path (the fake/demo
-/// backend never produces a remote URL, so this never fires there).
-///
-/// Best-effort only: never throws, never blocks the caller. A missed
-/// prefetch just means the viewer falls back to its normal cold-load
-/// spinner, not a broken post.
+/// Warms the media caches for a segment. Best-effort only.
 Future<void> prefetchStatusMedia(StatusStorySegment? segment) async {
-  // displayMediaPath: once the on-device original is remembered there is
-  // nothing to warm, so posting no longer pulls its own upload back down.
   final path = segment?.displayMediaPath?.trim();
   if (segment == null || path == null || path.isEmpty) {
     return;
@@ -35,7 +23,7 @@ Future<void> prefetchStatusMedia(StatusStorySegment? segment) async {
       case StatusStoryType.photo:
         await _prefetchPhoto(path);
       case StatusStoryType.video:
-        await _prefetchVideo(path);
+        await StatusVideoPreloadCache.instance.preload(path);
       case StatusStoryType.text:
         break;
     }
@@ -44,10 +32,123 @@ Future<void> prefetchStatusMedia(StatusStorySegment? segment) async {
   }
 }
 
-Future<void> _prefetchPhoto(String path) {
+/// Prefetches the first segment a user is likely to open for every live story.
+void prefetchStoriesFeed(List<StatusStory> stories) {
+  final segments = <StatusStorySegment>[];
+  for (final story in stories) {
+    if (!story.hasSegments) {
+      continue;
+    }
+    if (story.isMine) {
+      segments.addAll(story.segments);
+      continue;
+    }
+    final index = story.clampedSeenSegments
+        .clamp(0, story.segments.length - 1)
+        .toInt();
+    segments.add(story.segments[index]);
+  }
+  StatusMediaPrefetchCoordinator.instance.enqueue(segments);
+}
+
+/// Prefetches the next segment while the viewer is open.
+void prefetchAdjacentStorySegments({
+  required StatusStory story,
+  required int currentSegmentIndex,
+}) {
+  if (!story.hasSegments || story.segments.isEmpty) {
+    return;
+  }
+  final nextIndex = currentSegmentIndex + 1;
+  if (nextIndex >= story.segments.length) {
+    return;
+  }
+  unawaited(prefetchStatusMedia(story.segments[nextIndex]));
+}
+
+/// Serialises background story-media warming with a small concurrency budget.
+class StatusMediaPrefetchCoordinator {
+  StatusMediaPrefetchCoordinator._();
+
+  static final StatusMediaPrefetchCoordinator instance =
+      StatusMediaPrefetchCoordinator._();
+
+  static const int _maxConcurrent = 2;
+
+  final Queue<StatusStorySegment> _pending = Queue<StatusStorySegment>();
+  final Set<String> _queuedOrActiveKeys = <String>{};
+  int _inFlight = 0;
+
+  void enqueue(Iterable<StatusStorySegment> segments) {
+    for (final segment in segments) {
+      final key = _segmentKey(segment);
+      if (key == null || _queuedOrActiveKeys.contains(key)) {
+        continue;
+      }
+      _queuedOrActiveKeys.add(key);
+      _pending.addLast(segment);
+    }
+    _pump();
+  }
+
+  /// Drops queued work for segments that expired or were deleted.
+  void reconcile(Iterable<StatusStory> liveStories) {
+    final liveKeys = <String>{
+      for (final story in liveStories)
+        for (final segment in story.segments)
+          if (_segmentKey(segment) case final key?) key,
+    };
+    _pending.removeWhere((segment) {
+      final key = _segmentKey(segment);
+      return key != null && !liveKeys.contains(key);
+    });
+    _queuedOrActiveKeys.removeWhere((key) => !liveKeys.contains(key));
+  }
+
+  void clear() {
+    _pending.clear();
+    _queuedOrActiveKeys.clear();
+  }
+
+  void _pump() {
+    while (_inFlight < _maxConcurrent && _pending.isNotEmpty) {
+      final segment = _pending.removeFirst();
+      _inFlight++;
+      unawaited(() async {
+        try {
+          await prefetchStatusMedia(segment);
+        } finally {
+          final key = _segmentKey(segment);
+          if (key != null) {
+            _queuedOrActiveKeys.remove(key);
+          }
+          _inFlight--;
+          _pump();
+        }
+      }());
+    }
+  }
+
+  String? _segmentKey(StatusStorySegment segment) {
+    final path = segment.displayMediaPath?.trim();
+    if (path == null || path.isEmpty) {
+      return null;
+    }
+    return '${segment.id}|$path';
+  }
+}
+
+Future<void> _prefetchPhoto(String path) async {
+  try {
+    await statusMediaCacheManager.downloadFile(path);
+    await rememberRemoteStoryMediaCached(path);
+  } catch (_) {
+    // Fall through to provider resolve.
+  }
+
   final imageProvider = imageProviderForStatusMediaPath(path);
   if (imageProvider == null) {
-    return Future<void>.value();
+    return;
   }
 
   final completer = Completer<void>();
@@ -68,83 +169,95 @@ Future<void> _prefetchPhoto(String path) {
     },
   );
   stream.addListener(listener);
-  return completer.future;
+  await completer.future;
 }
 
-Future<void> _prefetchVideo(String path) {
-  return StatusVideoPreloadCache.instance.preload(path);
-}
-
-/// Holds at most one pre-initialized [VideoPlayerController] for a
-/// just-posted remote video segment, so [StatusStoryViewerScreen]'s own
-/// controller construction (in `_startCurrentSegmentPlayback`) can take an
-/// already-initialized controller instead of building and initializing a
-/// fresh one over the network. `video_player` has no persistent on-disk
-/// byte cache the way `ImageCache` does for photos -- an initialized
-/// controller IS the cache here.
-///
-/// Single-slot by design: a user only ever has one just-posted segment to
-/// warm at a time, and holding more would mean juggling multiple live
-/// platform video players for no benefit.
+/// Holds up to two pre-initialized [VideoPlayerController]s for warmed remote
+/// video segments so the viewer can take an already-initialized controller.
 class StatusVideoPreloadCache {
   StatusVideoPreloadCache._();
 
   static final StatusVideoPreloadCache instance = StatusVideoPreloadCache._();
 
-  String? _path;
-  VideoPlayerController? _controller;
-  Future<void>? _initialization;
+  static const int _maxSlots = 2;
+
+  final LinkedHashMap<String, _VideoPreloadEntry> _entries =
+      LinkedHashMap<String, _VideoPreloadEntry>();
 
   Future<void> preload(String path) async {
-    if (_path == path) {
-      final initialization = _initialization;
-      if (initialization != null) {
-        await initialization;
-      }
+    final existing = _entries[path];
+    if (existing != null) {
+      await existing.initialization;
+      _entries.remove(path);
+      _entries[path] = existing;
       return;
     }
 
-    await _disposeCurrent();
+    while (_entries.length >= _maxSlots) {
+      final oldest = _entries.keys.first;
+      await _disposeEntry(oldest);
+    }
 
     final controller = await buildStatusMediaVideoControllerAsync(path);
     final initialization = controller.initialize();
-    _path = path;
-    _controller = controller;
-    _initialization = initialization;
+    _entries[path] = _VideoPreloadEntry(
+      controller: controller,
+      initialization: initialization,
+    );
 
     try {
       await initialization;
+      await rememberRemoteStoryMediaCached(path);
     } catch (_) {
-      // Leave the failed entry out of the cache -- the viewer's own
-      // construction will retry and surface its usual error handling.
-      await _disposeCurrent();
+      await _disposeEntry(path);
     }
   }
 
-  /// Removes and returns the cached controller/initialization for [path] if
-  /// present, transferring ownership (including disposal responsibility) to
-  /// the caller. Returns null on a miss -- the caller should build its own
-  /// controller as usual.
   ({VideoPlayerController controller, Future<void> initialization})? take(
     String path,
   ) {
-    if (_path != path || _controller == null || _initialization == null) {
+    final entry = _entries.remove(path);
+    if (entry == null) {
       return null;
     }
-    final result = (controller: _controller!, initialization: _initialization!);
-    _path = null;
-    _controller = null;
-    _initialization = null;
-    return result;
+    return (
+      controller: entry.controller,
+      initialization: entry.initialization,
+    );
   }
 
-  Future<void> _disposeCurrent() async {
-    final controller = _controller;
-    _path = null;
-    _controller = null;
-    _initialization = null;
-    if (controller != null) {
-      await controller.dispose();
+  void evict(String path) {
+    unawaited(_disposeEntry(path));
+  }
+
+  void evictExcept(Set<String> keepPaths) {
+    final removable = _entries.keys.where((path) => !keepPaths.contains(path));
+    for (final path in removable.toList(growable: false)) {
+      unawaited(_disposeEntry(path));
     }
   }
+
+  Future<void> disposeAll() async {
+    final paths = _entries.keys.toList(growable: false);
+    for (final path in paths) {
+      await _disposeEntry(path);
+    }
+  }
+
+  Future<void> _disposeEntry(String path) async {
+    final entry = _entries.remove(path);
+    if (entry != null) {
+      await entry.controller.dispose();
+    }
+  }
+}
+
+class _VideoPreloadEntry {
+  const _VideoPreloadEntry({
+    required this.controller,
+    required this.initialization,
+  });
+
+  final VideoPlayerController controller;
+  final Future<void> initialization;
 }

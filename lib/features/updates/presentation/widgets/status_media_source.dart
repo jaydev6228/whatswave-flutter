@@ -7,6 +7,8 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../data/status_media_remote_cache_index.dart';
+
 const String kBundledStatusMediaPathPrefix = 'asset://';
 
 bool isBundledStatusMediaPath(String mediaPath) {
@@ -139,6 +141,7 @@ Future<void> cacheUploadedMedia({
       await localFile.readAsBytes(),
       fileExtension: _cacheFileExtension(localFile.path),
     );
+    unawaited(rememberRemoteStoryMediaCached(remoteUrl));
   } catch (_) {
     // Deliberately swallowed -- see the doc comment.
   }
