@@ -83,14 +83,15 @@ Future<void> openLayoutStatusComposer(
     return;
   }
 
-  final didCreate = await controller.createStatus(
+    final didCreate = await controller.createStatus(
     type: StatusStoryType.photo,
     localMediaPath: draft.exportedImagePath,
-    // The export is already the composed collage. Without this the viewer
-    // cover-fits it into the whole (taller) screen and crops the edges
-    // away, so the posted story no longer matches the composer.
+    // Contain-fit the collage and paint leftover bands with the layout
+    // colour. Cover-fitting to each viewer's screen would crop photos
+    // differently on every phone.
     mediaTransform: StatusMediaTransform(
       frameAspectRatio: draft.aspectRatio,
+      backgroundColorValue: draft.backgroundColorValue,
     ),
   );
   if (!context.mounted) {

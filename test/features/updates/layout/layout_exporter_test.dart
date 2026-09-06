@@ -12,8 +12,8 @@ void main() {
   final exporter = LayoutExporter(outputDirectory: outputDirectory);
 
   test('templateFor resolves the live catalog entry', () {
-    final state = LayoutCatalog.initialState(templateId: 'hero_right');
-    expect(exporter.templateFor(state).id, 'hero_right');
+    final state = LayoutCatalog.initialState(templateId: 'two_beside_one');
+    expect(exporter.templateFor(state).id, 'two_beside_one');
     expect(
       exporter.templateFor(
         LayoutCatalog.initialState(templateId: 'missing'),

@@ -235,4 +235,47 @@ void main() {
       kLayoutStoryAspectRatio,
     );
   });
+
+  testWidgets(
+      'a full-screen layout posts its collage ratio and fill colour',
+      (tester) async {
+    await tester.binding.setSurfaceSize(iphoneSeProfile.size);
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final repository = _RecordingCreateStatusRepository();
+    final controller = UpdatesController(repository: repository);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) {
+            return ElevatedButton(
+              onPressed: () => openLayoutStatusComposer(context, controller),
+              child: const Text('Open'),
+            );
+          },
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+
+    Navigator.of(
+      tester.element(find.byKey(const Key('layout_status_composer_screen'))),
+    ).pop(
+      const LayoutStatusComposerDraft(
+        exportedImagePath: '/fake/layout.png',
+        aspectRatio: 390 / 763,
+        backgroundColorValue: 0xFF7EC8E3,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      repository.lastMediaTransform?.frameAspectRatio,
+      closeTo(390 / 763, 0.0001),
+    );
+    expect(repository.lastMediaTransform?.backgroundColorValue, 0xFF7EC8E3);
+  });
 }

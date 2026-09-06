@@ -32,10 +32,10 @@ void main() {
   });
 
   test('initialState builds one empty slot per template slot with default shapes', () {
-    final state = LayoutCatalog.initialState(templateId: 'arch_three_bottom');
-    final template = LayoutCatalog.templateById('arch_three_bottom');
+    final state = LayoutCatalog.initialState(templateId: 'one_beside_four');
+    final template = LayoutCatalog.templateById('one_beside_four');
 
-    expect(state.templateId, 'arch_three_bottom');
+    expect(state.templateId, 'one_beside_four');
     expect(state.slots.length, template.slotCount);
     expect(state.canShare, isFalse);
     expect(state.selectedSlotIndex, isNull);
@@ -46,7 +46,7 @@ void main() {
   });
 
   test('migrateState packs filled photos in order and drops extras', () {
-    final filled = LayoutCatalog.initialState(templateId: 'film_strip').copyWith(
+    final filled = LayoutCatalog.initialState(templateId: 'one_beside_four').copyWith(
       slots: const <LayoutSlotContent>[
         LayoutSlotContent(imagePath: '/tmp/0.jpg', shape: LayoutShapeId.circle),
         LayoutSlotContent(imagePath: '/tmp/1.jpg'),
@@ -77,11 +77,26 @@ void main() {
     expect(toTwo.slots.length, 2);
     expect(toTwo.slots.first.imagePath, '/tmp/a.jpg');
     expect(toTwo.slots.last.hasImage, isFalse);
+    expect(toTwo.splitWeights, isNull);
+  });
+
+  test('migrateState keeps the frame slider and clears split weights', () {
+    final current = LayoutCatalog.initialState(templateId: 'two_rows').copyWith(
+      frame: 0.7,
+      splitWeights: const <double>[0.7, 0.3],
+    );
+    final migrated = LayoutCatalog.migrateState(
+      current,
+      LayoutCatalog.templateById('two_columns'),
+    );
+    expect(migrated.frame, 0.7);
+    expect(migrated.splitWeights, isNull);
+    expect(migrated.cellWeights, isNull);
   });
 
   test('migrateState ignores empty slots when packing photos', () {
     final current = LayoutCatalog.initialState(
-      templateId: 'bottom_strip_three',
+      templateId: 'one_over_three',
     ).copyWith(
       slots: const <LayoutSlotContent>[
         LayoutSlotContent(),
@@ -119,7 +134,7 @@ void main() {
 
     final migrated = LayoutCatalog.migrateState(
       current,
-      LayoutCatalog.templateById('film_strip_three'),
+      LayoutCatalog.templateById('one_beside_three'),
     );
 
     expect(migrated.slots.first.imagePath, '/tmp/a.jpg');
@@ -138,18 +153,68 @@ void main() {
 
     final migrated = LayoutCatalog.migrateState(
       current,
-      LayoutCatalog.templateById('arch_three_bottom'),
+      LayoutCatalog.templateById('two_columns'),
     );
 
-    expect(migrated.slots.first.shape, LayoutShapeId.arch);
+    expect(migrated.slots.first.shape, LayoutShapeId.rectangle);
     expect(migrated.slots.first.hasImage, isFalse);
   });
 
-  test('shape picker lists every supported silhouette once', () {
+  test('shape picker lists each shown silhouette once', () {
     expect(kLayoutShapePickerOrder.toSet().length, kLayoutShapePickerOrder.length);
-    expect(kLayoutShapePickerOrder.length, greaterThanOrEqualTo(16));
     expect(kLayoutShapePickerOrder, contains(LayoutShapeId.circle));
-    expect(kLayoutShapePickerOrder, contains(LayoutShapeId.shield));
-    expect(kLayoutShapePickerOrder, contains(LayoutShapeId.ticket));
+    expect(kLayoutShapePickerOrder, contains(LayoutShapeId.heart));
+    expect(kLayoutShapePickerOrder, isNot(contains(LayoutShapeId.waveTop)));
+    expect(kLayoutShapePickerOrder, isNot(contains(LayoutShapeId.cloud)));
+  });
+
+  test('layouts are photo grids only — rectangles, 1–6 or 8–9 slots', () {
+    const allowedCounts = <int>{1, 2, 3, 4, 5, 6, 8, 9};
+    for (final template in LayoutCatalog.templates) {
+      expect(allowedCounts, contains(template.slotCount), reason: template.id);
+      for (final slot in template.slots) {
+        expect(
+          slot.defaultShape,
+          LayoutShapeId.rectangle,
+          reason: template.id,
+        );
+      }
+    }
+    expect(LayoutCatalog.templateById('one_beside_three').slotCount, 4);
+    expect(LayoutCatalog.templateById('grid_3x3').slotCount, 9);
+    expect(
+      LayoutCatalog.templates.map((template) => template.id),
+      isNot(contains('two_rows_tall_top')),
+    );
+    expect(
+      LayoutCatalog.templates.map((template) => template.id),
+      isNot(contains('two_columns_wide_left')),
+    );
+    expect(
+      LayoutCatalog.templates.map((template) => template.id),
+      isNot(contains('mosaic_three')),
+    );
+    expect(
+      LayoutCatalog.templates.map((template) => template.id),
+      isNot(contains('stagger_left_up')),
+    );
+  });
+
+  test('grid templates expose a split so ratio handles can rebuild slots', () {
+    final twoRows = LayoutCatalog.templateById('two_rows');
+    expect(twoRows.grid?.axis, LayoutSplitAxis.rows);
+    expect(twoRows.grid?.bands, <int>[1, 1]);
+    final twoCols = LayoutCatalog.templateById('two_columns');
+    expect(twoCols.grid?.axis, LayoutSplitAxis.columns);
+    expect(LayoutCatalog.templateById('single').grid, isNull);
+  });
+
+  test('layout list is ordered by photo count: 1, then 2, then 3…', () {
+    final counts = LayoutCatalog.templates
+        .map((template) => template.slotCount)
+        .toList();
+    expect(counts.first, 1);
+    expect(counts, List<int>.from(counts)..sort());
+    expect(LayoutCatalog.templates.first.id, 'single');
   });
 }

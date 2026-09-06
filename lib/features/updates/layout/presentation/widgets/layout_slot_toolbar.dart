@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../presentation/widgets/status_chrome.dart';
+import '../../../presentation/widgets/status_text_editing_tools.dart';
 import '../../models/layout_models.dart';
 
 class LayoutSlotToolbar extends StatelessWidget {
@@ -35,6 +36,94 @@ class LayoutSlotToolbar extends StatelessWidget {
             onTap: onRemoveTap,
           ),
         ],
+      ),
+    );
+  }
+}
+
+class LayoutSlotLookRail extends StatelessWidget {
+  const LayoutSlotLookRail({
+    required this.selected,
+    required this.onSelected,
+    super.key,
+  });
+
+  final LayoutSlotLook selected;
+  final ValueChanged<LayoutSlotLook> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return MediaQuery.withClampedTextScaling(
+      maxScaleFactor: 1.3,
+      child: SingleChildScrollView(
+        key: const Key('layout_slot_look_rail'),
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            for (final look in LayoutSlotLook.values) ...[
+              if (look != LayoutSlotLook.values.first) const SizedBox(width: 6),
+              _LookChip(
+                key: Key('layout_slot_look_${look.name}'),
+                look: look,
+                selected: look == selected,
+                onTap: () => onSelected(look),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LookChip extends StatelessWidget {
+  const _LookChip({
+    required this.look,
+    required this.selected,
+    required this.onTap,
+    super.key,
+  });
+
+  final LayoutSlotLook look;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = selected ? const Color(0xFF2AABEE) : Colors.white;
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: look.label,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(999),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 160),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+            decoration: BoxDecoration(
+              color: selected
+                  ? const Color(0xFF2AABEE).withValues(alpha: 0.22)
+                  : Colors.white.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(999),
+              border: Border.all(
+                color: accent.withValues(alpha: selected ? 1 : 0.28),
+              ),
+            ),
+            child: Text(
+              look.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: accent,
+                fontSize: 12,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -84,126 +173,7 @@ class _ToolbarAction extends StatelessWidget {
   }
 }
 
-/// Picks the shape of the whole canvas. What you see here is what the
-/// posted story shows — the viewer letterboxes the export to this ratio.
-class LayoutCanvasRatioSheet extends StatelessWidget {
-  const LayoutCanvasRatioSheet({
-    required this.selectedRatio,
-    required this.onRatioSelected,
-    super.key,
-  });
-
-  final LayoutCanvasRatio selectedRatio;
-  final ValueChanged<LayoutCanvasRatio> onRatioSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      top: false,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Canvas size',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: [
-                for (final ratio in LayoutCanvasRatio.values)
-                  _RatioTile(
-                    key: Key('layout_ratio_${ratio.name}'),
-                    ratio: ratio,
-                    isSelected: ratio == selectedRatio,
-                    onTap: () => onRatioSelected(ratio),
-                  ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _RatioTile extends StatelessWidget {
-  const _RatioTile({
-    required this.ratio,
-    required this.isSelected,
-    required this.onTap,
-    super.key,
-  });
-
-  final LayoutCanvasRatio ratio;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final accent = isSelected ? const Color(0xFF2AABEE) : Colors.white;
-
-    return Semantics(
-      button: true,
-      selected: isSelected,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(14),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SizedBox(
-                  height: 56,
-                  width: 56,
-                  child: Center(
-                    child: AspectRatio(
-                      aspectRatio: ratio.value,
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: accent.withValues(alpha: isSelected ? 0.2 : 0.1),
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(
-                            color: accent.withValues(alpha: isSelected ? 1 : 0.4),
-                            width: isSelected ? 2 : 1,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  ratio.label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: accent,
-                    fontSize: 12,
-                    fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class LayoutBackgroundColorSheet extends StatelessWidget {
+class LayoutBackgroundColorSheet extends StatefulWidget {
   const LayoutBackgroundColorSheet({
     required this.selectedColor,
     required this.onColorSelected,
@@ -224,45 +194,141 @@ class LayoutBackgroundColorSheet extends StatelessWidget {
     Color(0xFF8338EC),
     Color(0xFFFF8FAB),
     Color(0xFF8ECAE6),
+    Color(0xFFFFD6A5),
+    Color(0xFFFDFFB6),
+    Color(0xFFCAFFBF),
+    Color(0xFFBDB2FF),
+    Color(0xFFFFC6FF),
+    Color(0xFF9BF6FF),
+    Color(0xFFFFE5D9),
+    Color(0xFFD0F4DE),
   ];
 
   @override
+  State<LayoutBackgroundColorSheet> createState() =>
+      _LayoutBackgroundColorSheetState();
+}
+
+class _LayoutBackgroundColorSheetState
+    extends State<LayoutBackgroundColorSheet> {
+  late Color _selected = widget.selectedColor;
+  late Color _shadeBase = widget.selectedColor;
+
+  void _pick(Color color, {bool dismiss = false, bool asBase = false}) {
+    setState(() {
+      _selected = color;
+      if (asBase) {
+        _shadeBase = color;
+      }
+    });
+    widget.onColorSelected(color);
+    if (dismiss && mounted) {
+      Navigator.of(context).pop();
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final shadeStops = <Color>[
+      Color.lerp(Colors.white, _shadeBase, 0.12)!,
+      _shadeBase,
+      _strongerBackground(_shadeBase),
+    ];
     return SafeArea(
       top: false,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Background',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Background',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 10,
-              runSpacing: 10,
-              children: [
-                for (final color in _swatches)
-                  _ColorSwatch(
-                    key: Key('layout_background_swatch_${color.toARGB32()}'),
-                    color: color,
-                    isSelected: color.toARGB32() == selectedColor.toARGB32(),
-                    onTap: () => onColorSelected(color),
-                  ),
-              ],
-            ),
-          ],
+              const SizedBox(height: 12),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final columns =
+                      (constraints.maxWidth / 36).floor().clamp(8, 12);
+                  final cell = constraints.maxWidth / columns;
+                  final visual = (cell - 8).clamp(24.0, 32.0);
+                  return Wrap(
+                    children: [
+                      for (final color in LayoutBackgroundColorSheet._swatches)
+                        SizedBox(
+                          width: cell,
+                          height: cell,
+                          child: Center(
+                            child: _ColorSwatch(
+                              key: Key(
+                                'layout_background_swatch_${color.toARGB32()}',
+                              ),
+                              color: color,
+                              size: visual,
+                              isSelected:
+                                  color.toARGB32() == _selected.toARGB32(),
+                              onTap: () =>
+                                  _pick(color, dismiss: true, asBase: true),
+                            ),
+                          ),
+                        ),
+                    ],
+                  );
+                },
+              ),
+              const SizedBox(height: 14),
+              const Text(
+                'Custom',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 10),
+              StatusTextColorRail(
+                axis: Axis.horizontal,
+                railKey: const Key('layout_background_color_rail'),
+                barKey: const Key('layout_background_color_bar'),
+                thumbKey: const Key('layout_background_color_thumb'),
+                selectedColor: _shadeBase,
+                onSelectColor: (color) => _pick(color, asBase: true),
+              ),
+              const SizedBox(height: 10),
+              StatusTextColorRail(
+                axis: Axis.horizontal,
+                colors: shadeStops,
+                railKey: const Key('layout_background_shade_rail'),
+                barKey: const Key('layout_background_shade_bar'),
+                thumbKey: const Key('layout_background_shade_thumb'),
+                selectedColor: _selected,
+                onSelectColor: _pick,
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
+}
+
+Color _strongerBackground(Color color) {
+  final hsl = HSLColor.fromColor(color);
+  if (hsl.saturation < 0.08) {
+    return Color.lerp(color, Colors.black, 0.72)!;
+  }
+  return hsl
+      .withSaturation((hsl.saturation * 1.2).clamp(0.35, 1.0))
+      .withLightness((hsl.lightness * 0.52).clamp(0.12, 0.42))
+      .toColor();
 }
 
 class _ColorSwatch extends StatelessWidget {
@@ -270,12 +336,14 @@ class _ColorSwatch extends StatelessWidget {
     required this.color,
     required this.isSelected,
     required this.onTap,
+    this.size = 40,
     super.key,
   });
 
   final Color color;
   final bool isSelected;
   final VoidCallback onTap;
+  final double size;
 
   @override
   Widget build(BuildContext context) {
@@ -288,15 +356,24 @@ class _ColorSwatch extends StatelessWidget {
           onTap: onTap,
           customBorder: const CircleBorder(),
           child: Container(
-            width: 44,
-            height: 44,
+            width: size,
+            height: size,
             decoration: BoxDecoration(
               color: color,
               shape: BoxShape.circle,
               border: Border.all(
-                color: isSelected ? Colors.white : const Color(0x55FFFFFF),
-                width: isSelected ? 3 : 1,
+                color: isSelected ? Colors.white : Colors.white24,
+                width: isSelected ? 2.5 : 1,
               ),
+              boxShadow: isSelected
+                  ? const [
+                      BoxShadow(
+                        color: Colors.black38,
+                        blurRadius: 8,
+                        offset: Offset(0, 2),
+                      ),
+                    ]
+                  : null,
             ),
           ),
         ),

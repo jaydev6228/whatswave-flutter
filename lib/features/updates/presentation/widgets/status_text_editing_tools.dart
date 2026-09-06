@@ -33,13 +33,13 @@ const List<Color> kStatusTextColorStops = [
 /// The colour at [t] (0..1) along [kStatusTextColorStops] -- a continuous
 /// blend rather than a fixed swatch list, so dragging the rail sweeps
 /// through every shade in between.
-Color statusTextColorForBarPosition(double t) {
-  const stops = kStatusTextColorStops;
-  final segmentCount = stops.length - 1;
+Color statusTextColorForBarPosition(double t, {List<Color>? stops}) {
+  final palette = stops ?? kStatusTextColorStops;
+  final segmentCount = math.max(palette.length - 1, 1);
   final scaled = t.clamp(0.0, 1.0) * segmentCount;
   final index = scaled.floor().clamp(0, segmentCount - 1);
   final localT = scaled - index;
-  return Color.lerp(stops[index], stops[index + 1], localT)!;
+  return Color.lerp(palette[index], palette[index + 1], localT)!;
 }
 
 /// The position along [kStatusTextColorStops] that best matches [color].
@@ -48,13 +48,13 @@ Color statusTextColorForBarPosition(double t) {
 /// as independent state: when something else changed the colour (shuffle,
 /// a preset), a thumb holding its own position sat on the old colour while
 /// the text rendered the new one.
-double statusTextBarPositionForColor(Color color) {
+double statusTextBarPositionForColor(Color color, {List<Color>? stops}) {
   const samples = 256;
   var bestT = 0.0;
   var bestDistance = double.infinity;
   for (var i = 0; i <= samples; i++) {
     final t = i / samples;
-    final candidate = statusTextColorForBarPosition(t);
+    final candidate = statusTextColorForBarPosition(t, stops: stops);
     final dr = candidate.r - color.r;
     final dg = candidate.g - color.g;
     final db = candidate.b - color.b;
@@ -358,6 +358,8 @@ class StatusTextColorRail extends StatefulWidget {
     required this.railKey,
     required this.barKey,
     required this.thumbKey,
+    this.axis = Axis.vertical,
+    this.colors,
     super.key,
   });
 
@@ -366,6 +368,10 @@ class StatusTextColorRail extends StatefulWidget {
   final Key railKey;
   final Key barKey;
   final Key thumbKey;
+  final Axis axis;
+
+  /// When set, the rail blends these stops instead of [kStatusTextColorStops].
+  final List<Color>? colors;
 
   @override
   State<StatusTextColorRail> createState() => _StatusTextColorRailState();
@@ -384,30 +390,42 @@ class _StatusTextColorRailState extends State<StatusTextColorRail> {
     // Only re-derive when the colour changed from *outside* -- during a
     // drag the colour we just reported back would otherwise snap the thumb
     // to the nearest sampled stop and make the gesture judder.
-    final ownColor = statusTextColorForBarPosition(_barPosition);
+    final ownColor = statusTextColorForBarPosition(
+      _barPosition,
+      stops: widget.colors,
+    );
     if (ownColor == widget.selectedColor) {
       return;
     }
     setState(() {
-      _barPosition = statusTextBarPositionForColor(widget.selectedColor);
+      _barPosition = statusTextBarPositionForColor(
+        widget.selectedColor,
+        stops: widget.colors,
+      );
     });
   }
 
-  void _updateFromLocalY(double localY, double height) {
-    if (height <= 0) {
+  void _updateFromLocal(double offset, double extent) {
+    if (extent <= 0) {
       return;
     }
-    final position = (localY / height).clamp(0.0, 1.0);
+    final position = (offset / extent).clamp(0.0, 1.0);
     setState(() => _barPosition = position);
-    widget.onSelectColor(statusTextColorForBarPosition(position));
+    widget.onSelectColor(
+      statusTextColorForBarPosition(position, stops: widget.colors),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final horizontal = widget.axis == Axis.horizontal;
     return Container(
       key: widget.railKey,
-      width: 34,
-      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 6),
+      width: horizontal ? null : 34,
+      height: horizontal ? 34 : null,
+      padding: horizontal
+          ? const EdgeInsets.symmetric(horizontal: 12, vertical: 6)
+          : const EdgeInsets.symmetric(vertical: 12, horizontal: 6),
       decoration: BoxDecoration(
         color: Colors.black.withValues(alpha: 0.22),
         borderRadius: BorderRadius.circular(999),
@@ -415,38 +433,64 @@ class _StatusTextColorRailState extends State<StatusTextColorRail> {
       ),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final height = constraints.maxHeight;
+          final extent =
+              horizontal ? constraints.maxWidth : constraints.maxHeight;
           return GestureDetector(
             key: widget.barKey,
             behavior: HitTestBehavior.opaque,
-            onTapDown: (details) =>
-                _updateFromLocalY(details.localPosition.dy, height),
-            onVerticalDragStart: (details) =>
-                _updateFromLocalY(details.localPosition.dy, height),
-            onVerticalDragUpdate: (details) =>
-                _updateFromLocalY(details.localPosition.dy, height),
+            onTapDown: (details) => _updateFromLocal(
+              horizontal ? details.localPosition.dx : details.localPosition.dy,
+              extent,
+            ),
+            onHorizontalDragStart: horizontal
+                ? (details) =>
+                    _updateFromLocal(details.localPosition.dx, extent)
+                : null,
+            onHorizontalDragUpdate: horizontal
+                ? (details) =>
+                    _updateFromLocal(details.localPosition.dx, extent)
+                : null,
+            onVerticalDragStart: horizontal
+                ? null
+                : (details) =>
+                    _updateFromLocal(details.localPosition.dy, extent),
+            onVerticalDragUpdate: horizontal
+                ? null
+                : (details) =>
+                    _updateFromLocal(details.localPosition.dy, extent),
             child: Stack(
               clipBehavior: Clip.none,
               children: [
                 Container(
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(999),
-                    gradient: const LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: kStatusTextColorStops,
+                    gradient: LinearGradient(
+                      begin: horizontal
+                          ? Alignment.centerLeft
+                          : Alignment.topCenter,
+                      end: horizontal
+                          ? Alignment.centerRight
+                          : Alignment.bottomCenter,
+                      colors: widget.colors ?? kStatusTextColorStops,
                     ),
                   ),
                 ),
                 Positioned(
-                  top: (_barPosition * height - 9)
-                      .clamp(0.0, math.max(height - 18, 0.0)),
-                  left: -5,
-                  right: -5,
+                  top: horizontal
+                      ? -5
+                      : (_barPosition * extent - 9)
+                          .clamp(0.0, math.max(extent - 18, 0.0)),
+                  bottom: horizontal ? -5 : null,
+                  left: horizontal
+                      ? (_barPosition * extent - 9)
+                          .clamp(0.0, math.max(extent - 18, 0.0))
+                      : -5,
+                  right: horizontal ? null : -5,
                   child: IgnorePointer(
                     child: Container(
                       key: widget.thumbKey,
-                      height: 18,
+                      width: horizontal ? 18 : null,
+                      height: horizontal ? null : 18,
                       decoration: BoxDecoration(
                         color: widget.selectedColor,
                         borderRadius: BorderRadius.circular(999),

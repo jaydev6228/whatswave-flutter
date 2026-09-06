@@ -412,6 +412,8 @@ class _StatusStoryMediaSurfaceState extends State<StatusStoryMediaSurface> {
     // (normal preview, the posted story) keeps rendering exactly as before:
     // the media clipped and translated/scaled to fill the ratio'd frame.
     final isCropPreview = widget.showFrameOutline;
+    final fillColor =
+        widget.mediaTransform.backgroundColor ?? widget.backgroundColor;
 
     final surface = LayoutBuilder(
       builder: (context, constraints) {
@@ -473,7 +475,7 @@ class _StatusStoryMediaSurfaceState extends State<StatusStoryMediaSurface> {
         return Stack(
           fit: StackFit.expand,
           children: [
-            ColoredBox(color: widget.backgroundColor),
+            ColoredBox(color: fillColor),
             _MaybeTransform(
               transform: cropFit,
               child: Center(
@@ -483,7 +485,7 @@ class _StatusStoryMediaSurfaceState extends State<StatusStoryMediaSurface> {
                   height: displaySize.height,
                   child: ClipRect(
                     child: ColoredBox(
-                      color: widget.backgroundColor,
+                      color: fillColor,
                       child: hasMediaSource
                           ? Stack(
                               fit: StackFit.expand,

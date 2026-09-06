@@ -4,9 +4,21 @@ import 'package:image_picker_platform_interface/image_picker_platform_interface.
 import 'package:whatswave/features/updates/layout/models/layout_models.dart';
 import 'package:whatswave/features/updates/layout/presentation/layout_status_composer_screen.dart';
 import 'package:whatswave/features/updates/layout/presentation/widgets/layout_pickers.dart';
+import 'package:whatswave/features/updates/presentation/status_system_chrome.dart';
 
 import '../../../support/device_matrix.dart';
 import '../../../support/fake_image_picker_platform.dart';
+
+Future<void> _reveal(WidgetTester tester, Key key, {required Key rail}) async {
+  await tester.scrollUntilVisible(
+    find.byKey(key),
+    80,
+    scrollable: find.descendant(
+      of: find.byKey(rail),
+      matching: find.byType(Scrollable),
+    ),
+  );
+}
 
 Finder _slot(WidgetTester tester, int index) {
   final templateId = _state(tester).debugState.templateId;
@@ -23,17 +35,36 @@ Future<FakeImagePickerPlatform> _pumpComposer(
   WidgetTester tester, {
   Size size = const Size(390, 844),
   double textScale = 1,
+  EdgeInsets padding = EdgeInsets.zero,
   FakeImagePickerPlatform? picker,
 }) async {
   final platform = picker ?? FakeImagePickerPlatform();
   ImagePickerPlatform.instance = platform;
   await tester.binding.setSurfaceSize(size);
   addTearDown(() => tester.binding.setSurfaceSize(null));
+  if (padding != EdgeInsets.zero) {
+    tester.view.padding = FakeViewPadding(
+      left: padding.left,
+      top: padding.top,
+      right: padding.right,
+      bottom: padding.bottom,
+    );
+    tester.view.viewPadding = FakeViewPadding(
+      left: padding.left,
+      top: padding.top,
+      right: padding.right,
+      bottom: padding.bottom,
+    );
+    addTearDown(tester.view.resetPadding);
+    addTearDown(tester.view.resetViewPadding);
+  }
 
   await tester.pumpWidget(
     MediaQuery(
       data: MediaQueryData(
         size: size,
+        padding: padding,
+        viewPadding: padding,
         textScaler: TextScaler.linear(textScale),
       ),
       child: const MaterialApp(
@@ -58,6 +89,16 @@ void main() {
     expect(find.byKey(const Key('layout_composer_share')), findsOneWidget);
     expect(_state(tester).debugState.templateId, 'single');
     expect(_state(tester).debugBottomMode, LayoutBottomMode.layouts);
+  });
+
+  testWidgets('status-bar scrim stays a short top fade, not a canvas tint',
+      (tester) async {
+    await _pumpComposer(tester);
+
+    final scrim = tester.getRect(find.byType(StatusStoryEdgeScrim));
+    final canvas = tester.getRect(find.byKey(const Key('layout_composer_canvas')));
+    expect(scrim.top, 0);
+    expect(scrim.height, lessThan(canvas.height * 0.25));
   });
 
   testWidgets('switching to shapes mode shows the shape rail and selects slot 0',
@@ -105,6 +146,12 @@ void main() {
     expect(find.byKey(const Key('layout_slot_replace')), findsOneWidget);
     expect(find.byKey(const Key('layout_slot_remove')), findsOneWidget);
     expect(find.text('Drag to move · Pinch to zoom'), findsOneWidget);
+    expect(find.byKey(const Key('layout_slot_look_rail')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('layout_slot_look_border')));
+    await tester.pumpAndSettle();
+    expect(_state(tester).debugState.slots.first.look, LayoutSlotLook.border);
+    expect(find.byKey(const Key('layout_slot_color_rail')), findsOneWidget);
   });
 
   testWidgets('replace uses single pick again and remove clears the slot',
@@ -150,6 +197,11 @@ void main() {
     expect(picker.imageFromSourceCallCount, 2);
     expect(_state(tester).debugState.selectedSlotIndex, 0);
 
+    await _reveal(
+      tester,
+      const Key('layout_shape_heart'),
+      rail: const Key('layout_shape_picker'),
+    );
     await tester.tap(find.byKey(const Key('layout_shape_heart')));
     await tester.pumpAndSettle();
     expect(_state(tester).debugState.slots[0].shape, LayoutShapeId.heart);
@@ -191,7 +243,7 @@ void main() {
     expect(picker.imageFromSourceCallCount, 2);
     expect(picker.multiImageCallCount, 0);
     expect(_state(tester).debugState.slots[1].hasImage, isTrue);
-    expect(_state(tester).debugBottomMode, LayoutBottomMode.shapes);
+    expect(_state(tester).debugBottomMode, LayoutBottomMode.layouts);
   });
 
   testWidgets('canvas stays between top chrome and bottom dock', (tester) async {
@@ -281,6 +333,77 @@ void main() {
 
     expect(find.text('Background'), findsNothing);
     expect(_state(tester).debugState.backgroundColorValue, black.toARGB32());
+  });
+
+  testWidgets('background custom rail recolours the canvas without closing',
+      (tester) async {
+    await _pumpComposer(tester);
+
+    await tester.tap(find.byKey(const Key('layout_composer_background_color')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('layout_background_color_rail')), findsOneWidget);
+
+    final before = _state(tester).debugState.backgroundColorValue;
+    await tester.tapAt(
+      tester.getTopLeft(find.byKey(const Key('layout_background_color_bar'))) +
+          const Offset(80, 8),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Background'), findsOneWidget);
+    expect(_state(tester).debugState.backgroundColorValue, isNot(before));
+  });
+
+  testWidgets('background sheet offers extra light swatches and a shade rail',
+      (tester) async {
+    await _pumpComposer(tester);
+
+    await tester.tap(find.byKey(const Key('layout_composer_background_color')));
+    await tester.pumpAndSettle();
+
+    const mint = Color(0xFFCAFFBF);
+    expect(
+      find.byKey(Key('layout_background_swatch_${mint.toARGB32()}')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('layout_background_shade_rail')), findsOneWidget);
+
+    final before = _state(tester).debugState.backgroundColorValue;
+    final shadeBar = tester.getRect(
+      find.byKey(const Key('layout_background_shade_bar')),
+    );
+    await tester.tapAt(Offset(shadeBar.right - 16, shadeBar.center.dy));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Background'), findsOneWidget);
+    expect(_state(tester).debugState.backgroundColorValue, isNot(before));
+  });
+
+  testWidgets('the shade rail does not move the hue thumb', (tester) async {
+    await _pumpComposer(tester);
+
+    await tester.tap(find.byKey(const Key('layout_composer_background_color')));
+    await tester.pumpAndSettle();
+
+    final hueBar = tester.getRect(
+      find.byKey(const Key('layout_background_color_bar')),
+    );
+    await tester.tapAt(Offset(hueBar.left + 80, hueBar.center.dy));
+    await tester.pumpAndSettle();
+
+    final hueThumbBefore = tester.getCenter(
+      find.byKey(const Key('layout_background_color_thumb')),
+    );
+    final shadeBar = tester.getRect(
+      find.byKey(const Key('layout_background_shade_bar')),
+    );
+    await tester.tapAt(Offset(shadeBar.right - 16, shadeBar.center.dy));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getCenter(find.byKey(const Key('layout_background_color_thumb'))),
+      hueThumbBefore,
+    );
   });
 
   testWidgets('back leaves the composer', (tester) async {
@@ -384,6 +507,11 @@ void main() {
       (tester) async {
     await _pumpComposer(tester);
 
+    await _reveal(
+      tester,
+      const Key('layout_template_three_rows'),
+      rail: const Key('layout_template_picker'),
+    );
     await tester.tap(find.byKey(const Key('layout_template_three_rows')));
     await tester.pumpAndSettle();
     await tester.tap(_slot(tester,0));
@@ -503,6 +631,69 @@ void main() {
     expect(squareSize.width / squareSize.height, closeTo(1, 0.01));
   });
 
+  testWidgets(
+      'full screen stays above the dock while editing and fills in preview',
+      (tester) async {
+    const padding = EdgeInsets.only(top: 47, bottom: 34);
+    await _pumpComposer(tester, padding: padding);
+
+    await tester.tap(find.byKey(const Key('layout_composer_ratio')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('layout_ratio_fullScreen')), findsOneWidget);
+    expect(find.byKey(const Key('layout_ratio_landscape')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('layout_ratio_fullScreen')));
+    await tester.pumpAndSettle();
+
+    expect(_state(tester).debugState.ratio, LayoutCanvasRatio.fullScreen);
+    final editingHost = tester.getRect(
+      find.byKey(const Key('layout_composer_canvas_host')),
+    );
+    final editingCanvas = tester.getRect(
+      find.byKey(const Key('layout_composer_canvas')),
+    );
+    final dock = tester.getRect(find.byKey(const Key('layout_mode_layouts')));
+    expect(editingHost.bottom, lessThan(dock.top - 4));
+    expect(editingCanvas.bottom, lessThanOrEqualTo(editingHost.bottom + 1));
+    expect(editingCanvas.width / editingCanvas.height, closeTo(390 / 763, 0.01));
+
+    final editingScaffold = tester.widget<Scaffold>(
+      find.byKey(const Key('layout_status_composer_screen')),
+    );
+    expect(editingScaffold.backgroundColor, Colors.black);
+
+    await tester.tap(find.byKey(const Key('layout_composer_preview')));
+    await tester.pumpAndSettle();
+
+    final previewHost = tester.getRect(
+      find.byKey(const Key('layout_composer_canvas_host')),
+    );
+    final previewCanvas = tester.getRect(
+      find.byKey(const Key('layout_composer_canvas')),
+    );
+    expect(previewHost.top, closeTo(0, 1));
+    expect(previewHost.bottom, closeTo(844, 1));
+    expect(previewCanvas.top, closeTo(47, 1));
+    expect(previewCanvas.bottom, closeTo(844 - 34, 1));
+    expect(previewCanvas.width / previewCanvas.height, closeTo(390 / 763, 0.01));
+    expect(
+      tester
+          .widget<Scaffold>(
+            find.byKey(const Key('layout_status_composer_screen')),
+          )
+          .backgroundColor,
+      Colors.black,
+    );
+    expect(
+      tester.widget<ColoredBox>(
+        find.descendant(
+          of: find.byKey(const Key('layout_composer_canvas_host')),
+          matching: find.byType(ColoredBox),
+        ).first,
+      ).color,
+      _state(tester).debugState.backgroundColor,
+    );
+  });
+
   testWidgets('share reports the chosen ratio so the viewer can match it',
       (tester) async {
     LayoutStatusComposerDraft? draft;
@@ -546,10 +737,73 @@ void main() {
     expect(draft?.aspectRatio, LayoutCanvasRatio.portrait.value);
   });
 
+  testWidgets(
+      'share reports the safe-area collage and its fill colour for full screen',
+      (tester) async {
+    LayoutStatusComposerDraft? draft;
+    const padding = EdgeInsets.only(top: 47, bottom: 34);
+    ImagePickerPlatform.instance = FakeImagePickerPlatform();
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    tester.view.padding = const FakeViewPadding(top: 47, bottom: 34);
+    tester.view.viewPadding = const FakeViewPadding(top: 47, bottom: 34);
+    addTearDown(tester.view.resetPadding);
+    addTearDown(tester.view.resetViewPadding);
+
+    await tester.pumpWidget(
+      MediaQuery(
+        data: const MediaQueryData(
+          size: Size(390, 844),
+          padding: padding,
+          viewPadding: padding,
+        ),
+        child: MaterialApp(
+          home: Builder(
+            builder: (context) {
+              return ElevatedButton(
+                onPressed: () async {
+                  draft =
+                      await Navigator.of(context).push<LayoutStatusComposerDraft>(
+                    MaterialPageRoute<LayoutStatusComposerDraft>(
+                      builder: (_) => LayoutStatusComposerScreen(
+                        exportOverride: () async => '/tmp/layout_export.png',
+                      ),
+                    ),
+                  );
+                },
+                child: const Text('Open'),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(_slot(tester, 0));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('layout_composer_ratio')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('layout_ratio_fullScreen')));
+    await tester.pumpAndSettle();
+    final fill = _state(tester).debugState.backgroundColorValue;
+    await tester.tap(find.byKey(const Key('layout_composer_share')));
+    await tester.pumpAndSettle();
+
+    expect(draft?.aspectRatio, closeTo(390 / 763, 0.01));
+    expect(draft?.backgroundColorValue, fill);
+  });
+
   testWidgets('switching layout keeps all filled photos and resets masks',
       (tester) async {
     await _pumpComposer(tester);
 
+    await _reveal(
+      tester,
+      const Key('layout_template_three_rows'),
+      rail: const Key('layout_template_picker'),
+    );
     await tester.tap(find.byKey(const Key('layout_template_three_rows')));
     await tester.pumpAndSettle();
     await tester.tap(_slot(tester, 0));
@@ -560,10 +814,17 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(_state(tester).debugState.slots.where((s) => s.hasImage).length, 3);
-    expect(_state(tester).debugBottomMode, LayoutBottomMode.shapes);
+    expect(_state(tester).debugBottomMode, LayoutBottomMode.layouts);
 
+    await tester.tap(find.byKey(const Key('layout_mode_shapes')));
+    await tester.pumpAndSettle();
     await tester.tap(_slot(tester, 0));
     await tester.pumpAndSettle();
+    await _reveal(
+      tester,
+      const Key('layout_shape_oval'),
+      rail: const Key('layout_shape_picker'),
+    );
     await tester.tap(find.byKey(const Key('layout_shape_oval')));
     await tester.pumpAndSettle();
     expect(_state(tester).debugState.slots[0].shape, LayoutShapeId.oval);
@@ -579,5 +840,71 @@ void main() {
     expect(state.slots.every((slot) => slot.shape == LayoutShapeId.rectangle),
         isTrue);
     expect(_state(tester).debugBottomMode, LayoutBottomMode.layouts);
+  });
+
+  testWidgets('split handle slides a two-row layout and preview hides it',
+      (tester) async {
+    await _pumpComposer(tester);
+
+    await tester.tap(find.byKey(const Key('layout_template_two_rows')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('layout_split_handle_0')), findsOneWidget);
+    expect(find.byKey(const Key('layout_frame_slider')), findsOneWidget);
+
+    await tester.drag(
+      find.byKey(const Key('layout_split_handle_0')),
+      const Offset(0, 80),
+    );
+    await tester.pumpAndSettle();
+
+    final weights = _state(tester).debugState.splitWeights;
+    expect(weights, isNotNull);
+    expect(weights!.first, greaterThan(0.5));
+
+    await tester.tap(find.byKey(const Key('layout_composer_preview')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('layout_split_handle_0')), findsNothing);
+  });
+
+  testWidgets('2 / 1 layout has both a vertical and a horizontal split handle',
+      (tester) async {
+    await _pumpComposer(tester);
+
+    await _reveal(
+      tester,
+      const Key('layout_template_two_over_one'),
+      rail: const Key('layout_template_picker'),
+    );
+    await tester.tap(find.byKey(const Key('layout_template_two_over_one')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('layout_split_handle_0')), findsOneWidget);
+    expect(
+      find.byKey(const Key('layout_split_handle_cell_0_0')),
+      findsOneWidget,
+    );
+
+    await tester.drag(
+      find.byKey(const Key('layout_split_handle_cell_0_0')),
+      const Offset(60, 0),
+    );
+    await tester.pumpAndSettle();
+
+    final cells = _state(tester).debugState.cellWeights;
+    expect(cells, isNotNull);
+    expect(cells!.first.first, greaterThan(0.5));
+  });
+
+  testWidgets('border slider thickens the photo frame', (tester) async {
+    await _pumpComposer(tester);
+
+    expect(_state(tester).debugState.frame, kLayoutDefaultFrame);
+    await tester.drag(
+      find.byKey(const Key('layout_frame_slider')),
+      const Offset(80, 0),
+    );
+    await tester.pumpAndSettle();
+    expect(_state(tester).debugState.frame, greaterThan(kLayoutDefaultFrame));
   });
 }

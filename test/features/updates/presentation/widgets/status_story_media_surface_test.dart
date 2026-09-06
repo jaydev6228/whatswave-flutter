@@ -204,4 +204,59 @@ void main() {
     );
     expect(tester.takeException(), isNull);
   });
+
+  test('the same collage contain-fits on a short iPhone and a tall Android',
+      () {
+    const collage = 390 / 763;
+    final se = statusStoryFrameSizeFor(const Size(375, 667), collage);
+    final android = statusStoryFrameSizeFor(const Size(412, 915), collage);
+
+    expect(se.width / se.height, closeTo(collage, 0.0001));
+    expect(android.width / android.height, closeTo(collage, 0.0001));
+    expect(se.width, lessThanOrEqualTo(375));
+    expect(se.height, lessThanOrEqualTo(667));
+    expect(android.width, lessThanOrEqualTo(412));
+    expect(android.height, lessThanOrEqualTo(915));
+  });
+
+  testWidgets(
+      'a posted layout letterbox uses the collage colour, not black',
+      (tester) async {
+    const fill = Color(0xFF7EC8E3);
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 390,
+            height: 844,
+            child: StatusStoryMediaSurface(
+              type: StatusStoryType.photo,
+              localMediaPath: '',
+              backgroundColor: Colors.black,
+              mediaTransform: StatusMediaTransform(
+                frameAspectRatio: 390 / 763,
+                backgroundColorValue: 0xFF7EC8E3,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(
+      tester
+          .widget<ColoredBox>(
+            find
+                .descendant(
+                  of: find.byType(StatusStoryMediaSurface),
+                  matching: find.byType(ColoredBox),
+                )
+                .first,
+          )
+          .color,
+      fill,
+    );
+    final frame = tester.getSize(find.byKey(const Key('updates_media_story_frame')));
+    expect(frame.width / frame.height, closeTo(390 / 763, 0.01));
+  });
 }

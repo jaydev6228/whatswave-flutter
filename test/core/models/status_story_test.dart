@@ -75,6 +75,28 @@ void main() {
     });
   });
 
+  group('StatusMediaTransform.frameAspectRatio', () {
+    test('round-trips a modern phone full-screen ratio', () {
+      const transform = StatusMediaTransform(frameAspectRatio: 390 / 844);
+
+      final decoded = StatusMediaTransform.fromJson(transform.toJson());
+
+      expect(decoded!.frameAspectRatio, closeTo(390 / 844, 0.0001));
+    });
+
+    test('round-trips a layout letterbox colour', () {
+      const transform = StatusMediaTransform(
+        frameAspectRatio: 9 / 16,
+        backgroundColorValue: 0xFF7EC8E3,
+      );
+
+      final decoded = StatusMediaTransform.fromJson(transform.toJson());
+
+      expect(decoded!.backgroundColorValue, 0xFF7EC8E3);
+      expect(decoded.backgroundColor, const Color(0xFF7EC8E3));
+    });
+  });
+
   group('StatusMediaTransform.blurSigma', () {
     test('round-trips through toJson/fromJson', () {
       const transform = StatusMediaTransform(blurSigma: 6.5);

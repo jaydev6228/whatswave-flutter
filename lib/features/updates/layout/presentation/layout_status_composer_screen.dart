@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../../shared/widgets/liquid_glass.dart';
 import '../application/layout_exporter.dart';
 import '../application/layout_picked_image_store.dart';
 import '../data/layout_catalog.dart';
@@ -8,15 +10,16 @@ import '../models/layout_models.dart';
 import '../../presentation/status_system_chrome.dart';
 import '../../presentation/widgets/status_chrome.dart';
 import '../../presentation/widgets/status_story_media_surface.dart';
+import '../../presentation/widgets/status_text_editing_tools.dart';
 import 'widgets/layout_canvas.dart';
 import 'widgets/layout_pickers.dart';
 import 'widgets/layout_slot_toolbar.dart';
 
 /// Height of the bottom tool dock without slot tools (mode toggle + picker rail).
-const double _kLayoutDockBaseHeight = 138;
+const double _kLayoutDockBaseHeight = 190;
 
-/// Extra dock height when Color / Replace / Remove row is visible.
-const double _kLayoutDockSlotToolsExtra = 88;
+/// Extra dock height when Replace / Remove / look chips are visible.
+const double _kLayoutDockSlotToolsExtra = 136;
 
 /// Top button row under the status-bar inset.
 const double _kLayoutTopChromeHeight = 56;
@@ -141,14 +144,40 @@ class LayoutStatusComposerScreenState extends State<LayoutStatusComposerScreen> 
       );
       if (selectSlot) {
         _chromeVisible = true;
-        // Stay on the layout rail while any slot is still empty so the user
-        // can keep filling a multi-photo template without getting stuck.
-        final anyEmpty = slots.any((slot) => !slot.hasImage);
-        if (!anyEmpty) {
-          _bottomMode = LayoutBottomMode.shapes;
-        }
       }
     });
+  }
+
+  void _applySlotLook(LayoutSlotLook look) {
+    final index = _state.selectedSlotIndex;
+    final slot = _selectedSlot;
+    if (index == null || slot == null) {
+      return;
+    }
+    _updateSlot(
+      index,
+      slot.copyWith(
+        look: look,
+        borderWidth: look.strokeWidth,
+        borderColorValue: look.usesColor
+            ? (slot.borderColorValue ?? look.defaultColorValue)
+            : slot.borderColorValue,
+      ),
+      selectSlot: true,
+    );
+  }
+
+  void _applySlotLookColor(Color color) {
+    final index = _state.selectedSlotIndex;
+    final slot = _selectedSlot;
+    if (index == null || slot == null) {
+      return;
+    }
+    _updateSlot(
+      index,
+      slot.copyWith(borderColorValue: color.toARGB32()),
+      selectSlot: true,
+    );
   }
 
   void _toggleChrome() {
@@ -214,6 +243,13 @@ class LayoutStatusComposerScreenState extends State<LayoutStatusComposerScreen> 
       _isExporting = true;
       _chromeVisible = false;
     });
+    // Full-screen export paints the background into the notch / home
+    // bands only after this rebuild. Capture before that and the posted
+    // image is the letterboxed editor.
+    await SchedulerBinding.instance.endOfFrame;
+    if (!mounted) {
+      return;
+    }
     try {
       final exportedPath = widget.exportOverride != null
           ? await widget.exportOverride!()
@@ -227,7 +263,8 @@ class LayoutStatusComposerScreenState extends State<LayoutStatusComposerScreen> 
       Navigator.of(context).pop(
         LayoutStatusComposerDraft(
           exportedImagePath: exportedPath,
-          aspectRatio: _state.ratio.value,
+          aspectRatio: _exportedAspect(),
+          backgroundColorValue: _state.backgroundColorValue,
         ),
       );
     } catch (_) {
@@ -247,26 +284,82 @@ class LayoutStatusComposerScreenState extends State<LayoutStatusComposerScreen> 
     }
   }
 
-  Future<void> _showCanvasRatios() async {
-    await showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: const Color(0xFF121212),
-      builder: (context) {
-        return LayoutCanvasRatioSheet(
-          selectedRatio: _state.ratio,
-          onRatioSelected: (ratio) {
-            setState(() => _state = _state.copyWith(ratio: ratio));
-            Navigator.of(context).pop();
-          },
+  double? _exportedAspect() {
+    final fixed = _state.ratio.value;
+    if (fixed != null && fixed > 0) {
+      return fixed;
+    }
+    // Full screen is this device's safe-area collage — not the raw
+    // screen — so a viewer on another phone contain-fits the same
+    // photos instead of cover-cropping them to its own notch.
+    final box =
+        _canvasBoundaryKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box != null && box.hasSize && box.size.height > 0) {
+      return box.size.width / box.size.height;
+    }
+    return kLayoutStoryAspectRatio;
+  }
+
+  Widget _buildLayoutCanvas() {
+    return LayoutCanvas(
+      state: _state,
+      isEditing: _chromeVisible,
+      onSlotTap: _onSlotTap,
+      onCanvasBackgroundTap: _toggleChrome,
+      onSplitWeightsChanged: (weights) {
+        setState(() {
+          _state = _state.copyWith(splitWeights: weights);
+        });
+      },
+      onCellWeightsChanged: (band, weights) {
+        final grid = LayoutCatalog.templateById(_state.templateId).grid;
+        if (grid == null) {
+          return;
+        }
+        final next = layoutSeedCellWeights(grid, _state.cellWeights);
+        next[band] = weights;
+        setState(() {
+          _state = _state.copyWith(cellWeights: next);
+        });
+      },
+      onSlotTransformEnd: (slotIndex, scale, focal) {
+        _updateSlot(
+          slotIndex,
+          _state.slots[slotIndex].copyWith(
+            scale: scale,
+            focalDx: focal.dx,
+            focalDy: focal.dy,
+          ),
+          selectSlot: true,
         );
       },
     );
   }
 
+  Future<void> _showCanvasRatios(BuildContext anchorContext) async {
+    final picked = await showLiquidGlassBubbleMenu<LayoutCanvasRatio>(
+      anchorContext: anchorContext,
+      openBelow: true,
+      itemBuilder: (context) => [
+        for (final ratio in LayoutCanvasRatio.values)
+          LiquidGlassBubbleItem(
+            key: Key('layout_ratio_${ratio.name}'),
+            label: ratio.label,
+            selected: ratio == _state.ratio,
+            onTap: () => Navigator.of(context).pop(ratio),
+          ),
+      ],
+    );
+    if (picked == null || !mounted) {
+      return;
+    }
+    setState(() => _state = _state.copyWith(ratio: picked));
+  }
+
   Future<void> _showBackgroundColors() async {
-    await showModalBottomSheet<void>(
+    await showGlassBottomSheet<void>(
       context: context,
-      backgroundColor: const Color(0xFF121212),
+      isScrollControlled: true,
       builder: (context) {
         return LayoutBackgroundColorSheet(
           selectedColor: _state.backgroundColor,
@@ -274,7 +367,6 @@ class LayoutStatusComposerScreenState extends State<LayoutStatusComposerScreen> 
             setState(() {
               _state = _state.copyWith(backgroundColorValue: color.toARGB32());
             });
-            Navigator.of(context).pop();
           },
         );
       },
@@ -286,9 +378,13 @@ class LayoutStatusComposerScreenState extends State<LayoutStatusComposerScreen> 
     final selectedIndex = _state.selectedSlotIndex;
     final selectedSlot = _selectedSlot;
     final showSlotTools = _chromeVisible && _canEditSelectedPhoto;
-    final safeTop = MediaQuery.paddingOf(context).top;
-    final safeBottom = MediaQuery.paddingOf(context).bottom;
-    final dockInset = safeBottom + 12;
+    final viewPadding = MediaQuery.viewPaddingOf(context);
+    final padding = MediaQuery.paddingOf(context);
+    final safeTop = viewPadding.top;
+    final safeBottom = viewPadding.bottom;
+    final safeLeft = viewPadding.left;
+    final safeRight = viewPadding.right;
+    final dockInset = padding.bottom + 12;
     final topReserve = _chromeVisible
         ? safeTop + _kLayoutTopChromeHeight + 8
         : safeTop + 8;
@@ -299,6 +395,9 @@ class LayoutStatusComposerScreenState extends State<LayoutStatusComposerScreen> 
             8
         : dockInset;
 
+    final isFullScreen = _state.ratio == LayoutCanvasRatio.fullScreen;
+    final previewFullBleed = isFullScreen && !_chromeVisible;
+
     return StatusStorySystemChrome(
       child: Scaffold(
         key: const Key('layout_status_composer_screen'),
@@ -306,60 +405,62 @@ class LayoutStatusComposerScreenState extends State<LayoutStatusComposerScreen> 
         resizeToAvoidBottomInset: false,
         body: LayoutBuilder(
           builder: (context, constraints) {
+            final safeArea = layoutComposerSafeAreaSize(
+              screenSize: Size(constraints.maxWidth, constraints.maxHeight),
+              topInset: safeTop,
+              bottomInset: safeBottom,
+              leftInset: safeLeft,
+              rightInset: safeRight,
+            );
+            final aspect = _state.ratio.resolve(safeArea);
+            final hostTop = previewFullBleed ? 0.0 : topReserve;
+            final hostBottom = previewFullBleed ? 0.0 : dockReserve;
             final availableHeight =
-                (constraints.maxHeight - topReserve - dockReserve)
+                (constraints.maxHeight - hostTop - hostBottom)
                     .clamp(200.0, double.infinity);
-            final frameSize = statusStoryFrameSizeFor(
-              Size(constraints.maxWidth, availableHeight),
-              _state.ratio.value,
+            final photoHost = previewFullBleed
+                ? safeArea
+                : Size(constraints.maxWidth, availableHeight);
+            final frameSize = statusStoryFrameSizeFor(photoHost, aspect);
+            final photoCanvas = RepaintBoundary(
+              key: _canvasBoundaryKey,
+              child: SizedBox(
+                key: const Key('layout_composer_canvas'),
+                width: frameSize.width,
+                height: frameSize.height,
+                child: _buildLayoutCanvas(),
+              ),
             );
 
             return Stack(
               fit: StackFit.expand,
               children: [
-                // Canvas lives only in the gap between top chrome and bottom dock.
                 Positioned(
                   key: const Key('layout_composer_canvas_host'),
-                  top: topReserve,
+                  top: hostTop,
                   left: 0,
                   right: 0,
-                  bottom: dockReserve,
-                  child: Center(
-                    child: SizedBox(
-                      key: const Key('layout_composer_canvas'),
-                      width: frameSize.width,
-                      height: frameSize.height,
-                      child: RepaintBoundary(
-                        key: _canvasBoundaryKey,
-                        child: LayoutCanvas(
-                        state: _state,
-                        isEditing: _chromeVisible,
-                        onSlotTap: _onSlotTap,
-                        onCanvasBackgroundTap: _toggleChrome,
-                        onSlotTransformEnd: (slotIndex, scale, focal) {
-                          _updateSlot(
-                            slotIndex,
-                            _state.slots[slotIndex].copyWith(
-                              scale: scale,
-                              focalDx: focal.dx,
-                              focalDy: focal.dy,
+                  bottom: hostBottom,
+                  child: previewFullBleed
+                      ? ColoredBox(
+                          color: _state.backgroundColor,
+                          child: Padding(
+                            padding: EdgeInsets.fromLTRB(
+                              safeLeft,
+                              safeTop,
+                              safeRight,
+                              safeBottom,
                             ),
-                            selectSlot: true,
-                          );
-                        },
-                        ),
-                      ),
-                    ),
-                  ),
+                            child: Center(child: photoCanvas),
+                          ),
+                        )
+                      : Center(child: photoCanvas),
                 ),
-                Positioned(
-                  top: topReserve - 24,
+                const Positioned(
+                  top: 0,
                   left: 0,
                   right: 0,
-                  bottom: dockReserve - 24,
-                  child: const IgnorePointer(
-                    child: StatusStoryEdgeScrim(),
-                  ),
+                  child: StatusStoryEdgeScrim(),
                 ),
                 if (_chromeVisible)
                   Positioned(
@@ -416,12 +517,17 @@ class LayoutStatusComposerScreenState extends State<LayoutStatusComposerScreen> 
                                     onTap: _toggleChrome,
                                     bare: true,
                                   ),
-                                  StatusChromeButton(
-                                    key: const Key('layout_composer_ratio'),
-                                    tooltip: 'Canvas size',
-                                    icon: Icons.aspect_ratio_rounded,
-                                    onTap: _showCanvasRatios,
-                                    bare: true,
+                                  Builder(
+                                    builder: (buttonContext) {
+                                      return StatusChromeButton(
+                                        key: const Key('layout_composer_ratio'),
+                                        tooltip: 'Canvas size',
+                                        icon: Icons.aspect_ratio_rounded,
+                                        onTap: () =>
+                                            _showCanvasRatios(buttonContext),
+                                        bare: true,
+                                      );
+                                    },
                                   ),
                                   StatusChromeButton(
                                     key: const Key(
@@ -449,6 +555,22 @@ class LayoutStatusComposerScreenState extends State<LayoutStatusComposerScreen> 
                     ),
                   ),
                 ),
+                if (showSlotTools &&
+                    selectedSlot != null &&
+                    selectedSlot.look.usesColor)
+                  Positioned(
+                    top: topReserve,
+                    right: 10,
+                    bottom: dockReserve,
+                    child: StatusTextColorRail(
+                      railKey: const Key('layout_slot_color_rail'),
+                      barKey: const Key('layout_slot_color_bar'),
+                      thumbKey: const Key('layout_slot_color_thumb'),
+                      selectedColor: selectedSlot.borderColor ??
+                          Color(selectedSlot.look.defaultColorValue),
+                      onSelectColor: _applySlotLookColor,
+                    ),
+                  ),
                 if (_chromeVisible)
                   Positioned(
                     left: 12,
@@ -460,12 +582,22 @@ class LayoutStatusComposerScreenState extends State<LayoutStatusComposerScreen> 
                       selectedShape:
                           selectedSlot?.shape ?? LayoutShapeId.rectangle,
                       showSlotTools: showSlotTools,
+                      frame: _state.frame,
+                      onFrameChanged: (frame) {
+                        setState(() {
+                          _state = _state.copyWith(frame: frame);
+                        });
+                      },
                       editHint: _canEditSelectedPhoto
                           ? 'Drag to move · Pinch to zoom'
                           : null,
                       onModeChanged: _setBottomMode,
                       onTemplateSelected: _selectTemplate,
                       onShapeSelected: _applyShape,
+                      look: selectedSlot?.look ?? LayoutSlotLook.none,
+                      onLookSelected: selectedIndex == null
+                          ? null
+                          : _applySlotLook,
                       onReplaceTap: selectedIndex == null
                           ? null
                           : () => _pickImageForSlot(selectedIndex),

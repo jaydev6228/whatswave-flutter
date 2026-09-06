@@ -11,6 +11,7 @@ class StatusMediaTransform {
     this.offsetDy = 0,
     this.rotationQuarterTurns = 0,
     this.frameAspectRatio,
+    this.backgroundColorValue,
     this.blurSigma = 0,
     this.rotationDegrees = 0,
   });
@@ -20,6 +21,15 @@ class StatusMediaTransform {
   final double offsetDy;
   final int rotationQuarterTurns;
   final double? frameAspectRatio;
+
+  /// Letterbox fill for a posted layout (or any framed photo). The viewer
+  /// paints this instead of black so the same collage reads on every
+  /// phone — notch, home indicator, and leftover bands stay the chosen
+  /// colour rather than cropping the image to that device's shape.
+  final int? backgroundColorValue;
+
+  Color? get backgroundColor =>
+      backgroundColorValue == null ? null : Color(backgroundColorValue!);
 
   /// Whole-media blur strength (0 = off), matching WhatsApp's "blur" tool.
   final double blurSigma;
@@ -39,6 +49,8 @@ class StatusMediaTransform {
     int? rotationQuarterTurns,
     double? frameAspectRatio,
     bool clearFrameAspectRatio = false,
+    int? backgroundColorValue,
+    bool clearBackgroundColor = false,
     double? blurSigma,
     double? rotationDegrees,
   }) {
@@ -50,6 +62,9 @@ class StatusMediaTransform {
       frameAspectRatio: clearFrameAspectRatio
           ? null
           : (frameAspectRatio ?? this.frameAspectRatio),
+      backgroundColorValue: clearBackgroundColor
+          ? null
+          : (backgroundColorValue ?? this.backgroundColorValue),
       blurSigma: blurSigma ?? this.blurSigma,
       rotationDegrees: rotationDegrees ?? this.rotationDegrees,
     );
@@ -62,6 +77,7 @@ class StatusMediaTransform {
       'offsetDy': offsetDy,
       'rotationQuarterTurns': rotationQuarterTurns,
       'frameAspectRatio': frameAspectRatio,
+      'backgroundColorValue': backgroundColorValue,
       'blurSigma': blurSigma,
       'rotationDegrees': rotationDegrees,
     };
@@ -80,8 +96,12 @@ class StatusMediaTransform {
           (_intValueFromRaw(raw['rotationQuarterTurns']) ?? 0).clamp(-12, 12),
       frameAspectRatio:
           (_doubleValueFromRaw(raw['frameAspectRatio'])?.isFinite ?? false)
-              ? (_doubleValueFromRaw(raw['frameAspectRatio'])!).clamp(0.5, 2.2)
+              // Floor used to be 0.5, which rounded a phone's own
+              // full-screen ratio (~0.46 on a modern iPhone) up and
+              // letterboxed the posted story.
+              ? (_doubleValueFromRaw(raw['frameAspectRatio'])!).clamp(0.35, 2.5)
               : null,
+      backgroundColorValue: _colorValueFromRaw(raw['backgroundColorValue']),
       blurSigma: (_doubleValueFromRaw(raw['blurSigma']) ?? 0).clamp(0.0, 20.0),
       rotationDegrees:
           (_doubleValueFromRaw(raw['rotationDegrees']) ?? 0).clamp(-45.0, 45.0),

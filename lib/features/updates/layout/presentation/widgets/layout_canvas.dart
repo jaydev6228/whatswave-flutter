@@ -18,6 +18,8 @@ class LayoutCanvas extends StatelessWidget {
     required this.onSlotTap,
     this.onCanvasBackgroundTap,
     this.onSlotTransformEnd,
+    this.onSplitWeightsChanged,
+    this.onCellWeightsChanged,
     this.isEditing = true,
     super.key,
   });
@@ -27,6 +29,9 @@ class LayoutCanvas extends StatelessWidget {
   final VoidCallback? onCanvasBackgroundTap;
   final void Function(int slotIndex, double scale, Offset focal)?
       onSlotTransformEnd;
+  final ValueChanged<List<double>>? onSplitWeightsChanged;
+  final void Function(int bandIndex, List<double> weights)?
+      onCellWeightsChanged;
 
   /// False in preview mode and during export, where the canvas has to show
   /// exactly what gets posted — no selection ring, no "Tap to add" hints.
@@ -35,23 +40,23 @@ class LayoutCanvas extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final template = LayoutCatalog.templateById(state.templateId);
-    final filledSlotCount =
-        state.slots.where((slot) => slot.hasImage).length.clamp(0, 99);
-    final previewCacheWidth = layoutPreviewCacheWidth(
-      filledSlotCount == 0 ? 1 : filledSlotCount,
-    );
     final selectedIndex = state.selectedSlotIndex;
 
-    return AspectRatio(
-      aspectRatio: state.ratio.value,
-      child: ColoredBox(
-        color: state.backgroundColor,
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final canvasSize = Size(
-              constraints.maxWidth,
-              constraints.maxHeight,
-            );
+    return ColoredBox(
+      color: state.backgroundColor,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final canvasSize = Size(
+            constraints.maxWidth,
+            constraints.maxHeight,
+          );
+          final aspect = canvasSize.height > 0
+              ? canvasSize.width / canvasSize.height
+              : kLayoutStoryAspectRatio;
+          final resolvedSlots = LayoutCatalog.slotsFor(
+            state,
+            aspect: aspect,
+          );
             return Stack(
               clipBehavior: Clip.hardEdge,
               children: [
@@ -61,17 +66,17 @@ class LayoutCanvas extends StatelessWidget {
                     onTap: onCanvasBackgroundTap,
                   ),
                 ),
-                for (var index = 0; index < template.slots.length; index++)
+                for (var index = 0; index < resolvedSlots.length; index++)
                   if (index < state.slots.length)
                     _LayoutSlotLayer(
                       key: ValueKey<String>(
                         'layout_slot_${state.templateId}_$index',
                       ),
                       slotIndex: index,
-                      definition: template.slots[index],
+                      definition: resolvedSlots[index],
                       content: state.slots[index],
+                      canvasBackground: state.backgroundColor,
                       canvasSize: canvasSize,
-                      previewCacheWidth: previewCacheWidth,
                       isSelected: isEditing &&
                           selectedIndex == index &&
                           state.slots[index].hasImage,
@@ -84,11 +89,65 @@ class LayoutCanvas extends StatelessWidget {
                           : (scale, focal) =>
                               onSlotTransformEnd!(index, scale, focal),
                     ),
+                if (isEditing && template.grid != null)
+                  for (final handle in layoutSplitHandles(
+                    grid: template.grid!,
+                    weights: state.splitWeights,
+                    cellWeights: state.cellWeights,
+                    frame: state.frame,
+                    aspect: aspect,
+                  ))
+                    _LayoutSplitHandle(
+                      handle: handle,
+                      canvasSize: canvasSize,
+                      onDrag: (delta) {
+                        final spacing = layoutFrameSpacing(
+                          state.frame,
+                          aspect: aspect,
+                        );
+                        final sizeAlong = handle.axis == LayoutSplitAxis.rows
+                            ? canvasSize.height * (1 - 2 * spacing.insetY)
+                            : canvasSize.width * (1 - 2 * spacing.insetX);
+                        if (sizeAlong <= 0) {
+                          return;
+                        }
+                        final along = handle.axis == LayoutSplitAxis.rows
+                            ? delta.dy
+                            : delta.dx;
+                        final fraction = along / sizeAlong;
+                        if (handle.isCellHandle) {
+                          final band = handle.bandIndex!;
+                          final seeded = layoutSeedCellWeights(
+                            template.grid!,
+                            state.cellWeights,
+                          );
+                          onCellWeightsChanged?.call(
+                            band,
+                            layoutDragSplitWeights(
+                              weights: seeded[band],
+                              boundaryIndex: handle.boundaryIndex,
+                              deltaFraction: fraction,
+                            ),
+                          );
+                          return;
+                        }
+                        onSplitWeightsChanged?.call(
+                          layoutDragSplitWeights(
+                            weights: state.splitWeights ??
+                                layoutNormalizedWeights(
+                                  null,
+                                  template.grid!.bandCount,
+                                ),
+                            boundaryIndex: handle.boundaryIndex,
+                            deltaFraction: fraction,
+                          ),
+                        );
+                      },
+                    ),
               ],
             );
           },
         ),
-      ),
     );
   }
 }
@@ -98,8 +157,8 @@ class _LayoutSlotLayer extends StatefulWidget {
     required this.slotIndex,
     required this.definition,
     required this.content,
+    required this.canvasBackground,
     required this.canvasSize,
-    required this.previewCacheWidth,
     required this.isSelected,
     required this.showEmptyHint,
     required this.canTransform,
@@ -111,8 +170,8 @@ class _LayoutSlotLayer extends StatefulWidget {
   final int slotIndex;
   final LayoutSlotDefinition definition;
   final LayoutSlotContent content;
+  final Color canvasBackground;
   final Size canvasSize;
-  final int previewCacheWidth;
   final bool isSelected;
   final bool showEmptyHint;
   final bool canTransform;
@@ -247,6 +306,12 @@ class _LayoutSlotLayerState extends State<_LayoutSlotLayer> {
     }
 
     final slotSize = rect.size;
+    final cacheWidth = layoutPreviewCacheWidth(
+      slotSize: slotSize,
+      devicePixelRatio: MediaQuery.devicePixelRatioOf(context),
+      zoom: _displayScale,
+      imageSize: _imageSize,
+    );
 
     return Positioned.fromRect(
       rect: rect,
@@ -296,35 +361,54 @@ class _LayoutSlotLayerState extends State<_LayoutSlotLayer> {
             children: [
               if (!widget.content.hasImage && widget.showEmptyHint)
                 const _EmptySlotPlaceholder(hasImage: false),
-              if (widget.content.hasImage)
-                _LayoutSlotClip(
-                  shape: widget.content.shape,
-                  cornerRadius: widget.definition.cornerRadius,
-                  child: _SlotFileImage(
-                    path: widget.content.imagePath!,
-                    shape: widget.content.shape,
-                    cornerRadius: widget.definition.cornerRadius,
-                    slotSize: slotSize,
-                    scale: _displayScale,
-                    focalDx: _displayFocalDx,
-                    focalDy: _displayFocalDy,
-                    imageSize: _imageSize,
-                    cacheWidth: widget.previewCacheWidth,
+              if (widget.content.hasImage &&
+                  widget.content.look.paintsShadow)
+                IgnorePointer(
+                  child: CustomPaint(
+                    painter: _SlotLookShadowPainter(
+                      shape: widget.content.shape,
+                      cornerRadius: widget.definition.cornerRadius,
+                      color: widget.content.borderColor ??
+                          Color(widget.content.look.defaultColorValue),
+                      canvasBackground: widget.canvasBackground,
+                      soft: widget.content.look == LayoutSlotLook.soft,
+                    ),
                   ),
                 ),
-              if (widget.content.borderColor != null &&
-                  widget.content.borderWidth > 0)
+              if (widget.content.hasImage)
+                Padding(
+                  padding: widget.content.look == LayoutSlotLook.soft
+                      ? const EdgeInsets.all(7)
+                      : EdgeInsets.zero,
+                  child: _LayoutSlotClip(
+                    shape: widget.content.shape,
+                    cornerRadius: widget.definition.cornerRadius,
+                    child: _SlotFileImage(
+                      path: widget.content.imagePath!,
+                      shape: widget.content.shape,
+                      cornerRadius: widget.definition.cornerRadius,
+                      slotSize: slotSize,
+                      scale: _displayScale,
+                      focalDx: _displayFocalDx,
+                      focalDy: _displayFocalDy,
+                      imageSize: _imageSize,
+                      cacheWidth: cacheWidth,
+                    ),
+                  ),
+                ),
+              if (widget.content.look.strokeWidth > 0)
                 IgnorePointer(
                   child: CustomPaint(
                     painter: _SlotBorderPainter(
                       shape: widget.content.shape,
                       cornerRadius: widget.definition.cornerRadius,
-                      color: widget.content.borderColor!,
-                      strokeWidth: widget.content.borderWidth,
+                      color: widget.content.borderColor ??
+                          Color(widget.content.look.defaultColorValue),
+                      strokeWidth: widget.content.look.strokeWidth,
                     ),
                   ),
                 ),
-              if (widget.isSelected)
+              if (widget.isSelected && widget.content.look.strokeWidth == 0)
                 IgnorePointer(
                   child: CustomPaint(
                     painter: _SlotSelectionPainter(
@@ -445,7 +529,7 @@ class _SlotFileImage extends StatelessWidget {
             width: double.infinity,
             height: double.infinity,
             cacheWidth: cacheWidth,
-            filterQuality: FilterQuality.low,
+            filterQuality: FilterQuality.medium,
             gaplessPlayback: true,
             errorBuilder: (_, __, ___) =>
                 const _EmptySlotPlaceholder(hasImage: true),
@@ -491,7 +575,7 @@ class _SlotFileImage extends StatelessWidget {
                   width: renderedSize.width,
                   height: renderedSize.height,
                   cacheWidth: cacheWidth,
-                  filterQuality: FilterQuality.low,
+                  filterQuality: FilterQuality.medium,
                   gaplessPlayback: true,
                   errorBuilder: (_, __, ___) =>
                       const _EmptySlotPlaceholder(hasImage: true),
@@ -502,6 +586,63 @@ class _SlotFileImage extends StatelessWidget {
         );
       },
     );
+  }
+}
+
+class _SlotLookShadowPainter extends CustomPainter {
+  const _SlotLookShadowPainter({
+    required this.shape,
+    required this.cornerRadius,
+    required this.color,
+    required this.canvasBackground,
+    required this.soft,
+  });
+
+  final LayoutShapeId shape;
+  final double cornerRadius;
+  final Color color;
+  final Color canvasBackground;
+  final bool soft;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.isEmpty) {
+      return;
+    }
+    final bounds = soft
+        ? (Offset.zero & size).deflate(7)
+        : Offset.zero & size;
+    final path = safeLayoutShapePath(
+      shape: shape,
+      bounds: bounds,
+      cornerRadius: cornerRadius,
+    );
+    if (soft) {
+      final light = canvasBackground.computeLuminance() > 0.5
+          ? Colors.white
+          : Colors.white.withValues(alpha: 0.28);
+      canvas.save();
+      canvas.translate(-2.5, -2.5);
+      canvas.drawShadow(path, light, 6, false);
+      canvas.restore();
+      canvas.save();
+      canvas.translate(3, 3);
+      canvas.drawShadow(path, color.withValues(alpha: 0.55), 8, false);
+      canvas.restore();
+      return;
+    }
+    canvas.save();
+    canvas.translate(0, 3);
+    canvas.drawShadow(path, color.withValues(alpha: 0.7), 10, false);
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant _SlotLookShadowPainter oldDelegate) {
+    return oldDelegate.shape != shape ||
+        oldDelegate.color != color ||
+        oldDelegate.canvasBackground != canvasBackground ||
+        oldDelegate.soft != soft;
   }
 }
 
@@ -613,6 +754,64 @@ class _EmptySlotPlaceholder extends StatelessWidget {
               ),
             ],
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LayoutSplitHandle extends StatelessWidget {
+  const _LayoutSplitHandle({
+    required this.handle,
+    required this.canvasSize,
+    required this.onDrag,
+  });
+
+  final LayoutSplitHandle handle;
+  final Size canvasSize;
+  final ValueChanged<Offset> onDrag;
+
+  @override
+  Widget build(BuildContext context) {
+    const size = 44.0;
+    final isRows = handle.axis == LayoutSplitAxis.rows;
+    final crossCenter = (handle.crossStart + handle.crossEnd) / 2;
+    final left = isRows
+        ? crossCenter * canvasSize.width - size / 2
+        : handle.normalizedOffset * canvasSize.width - size / 2;
+    final top = isRows
+        ? handle.normalizedOffset * canvasSize.height - size / 2
+        : crossCenter * canvasSize.height - size / 2;
+
+    return Positioned(
+      left: left,
+      top: top,
+      width: size,
+      height: size,
+      child: GestureDetector(
+        key: Key(handle.keyName),
+        behavior: HitTestBehavior.opaque,
+        onPanUpdate: (details) => onDrag(details.delta),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.22),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Transform.rotate(
+            angle: isRows ? 0 : 1.5708,
+            child: const Icon(
+              Icons.unfold_more_rounded,
+              size: 22,
+              color: Color(0xFF1A1A1A),
+            ),
+          ),
         ),
       ),
     );

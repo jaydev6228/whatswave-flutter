@@ -13,12 +13,16 @@ class LayoutComposerDock extends StatelessWidget {
     required this.selectedTemplateId,
     required this.selectedShape,
     required this.showSlotTools,
+    required this.frame,
     required this.onModeChanged,
     required this.onTemplateSelected,
     required this.onShapeSelected,
+    required this.onFrameChanged,
     this.editHint,
     this.onReplaceTap,
     this.onRemoveTap,
+    this.look = LayoutSlotLook.none,
+    this.onLookSelected,
     super.key,
   });
 
@@ -26,12 +30,16 @@ class LayoutComposerDock extends StatelessWidget {
   final String selectedTemplateId;
   final LayoutShapeId selectedShape;
   final bool showSlotTools;
+  final double frame;
   final String? editHint;
   final ValueChanged<LayoutBottomMode> onModeChanged;
   final ValueChanged<LayoutTemplate> onTemplateSelected;
   final ValueChanged<LayoutShapeId> onShapeSelected;
+  final ValueChanged<double> onFrameChanged;
   final VoidCallback? onReplaceTap;
   final VoidCallback? onRemoveTap;
+  final LayoutSlotLook look;
+  final ValueChanged<LayoutSlotLook>? onLookSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -50,6 +58,13 @@ class LayoutComposerDock extends StatelessWidget {
               onReplaceTap: onReplaceTap!,
               onRemoveTap: onRemoveTap!,
             ),
+            if (onLookSelected != null) ...[
+              const SizedBox(height: 8),
+              LayoutSlotLookRail(
+                selected: look,
+                onSelected: onLookSelected!,
+              ),
+            ],
             if (editHint != null) ...[
               const SizedBox(height: 6),
               Text(
@@ -72,7 +87,12 @@ class LayoutComposerDock extends StatelessWidget {
               onModeChanged: onModeChanged,
             ),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
+          LayoutFrameSlider(
+            value: frame,
+            onChanged: onFrameChanged,
+          ),
+          const SizedBox(height: 8),
           if (bottomMode == LayoutBottomMode.layouts)
             LayoutTemplatePicker(
               selectedTemplateId: selectedTemplateId,
@@ -303,6 +323,53 @@ class LayoutBottomModeToggle extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class LayoutFrameSlider extends StatelessWidget {
+  const LayoutFrameSlider({
+    required this.value,
+    required this.onChanged,
+    super.key,
+  });
+
+  final double value;
+  final ValueChanged<double> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: 'Photo border',
+      slider: true,
+      value: '${(value * 100).round()}%',
+      child: Row(
+        children: [
+          Icon(
+            Icons.border_outer_rounded,
+            size: 18,
+            color: Colors.white.withValues(alpha: 0.7),
+          ),
+          Expanded(
+            child: SliderTheme(
+              data: SliderTheme.of(context).copyWith(
+                trackHeight: 3,
+                activeTrackColor: const Color(0xFF2AABEE),
+                inactiveTrackColor: Colors.white.withValues(alpha: 0.18),
+                thumbColor: Colors.white,
+                overlayColor: const Color(0x332AABEE),
+                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 8),
+                overlayShape: const RoundSliderOverlayShape(overlayRadius: 16),
+              ),
+              child: Slider(
+                key: const Key('layout_frame_slider'),
+                value: value.clamp(0.0, 1.0),
+                onChanged: onChanged,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

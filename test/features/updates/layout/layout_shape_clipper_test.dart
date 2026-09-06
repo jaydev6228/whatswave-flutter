@@ -110,6 +110,16 @@ void main() {
     expect(pathBounds.height, greaterThan(pathBounds.width * 1.05));
   });
 
+  test('horizontal oval is a landscape egg', () {
+    const bounds = Rect.fromLTWH(0, 0, 100, 160);
+    final path = layoutShapePath(
+      shape: LayoutShapeId.horizontalOval,
+      bounds: bounds,
+    );
+    final pathBounds = path.getBounds();
+    expect(pathBounds.width, greaterThan(pathBounds.height * 1.2));
+  });
+
   test('circle and oval are visibly different in row slots', () {
     const bounds = Rect.fromLTWH(0, 0, 180, 160);
     final circle = layoutShapePath(

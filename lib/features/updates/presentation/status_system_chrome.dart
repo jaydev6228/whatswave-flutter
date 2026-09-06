@@ -95,19 +95,24 @@ class StatusStoryEdgeScrim extends StatelessWidget {
     // it over the tail.
     final insetStop = (topInset / height).clamp(0.0, 1.0);
     return IgnorePointer(
-      child: SizedBox(
-        height: height,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: const <Color>[
-                Color(0x8A000000),
-                Color(0x59000000),
-                Color(0x00000000),
-              ],
-              stops: <double>[0, insetStop, 1],
+      child: Align(
+        alignment: Alignment.topCenter,
+        heightFactor: 1,
+        child: SizedBox(
+          height: height,
+          width: double.infinity,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: const <Color>[
+                  Color(0x8A000000),
+                  Color(0x59000000),
+                  Color(0x00000000),
+                ],
+                stops: <double>[0, insetStop, 1],
+              ),
             ),
           ),
         ),

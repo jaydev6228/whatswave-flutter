@@ -349,6 +349,42 @@ void main() {
     expect(_fillWidthFactor(tester, 0), greaterThan(pausedProgress));
   });
 
+  testWidgets('holding a story fades the chrome away and release restores it',
+      (tester) async {
+    await _pumpStoryViewerHarness(
+      tester,
+      story: story,
+      segmentDurationOverride: const Duration(seconds: 4),
+    );
+
+    await tester.tap(find.byKey(const Key('open_viewer_button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 80));
+
+    AnimatedOpacity chrome() => tester.widget<AnimatedOpacity>(
+          find.byKey(const Key('updates_story_viewer_hold_chrome')),
+        );
+    expect(chrome().opacity, 1);
+
+    final gesture = await tester.createGesture();
+    await gesture.down(
+      tester
+          .getCenter(find.byKey(const Key('updates_story_viewer_right_zone'))),
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(chrome().opacity, 1, reason: 'a tap must not hide the chrome');
+
+    await tester.pump(const Duration(milliseconds: 120));
+    expect(chrome().opacity, 0);
+    expect(find.byKey(const Key('updates_story_close_button')), findsOneWidget);
+
+    await gesture.up();
+    await tester.pump();
+    expect(chrome().opacity, 1);
+    await tester.pump(const Duration(milliseconds: 160));
+    expect(chrome().opacity, 1);
+  });
+
   testWidgets(
       'holding on the last segment resumes playback instead of closing the viewer',
       (tester) async {
