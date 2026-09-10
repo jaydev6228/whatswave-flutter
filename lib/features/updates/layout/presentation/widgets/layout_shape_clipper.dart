@@ -96,6 +96,8 @@ Path layoutShapePath({
       return _regularPolygonPath(bounds, 3);
     case LayoutShapeId.teardrop:
       return _teardropPath(bounds);
+    case LayoutShapeId.teardropDown:
+      return _teardropDownPath(bounds);
     case LayoutShapeId.ticket:
       return _ticketPath(bounds);
     case LayoutShapeId.square:
@@ -110,6 +112,10 @@ Path layoutShapePath({
             Radius.circular(bounds.shortestSide / 2),
           ),
         );
+    case LayoutShapeId.capsuleTop:
+      return _capsuleHalfPath(bounds, top: true);
+    case LayoutShapeId.capsuleBottom:
+      return _capsuleHalfPath(bounds, top: false);
     case LayoutShapeId.pentagon:
       return _regularPolygonPath(bounds, 5);
     case LayoutShapeId.octagon:
@@ -194,7 +200,61 @@ Path layoutShapePath({
       return _roundOneCornerPath(bounds, bl: true);
     case LayoutShapeId.roundCornerBR:
       return _roundOneCornerPath(bounds, br: true);
+    case LayoutShapeId.brushDiagonal:
+      return _brushDiagonalPath(bounds);
+    case LayoutShapeId.sealCircle:
+      return _sealCirclePath(bounds);
+    case LayoutShapeId.roundDiag:
+      return _roundDiagPath(bounds);
+    case LayoutShapeId.brushH2:
+    case LayoutShapeId.brushH3:
+    case LayoutShapeId.brushBlock:
+    case LayoutShapeId.brushSplat:
+    case LayoutShapeId.leafCorners:
+    case LayoutShapeId.stepLeaf:
+    case LayoutShapeId.brokenHeart:
+    case LayoutShapeId.brokenHeartLeft:
+    case LayoutShapeId.brokenHeartRight:
+      return _fallbackRectPath(bounds);
   }
+}
+
+Path _roundDiagPath(Rect bounds) {
+  final r = bounds.shortestSide * 0.48;
+  return Path()
+    ..addRRect(
+      RRect.fromRectAndCorners(
+        bounds,
+        topLeft: Radius.circular(r),
+        bottomRight: Radius.circular(r),
+      ),
+    );
+}
+
+Path _capsuleHalfPath(Rect bounds, {required bool top}) {
+  final r = Radius.circular(bounds.shortestSide / 2);
+  return Path()
+    ..addRRect(
+      RRect.fromRectAndCorners(
+        bounds,
+        topLeft: top ? r : Radius.zero,
+        topRight: top ? r : Radius.zero,
+        bottomLeft: top ? Radius.zero : r,
+        bottomRight: top ? Radius.zero : r,
+      ),
+    );
+}
+
+Path _teardropDownPath(Rect bounds) {
+  final path = _teardropPath(bounds);
+  final c = bounds.center;
+  return path.transform(
+    (Matrix4.identity()
+          ..translateByDouble(c.dx, c.dy, 0, 1)
+          ..scaleByDouble(1, -1, 1, 1)
+          ..translateByDouble(-c.dx, -c.dy, 0, 1))
+        .storage,
+  );
 }
 
 Rect _inscribedSquare(Rect bounds) {
@@ -1283,6 +1343,63 @@ Path _roundOneCornerPath(
         bottomRight: br ? Radius.circular(radius) : Radius.zero,
       ),
     );
+}
+
+/// Jagged diagonal paint stroke — the brush masks from the shape rail.
+Path _brushDiagonalPath(Rect bounds) {
+  final box = bounds.deflate(bounds.shortestSide * 0.04);
+  if (box.width <= 0 || box.height <= 0) {
+    return _fallbackRectPath(bounds);
+  }
+  final slant = math.min(box.width, box.height) * 0.42;
+  const teeth = 12;
+  final jag = box.shortestSide * 0.05;
+  double clampY(double y) => y.clamp(box.top, box.bottom);
+
+  final path = Path()..moveTo(box.left, clampY(box.top + slant));
+  for (var i = 1; i <= teeth; i++) {
+    final t = i / teeth;
+    final wobble = i.isEven ? jag : -jag * 0.45;
+    path.lineTo(
+      box.left + box.width * t,
+      clampY(box.top + slant * (1 - t) + wobble),
+    );
+  }
+  path.lineTo(box.right, clampY(box.bottom - slant));
+  for (var i = teeth - 1; i >= 0; i--) {
+    final t = i / teeth;
+    final wobble = i.isOdd ? jag : -jag * 0.45;
+    path.lineTo(
+      box.left + box.width * t,
+      clampY(box.bottom - slant * t + wobble),
+    );
+  }
+  path.close();
+  return path;
+}
+
+/// Circular seal with many sharp teeth (the stamp mask from the recording).
+Path _sealCirclePath(Rect bounds) {
+  const points = 28;
+  final radius = bounds.shortestSide / 2;
+  final inner = radius * 0.84;
+  final center = bounds.center;
+  final path = Path();
+  for (var i = 0; i < points * 2; i++) {
+    final r = i.isEven ? radius : inner;
+    final angle = -math.pi / 2 + i * math.pi / points;
+    final point = Offset(
+      center.dx + r * math.cos(angle),
+      center.dy + r * math.sin(angle),
+    );
+    if (i == 0) {
+      path.moveTo(point.dx, point.dy);
+    } else {
+      path.lineTo(point.dx, point.dy);
+    }
+  }
+  path.close();
+  return path;
 }
 
 /// Soft diagonal ribbon — a thick rounded stroke, not a lightning zigzag.

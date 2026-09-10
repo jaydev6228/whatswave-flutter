@@ -223,6 +223,59 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('broken heart shape is two photo slots, not one mask',
+      (tester) async {
+    await _pumpComposer(tester);
+
+    await tester.tap(find.byKey(const Key('layout_mode_shapes')));
+    await tester.pumpAndSettle();
+    await _reveal(
+      tester,
+      const Key('layout_shape_collage_shape_broken_heart'),
+      rail: const Key('layout_shape_picker'),
+    );
+    await tester.tap(
+      find.byKey(const Key('layout_shape_collage_shape_broken_heart')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(_state(tester).debugState.templateId, 'shape_broken_heart');
+    expect(_state(tester).debugState.slots.length, 2);
+    expect(
+      _state(tester).debugState.slots[0].shape,
+      LayoutShapeId.brokenHeartLeft,
+    );
+    expect(
+      _state(tester).debugState.slots[1].shape,
+      LayoutShapeId.brokenHeartRight,
+    );
+    expect(_slot(tester, 0), findsOneWidget);
+    expect(_slot(tester, 1), findsOneWidget);
+    expect(find.byKey(const Key('layout_template_picker')), findsNothing);
+    expect(_state(tester).debugBottomMode, LayoutBottomMode.shapes);
+  });
+
+  testWidgets('multi-photo shape tiles use the same mask as the canvas',
+      (tester) async {
+    await _pumpComposer(tester);
+
+    await tester.tap(find.byKey(const Key('layout_mode_shapes')));
+    await tester.pumpAndSettle();
+    await _reveal(
+      tester,
+      const Key('layout_shape_collage_shape_three_brushes'),
+      rail: const Key('layout_shape_picker'),
+    );
+
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('layout_shape_collage_shape_three_brushes')),
+        matching: find.byType(Image),
+      ),
+      findsNWidgets(3),
+    );
+  });
+
   testWidgets('two-column layout fills the second slot after the first photo',
       (tester) async {
     final picker = await _pumpComposer(tester);
@@ -501,6 +554,38 @@ void main() {
 
     expect(_state(tester).debugChromeVisible, isTrue);
     expect(find.byKey(const Key('layout_template_picker')), findsOneWidget);
+  });
+
+  testWidgets('shape picker keeps scroll after preview', (tester) async {
+    await _pumpComposer(tester);
+
+    await tester.tap(find.byKey(const Key('layout_mode_shapes')));
+    await tester.pumpAndSettle();
+
+    ScrollableState scrollState() {
+      return tester.state<ScrollableState>(
+        find.descendant(
+          of: find.byKey(const Key('layout_shape_picker')),
+          matching: find.byType(Scrollable),
+        ),
+      );
+    }
+
+    await _reveal(
+      tester,
+      const Key('layout_shape_collage_shape_four_hearts'),
+      rail: const Key('layout_shape_picker'),
+    );
+    await tester.pumpAndSettle();
+    final offsetBefore = scrollState().position.pixels;
+    expect(offsetBefore, greaterThan(0));
+
+    await tester.tap(find.byKey(const Key('layout_composer_preview')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('layout_composer_preview_overlay')));
+    await tester.pumpAndSettle();
+
+    expect(scrollState().position.pixels, closeTo(offsetBefore, 1));
   });
 
   testWidgets('drag pans a filled slot even when another slot is selected',
@@ -830,6 +915,16 @@ void main() {
     expect(_state(tester).debugState.slots[0].shape, LayoutShapeId.oval);
 
     await tester.tap(find.byKey(const Key('layout_mode_layouts')));
+    await tester.pumpAndSettle();
+    tester
+        .state<ScrollableState>(
+          find.descendant(
+            of: find.byKey(const Key('layout_template_picker')),
+            matching: find.byType(Scrollable),
+          ),
+        )
+        .position
+        .jumpTo(0);
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('layout_template_two_columns')));
     await tester.pumpAndSettle();

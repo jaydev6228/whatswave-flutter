@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
@@ -6,6 +7,7 @@ import '../../application/layout_slot_transform.dart';
 import '../../data/layout_catalog.dart';
 import '../../models/layout_models.dart';
 import 'layout_shape_clipper.dart';
+import 'layout_shape_mask.dart';
 
 /// Default zoom when a photo lands in a slot.
 const double kLayoutDefaultPhotoScale = 1.0;
@@ -191,11 +193,13 @@ class _LayoutSlotLayerState extends State<_LayoutSlotLayer> {
   Size? _imageSize;
   ImageStream? _imageStream;
   ImageStreamListener? _imageStreamListener;
+  ui.Image? _maskImage;
 
   @override
   void initState() {
     super.initState();
     _resolveImageSize();
+    _resolveMaskImage();
   }
 
   @override
@@ -203,6 +207,9 @@ class _LayoutSlotLayerState extends State<_LayoutSlotLayer> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.content.imagePath != widget.content.imagePath) {
       _resolveImageSize();
+    }
+    if (oldWidget.content.shape != widget.content.shape) {
+      _resolveMaskImage();
     }
   }
 
@@ -245,6 +252,20 @@ class _LayoutSlotLayerState extends State<_LayoutSlotLayer> {
     _imageStream = stream;
   }
 
+  void _resolveMaskImage() {
+    final asset = layoutShapeMaskAsset(widget.content.shape);
+    if (asset == null) {
+      _maskImage = null;
+      return;
+    }
+    loadLayoutShapeMask(asset).then((image) {
+      if (!mounted || layoutShapeMaskAsset(widget.content.shape) != asset) {
+        return;
+      }
+      setState(() => _maskImage = image);
+    });
+  }
+
   Rect get _slotRect {
     return Rect.fromLTWH(
       widget.definition.rect.left * widget.canvasSize.width,
@@ -261,6 +282,16 @@ class _LayoutSlotLayerState extends State<_LayoutSlotLayer> {
   double get _displayFocalDy => _liveFocal?.dy ?? widget.content.focalDy;
 
   Rect get _contentBounds {
+    final maskDest = layoutShapeMaskDestRect(
+      shape: widget.content.shape,
+      slotSize: _slotRect.size,
+      imageSize: _maskImage == null
+          ? null
+          : Size(_maskImage!.width.toDouble(), _maskImage!.height.toDouble()),
+    );
+    if (maskDest != null) {
+      return maskDest;
+    }
     return layoutShapeContentBounds(
       shape: widget.content.shape,
       slotSize: _slotRect.size,
@@ -372,6 +403,7 @@ class _LayoutSlotLayerState extends State<_LayoutSlotLayer> {
                           Color(widget.content.look.defaultColorValue),
                       canvasBackground: widget.canvasBackground,
                       soft: widget.content.look == LayoutSlotLook.soft,
+                      maskImage: _maskImage,
                     ),
                   ),
                 ),
@@ -387,7 +419,6 @@ class _LayoutSlotLayerState extends State<_LayoutSlotLayer> {
                       path: widget.content.imagePath!,
                       shape: widget.content.shape,
                       cornerRadius: widget.definition.cornerRadius,
-                      slotSize: slotSize,
                       scale: _displayScale,
                       focalDx: _displayFocalDx,
                       focalDy: _displayFocalDy,
@@ -405,6 +436,7 @@ class _LayoutSlotLayerState extends State<_LayoutSlotLayer> {
                       color: widget.content.borderColor ??
                           Color(widget.content.look.defaultColorValue),
                       strokeWidth: widget.content.look.strokeWidth,
+                      maskImage: _maskImage,
                     ),
                   ),
                 ),
@@ -414,6 +446,7 @@ class _LayoutSlotLayerState extends State<_LayoutSlotLayer> {
                     painter: _SlotSelectionPainter(
                       shape: widget.content.shape,
                       cornerRadius: widget.definition.cornerRadius,
+                      maskImage: _maskImage,
                     ),
                   ),
                 ),
@@ -474,6 +507,15 @@ class _LayoutSlotClip extends StatelessWidget {
               child: child,
             );
           default:
+            final maskAsset = layoutShapeMaskAsset(shape);
+            if (maskAsset != null) {
+              return LayoutShapeMaskClip(
+                asset: maskAsset,
+                fallbackShape: shape,
+                cornerRadius: cornerRadius,
+                child: child,
+              );
+            }
             return ClipPath(
               clipBehavior: Clip.hardEdge,
               clipper: LayoutShapeClipper(
@@ -493,7 +535,6 @@ class _SlotFileImage extends StatelessWidget {
     required this.path,
     required this.shape,
     required this.cornerRadius,
-    required this.slotSize,
     required this.scale,
     required this.focalDx,
     required this.focalDy,
@@ -504,7 +545,6 @@ class _SlotFileImage extends StatelessWidget {
   final String path;
   final LayoutShapeId shape;
   final double cornerRadius;
-  final Size slotSize;
   final double scale;
   final double focalDx;
   final double focalDy;
@@ -536,11 +576,15 @@ class _SlotFileImage extends StatelessWidget {
           );
         }
 
-        final contentBounds = layoutShapeContentBounds(
-          shape: shape,
-          slotSize: slotSize,
-          cornerRadius: cornerRadius,
-        );
+        final contentBounds = layoutShapeMaskDestRect(
+              shape: shape,
+              slotSize: clipSize,
+            ) ??
+            layoutShapeContentBounds(
+              shape: shape,
+              slotSize: clipSize,
+              cornerRadius: cornerRadius,
+            );
         final frameSize = contentBounds.size;
         final userZoom = scale.clamp(1.0, 3.0);
         final renderedSize = layoutSlotRenderedImageSize(
@@ -596,6 +640,7 @@ class _SlotLookShadowPainter extends CustomPainter {
     required this.color,
     required this.canvasBackground,
     required this.soft,
+    this.maskImage,
   });
 
   final LayoutShapeId shape;
@@ -603,10 +648,33 @@ class _SlotLookShadowPainter extends CustomPainter {
   final Color color;
   final Color canvasBackground;
   final bool soft;
+  final ui.Image? maskImage;
 
   @override
   void paint(Canvas canvas, Size size) {
     if (size.isEmpty) {
+      return;
+    }
+    if (layoutShapeMaskAsset(shape) != null) {
+      final mask = maskImage;
+      if (mask == null) {
+        return;
+      }
+      final dest = layoutShapeMaskDestRect(
+        shape: shape,
+        slotSize: size,
+        imageSize: Size(mask.width.toDouble(), mask.height.toDouble()),
+      );
+      if (dest == null) {
+        return;
+      }
+      paintLayoutShapeMaskShadow(
+        canvas: canvas,
+        image: mask,
+        dest: dest,
+        color: color,
+        soft: soft,
+      );
       return;
     }
     final bounds = soft
@@ -642,7 +710,8 @@ class _SlotLookShadowPainter extends CustomPainter {
     return oldDelegate.shape != shape ||
         oldDelegate.color != color ||
         oldDelegate.canvasBackground != canvasBackground ||
-        oldDelegate.soft != soft;
+        oldDelegate.soft != soft ||
+        oldDelegate.maskImage != maskImage;
   }
 }
 
@@ -652,16 +721,40 @@ class _SlotBorderPainter extends CustomPainter {
     required this.cornerRadius,
     required this.color,
     required this.strokeWidth,
+    this.maskImage,
   });
 
   final LayoutShapeId shape;
   final double cornerRadius;
   final Color color;
   final double strokeWidth;
+  final ui.Image? maskImage;
 
   @override
   void paint(Canvas canvas, Size size) {
     if (size.isEmpty) {
+      return;
+    }
+    if (layoutShapeMaskAsset(shape) != null) {
+      final mask = maskImage;
+      if (mask == null) {
+        return;
+      }
+      final dest = layoutShapeMaskDestRect(
+        shape: shape,
+        slotSize: size,
+        imageSize: Size(mask.width.toDouble(), mask.height.toDouble()),
+      );
+      if (dest == null) {
+        return;
+      }
+      paintLayoutShapeMaskOutline(
+        canvas: canvas,
+        image: mask,
+        dest: dest,
+        color: color,
+        width: strokeWidth,
+      );
       return;
     }
     final path = safeLayoutShapePath(
@@ -682,7 +775,8 @@ class _SlotBorderPainter extends CustomPainter {
   bool shouldRepaint(covariant _SlotBorderPainter oldDelegate) {
     return oldDelegate.shape != shape ||
         oldDelegate.color != color ||
-        oldDelegate.strokeWidth != strokeWidth;
+        oldDelegate.strokeWidth != strokeWidth ||
+        oldDelegate.maskImage != maskImage;
   }
 }
 
@@ -690,14 +784,38 @@ class _SlotSelectionPainter extends CustomPainter {
   const _SlotSelectionPainter({
     required this.shape,
     required this.cornerRadius,
+    this.maskImage,
   });
 
   final LayoutShapeId shape;
   final double cornerRadius;
+  final ui.Image? maskImage;
 
   @override
   void paint(Canvas canvas, Size size) {
     if (size.isEmpty) {
+      return;
+    }
+    if (layoutShapeMaskAsset(shape) != null) {
+      final mask = maskImage;
+      if (mask == null) {
+        return;
+      }
+      final dest = layoutShapeMaskDestRect(
+        shape: shape,
+        slotSize: size,
+        imageSize: Size(mask.width.toDouble(), mask.height.toDouble()),
+      );
+      if (dest == null) {
+        return;
+      }
+      paintLayoutShapeMaskOutline(
+        canvas: canvas,
+        image: mask,
+        dest: dest,
+        color: const Color(0xFF2AABEE),
+        width: 2.5,
+      );
       return;
     }
     final path = safeLayoutShapePath(
@@ -716,7 +834,7 @@ class _SlotSelectionPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _SlotSelectionPainter oldDelegate) {
-    return oldDelegate.shape != shape;
+    return oldDelegate.shape != shape || oldDelegate.maskImage != maskImage;
   }
 }
 

@@ -164,8 +164,40 @@ void main() {
     expect(kLayoutShapePickerOrder.toSet().length, kLayoutShapePickerOrder.length);
     expect(kLayoutShapePickerOrder, contains(LayoutShapeId.circle));
     expect(kLayoutShapePickerOrder, contains(LayoutShapeId.heart));
+    expect(kLayoutShapePickerOrder, contains(LayoutShapeId.brushDiagonal));
+    expect(kLayoutShapePickerOrder, contains(LayoutShapeId.brushWide));
+    expect(kLayoutShapePickerOrder, contains(LayoutShapeId.cloud));
     expect(kLayoutShapePickerOrder, isNot(contains(LayoutShapeId.waveTop)));
-    expect(kLayoutShapePickerOrder, isNot(contains(LayoutShapeId.cloud)));
+    expect(kLayoutShapePickerOrder, isNot(contains(LayoutShapeId.brokenHeart)));
+    expect(
+      kLayoutShapeRail.map((entry) => entry.keyName).toSet().length,
+      kLayoutShapeRail.length,
+    );
+    expect(
+      kLayoutShapeRail.any((entry) => entry.templateId == 'shape_broken_heart'),
+      isTrue,
+    );
+  });
+
+  test('shape collages are two-plus photo slots and stay out of Layouts', () {
+    expect(shapeCollages, isNotEmpty);
+    for (final collage in shapeCollages) {
+      expect(collage.slotCount, greaterThanOrEqualTo(2), reason: collage.id);
+      expect(LayoutCatalog.templates.map((t) => t.id), isNot(contains(collage.id)));
+      expect(LayoutCatalog.isShapeCollage(collage.id), isTrue);
+      expect(LayoutCatalog.templateById(collage.id).id, collage.id);
+      for (final slot in collage.slots) {
+        expect(slot.rect.left, greaterThanOrEqualTo(-0.001), reason: collage.id);
+        expect(slot.rect.top, greaterThanOrEqualTo(-0.001), reason: collage.id);
+        expect(slot.rect.right, lessThanOrEqualTo(1.001), reason: collage.id);
+        expect(slot.rect.bottom, lessThanOrEqualTo(1.001), reason: collage.id);
+      }
+    }
+    expect(LayoutCatalog.templateById('shape_broken_heart').slotCount, 2);
+    expect(LayoutCatalog.templateById('shape_three_brushes').slotCount, 3);
+    final brushes = LayoutCatalog.templateById('shape_three_brushes').slots;
+    expect(brushes[1].rect.top, greaterThanOrEqualTo(brushes[0].rect.bottom));
+    expect(brushes[2].rect.top, greaterThanOrEqualTo(brushes[1].rect.bottom));
   });
 
   test('layouts are photo grids only — rectangles, 1–6 or 8–9 slots', () {
@@ -197,6 +229,10 @@ void main() {
     expect(
       LayoutCatalog.templates.map((template) => template.id),
       isNot(contains('stagger_left_up')),
+    );
+    expect(
+      LayoutCatalog.templates.map((template) => template.id),
+      isNot(contains('three_brush_diagonal')),
     );
   });
 

@@ -1,5 +1,7 @@
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
+
 import '../models/layout_models.dart';
 
 /// Predefined collage templates inspired by common story layout apps.
@@ -108,10 +110,21 @@ class LayoutCatalog {
 
 
   static LayoutTemplate templateById(String id) {
-    return templates.firstWhere(
-      (template) => template.id == id,
-      orElse: () => templates.first,
-    );
+    for (final template in templates) {
+      if (template.id == id) {
+        return template;
+      }
+    }
+    for (final template in shapeCollages) {
+      if (template.id == id) {
+        return template;
+      }
+    }
+    return templates.first;
+  }
+
+  static bool isShapeCollage(String templateId) {
+    return shapeCollages.any((template) => template.id == templateId);
   }
 
   static LayoutComposerState initialState({String templateId = 'single'}) {
@@ -165,8 +178,165 @@ class LayoutCatalog {
   }
 }
 
-/// Shape options shown in the bottom shape rail. Keep this to masks people
-/// actually apply — novelty silhouettes stay out of the picker.
+/// One tile in the Shapes rail — a single mask, or a multi-photo collage.
+@immutable
+class LayoutShapeRailEntry {
+  const LayoutShapeRailEntry.mask(this.shape) : templateId = null;
+  const LayoutShapeRailEntry.collage(this.templateId) : shape = null;
+
+  final LayoutShapeId? shape;
+  final String? templateId;
+
+  bool get isCollage => templateId != null;
+
+  String get keyName => isCollage
+      ? 'layout_shape_collage_$templateId'
+      : 'layout_shape_${shape!.name}';
+}
+
+LayoutSlotDefinition _shapeSlot(
+  double left,
+  double top,
+  double width,
+  double height,
+  LayoutShapeId shape,
+) {
+  return LayoutSlotDefinition(
+    rect: Rect.fromLTWH(left, top, width, height),
+    defaultShape: shape,
+  );
+}
+
+/// Multi-photo organic collages shown in Shapes, never in Layouts.
+final List<LayoutTemplate> shapeCollages = <LayoutTemplate>[
+  LayoutTemplate(
+    id: 'shape_two_hearts_offset',
+    label: '2 hearts',
+    slots: <LayoutSlotDefinition>[
+      _shapeSlot(0.10, 0.12, 0.72, 0.52, LayoutShapeId.heart),
+      _shapeSlot(0.42, 0.52, 0.48, 0.36, LayoutShapeId.heart),
+    ],
+  ),
+  LayoutTemplate(
+    id: 'shape_two_petals',
+    label: '2 petals',
+    slots: <LayoutSlotDefinition>[
+      _shapeSlot(0.08, 0.36, 0.56, 0.38, LayoutShapeId.roundDiag),
+      _shapeSlot(0.30, 0.16, 0.62, 0.42, LayoutShapeId.roundDiag),
+    ],
+  ),
+  const LayoutTemplate(
+    id: 'shape_broken_heart',
+    label: 'Broken heart',
+    previewAsset: 'assets/layout/shapes/broken_heart.png',
+    slots: <LayoutSlotDefinition>[
+      LayoutSlotDefinition(
+        rect: Rect.fromLTWH(0.0058, 0.2609, 0.5510, 0.4781),
+        defaultShape: LayoutShapeId.brokenHeartLeft,
+      ),
+      LayoutSlotDefinition(
+        rect: Rect.fromLTWH(0.4538, 0.2609, 0.5403, 0.4716),
+        defaultShape: LayoutShapeId.brokenHeartRight,
+      ),
+    ],
+  ),
+  LayoutTemplate(
+    id: 'shape_two_hearts_stack',
+    label: '2 hearts stacked',
+    slots: <LayoutSlotDefinition>[
+      _shapeSlot(0.22, 0.08, 0.56, 0.34, LayoutShapeId.heart),
+      _shapeSlot(0.10, 0.40, 0.80, 0.50, LayoutShapeId.heart),
+    ],
+  ),
+  LayoutTemplate(
+    id: 'shape_split_capsule',
+    label: 'Split capsule',
+    slots: <LayoutSlotDefinition>[
+      _shapeSlot(0.16, 0.12, 0.68, 0.37, LayoutShapeId.capsuleTop),
+      _shapeSlot(0.16, 0.51, 0.68, 0.37, LayoutShapeId.capsuleBottom),
+    ],
+  ),
+  LayoutTemplate(
+    id: 'shape_two_teardrops',
+    label: '2 teardrops',
+    slots: <LayoutSlotDefinition>[
+      _shapeSlot(0.22, 0.08, 0.56, 0.42, LayoutShapeId.teardrop),
+      _shapeSlot(0.22, 0.50, 0.56, 0.42, LayoutShapeId.teardropDown),
+    ],
+  ),
+  LayoutTemplate(
+    id: 'shape_two_circles',
+    label: '2 circles',
+    slots: <LayoutSlotDefinition>[
+      _shapeSlot(0.16, 0.08, 0.68, 0.40, LayoutShapeId.circle),
+      _shapeSlot(0.16, 0.52, 0.68, 0.40, LayoutShapeId.circle),
+    ],
+  ),
+  LayoutTemplate(
+    id: 'shape_two_circles_overlap',
+    label: '2 circles overlap',
+    slots: <LayoutSlotDefinition>[
+      _shapeSlot(0.42, 0.14, 0.46, 0.28, LayoutShapeId.circle),
+      _shapeSlot(0.12, 0.28, 0.72, 0.46, LayoutShapeId.circle),
+    ],
+  ),
+  LayoutTemplate(
+    id: 'shape_two_squircles',
+    label: '2 squircles',
+    slots: <LayoutSlotDefinition>[
+      _shapeSlot(0.16, 0.10, 0.68, 0.40, LayoutShapeId.squircle),
+      _shapeSlot(0.16, 0.50, 0.68, 0.40, LayoutShapeId.squircle),
+    ],
+  ),
+  LayoutTemplate(
+    id: 'shape_three_brushes',
+    label: '3 brushes',
+    slots: <LayoutSlotDefinition>[
+      _shapeSlot(0.04, 0.05, 0.92, 0.28, LayoutShapeId.brushDiagonal),
+      _shapeSlot(0.04, 0.36, 0.92, 0.28, LayoutShapeId.brushDiagonal),
+      _shapeSlot(0.04, 0.67, 0.92, 0.28, LayoutShapeId.brushDiagonal),
+    ],
+  ),
+  LayoutTemplate(
+    id: 'shape_three_hearts',
+    label: '3 hearts',
+    slots: <LayoutSlotDefinition>[
+      _shapeSlot(0.28, 0.04, 0.44, 0.24, LayoutShapeId.heart),
+      _shapeSlot(0.10, 0.26, 0.80, 0.46, LayoutShapeId.heart),
+      _shapeSlot(0.28, 0.72, 0.44, 0.24, LayoutShapeId.heart),
+    ],
+  ),
+  LayoutTemplate(
+    id: 'shape_three_hearts_cluster',
+    label: '3 hearts cluster',
+    slots: <LayoutSlotDefinition>[
+      _shapeSlot(0.08, 0.10, 0.42, 0.28, LayoutShapeId.heart),
+      _shapeSlot(0.50, 0.10, 0.42, 0.28, LayoutShapeId.heart),
+      _shapeSlot(0.14, 0.36, 0.72, 0.50, LayoutShapeId.heart),
+    ],
+  ),
+  LayoutTemplate(
+    id: 'shape_four_hearts',
+    label: '4 hearts',
+    slots: <LayoutSlotDefinition>[
+      _shapeSlot(0.16, 0.04, 0.68, 0.40, LayoutShapeId.heart),
+      _shapeSlot(0.08, 0.40, 0.40, 0.28, LayoutShapeId.heart),
+      _shapeSlot(0.52, 0.40, 0.40, 0.28, LayoutShapeId.heart),
+      _shapeSlot(0.30, 0.64, 0.40, 0.28, LayoutShapeId.heart),
+    ],
+  ),
+  LayoutTemplate(
+    id: 'shape_three_ovals',
+    label: '3 ovals',
+    slots: <LayoutSlotDefinition>[
+      _shapeSlot(0.06, 0.08, 0.50, 0.30, LayoutShapeId.circle),
+      _shapeSlot(0.22, 0.32, 0.62, 0.22, LayoutShapeId.horizontalOval),
+      _shapeSlot(0.40, 0.52, 0.52, 0.30, LayoutShapeId.circle),
+    ],
+  ),
+];
+
+/// Single silhouettes in the Shapes rail (collages are appended after).
 const List<LayoutShapeId> kLayoutShapePickerOrder = <LayoutShapeId>[
   LayoutShapeId.rectangle,
   LayoutShapeId.roundedRect,
@@ -182,4 +352,27 @@ const List<LayoutShapeId> kLayoutShapePickerOrder = <LayoutShapeId>[
   LayoutShapeId.star,
   LayoutShapeId.leaf,
   LayoutShapeId.hexagon,
+  LayoutShapeId.cutCornerRect,
+  LayoutShapeId.octagon,
+  LayoutShapeId.wavyBottom,
+  LayoutShapeId.brushWide,
+  LayoutShapeId.roughCircle,
+  LayoutShapeId.brushH2,
+  LayoutShapeId.brushH3,
+  LayoutShapeId.brushDiagonal,
+  LayoutShapeId.brushTall,
+  LayoutShapeId.brushBlock,
+  LayoutShapeId.brushSplat,
+  LayoutShapeId.sealCircle,
+  LayoutShapeId.leafCorners,
+  LayoutShapeId.speechRound,
+  LayoutShapeId.roundedStar,
+  LayoutShapeId.blob,
+  LayoutShapeId.cloud,
+];
+
+final List<LayoutShapeRailEntry> kLayoutShapeRail = <LayoutShapeRailEntry>[
+  for (final shape in kLayoutShapePickerOrder) LayoutShapeRailEntry.mask(shape),
+  for (final collage in shapeCollages)
+    LayoutShapeRailEntry.collage(collage.id),
 ];

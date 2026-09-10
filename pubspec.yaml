@@ -102,6 +102,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/media/status_demo/
+    - assets/layout/shapes/
   # The single UI typeface for the whole app (see AppTheme._uiFontFamily).
   # Bundled locally instead of via the google_fonts package's runtime HTTP
   # fetch -- that fetch needs a live Flutter binding (breaks plain `test()`

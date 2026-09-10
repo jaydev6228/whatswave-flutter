@@ -222,8 +222,30 @@ class LayoutStatusComposerScreenState extends State<LayoutStatusComposerScreen> 
     });
   }
 
-  void _applyShape(LayoutShapeId shape) {
-    final slotIndex = _state.selectedSlotIndex ?? 0;
+  void _applyShape(LayoutShapeRailEntry entry) {
+    if (entry.isCollage) {
+      final template = LayoutCatalog.templateById(entry.templateId!);
+      setState(() {
+        _state = LayoutCatalog.migrateState(_state, template);
+        _bottomMode = LayoutBottomMode.shapes;
+        if (_state.slots.isNotEmpty) {
+          _state = _state.copyWith(selectedSlotIndex: 0);
+        }
+      });
+      return;
+    }
+
+    final shape = entry.shape!;
+    var slotIndex = _state.selectedSlotIndex ?? 0;
+    if (LayoutCatalog.isShapeCollage(_state.templateId)) {
+      setState(() {
+        _state = LayoutCatalog.migrateState(
+          _state,
+          LayoutCatalog.templateById('single'),
+        );
+      });
+      slotIndex = 0;
+    }
     if (slotIndex < 0 || slotIndex >= _state.slots.length) {
       return;
     }
@@ -377,7 +399,8 @@ class LayoutStatusComposerScreenState extends State<LayoutStatusComposerScreen> 
   Widget build(BuildContext context) {
     final selectedIndex = _state.selectedSlotIndex;
     final selectedSlot = _selectedSlot;
-    final showSlotTools = _chromeVisible && _canEditSelectedPhoto;
+    final canEditPhoto = _canEditSelectedPhoto;
+    final showSlotTools = _chromeVisible && canEditPhoto;
     final viewPadding = MediaQuery.viewPaddingOf(context);
     final padding = MediaQuery.paddingOf(context);
     final safeTop = viewPadding.top;
@@ -571,24 +594,25 @@ class LayoutStatusComposerScreenState extends State<LayoutStatusComposerScreen> 
                       onSelectColor: _applySlotLookColor,
                     ),
                   ),
-                if (_chromeVisible)
-                  Positioned(
-                    left: 12,
-                    right: 12,
-                    bottom: dockInset,
+                Positioned(
+                  left: 12,
+                  right: 12,
+                  bottom: dockInset,
+                  child: Offstage(
+                    offstage: !_chromeVisible,
                     child: LayoutComposerDock(
                       bottomMode: _bottomMode,
                       selectedTemplateId: _state.templateId,
                       selectedShape:
                           selectedSlot?.shape ?? LayoutShapeId.rectangle,
-                      showSlotTools: showSlotTools,
+                      showSlotTools: canEditPhoto,
                       frame: _state.frame,
                       onFrameChanged: (frame) {
                         setState(() {
                           _state = _state.copyWith(frame: frame);
                         });
                       },
-                      editHint: _canEditSelectedPhoto
+                      editHint: canEditPhoto
                           ? 'Drag to move · Pinch to zoom'
                           : null,
                       onModeChanged: _setBottomMode,
@@ -616,6 +640,7 @@ class LayoutStatusComposerScreenState extends State<LayoutStatusComposerScreen> 
                             },
                     ),
                   ),
+                ),
                 if (!_chromeVisible)
                   Positioned.fill(
                     child: GestureDetector(

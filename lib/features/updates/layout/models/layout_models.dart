@@ -70,6 +70,21 @@ enum LayoutShapeId {
   roundCornerTR,
   roundCornerBL,
   roundCornerBR,
+  brushDiagonal,
+  sealCircle,
+  brushH2,
+  brushH3,
+  brushBlock,
+  brushSplat,
+  leafCorners,
+  stepLeaf,
+  brokenHeart,
+  brokenHeartLeft,
+  brokenHeartRight,
+  roundDiag,
+  capsuleTop,
+  capsuleBottom,
+  teardropDown,
 }
 
 /// One rectangular region inside a [LayoutTemplate], expressed in normalized
@@ -133,6 +148,7 @@ class LayoutTemplate {
     required this.slots,
     this.gutter = 0.012,
     this.grid,
+    this.previewAsset,
   });
 
   final String id;
@@ -145,6 +161,9 @@ class LayoutTemplate {
   /// When set, slots are rebuilt from [resolveLayoutSlots] so the user can
   /// drag band weights and the frame slider.
   final LayoutGridSpec? grid;
+
+  /// Optional PNG used by the shape-rail thumbnail.
+  final String? previewAsset;
 
   int get slotCount => slots.length;
 }

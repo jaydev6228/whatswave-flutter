@@ -4,6 +4,7 @@ import '../../../presentation/widgets/status_chrome.dart';
 import '../../data/layout_catalog.dart';
 import '../../models/layout_models.dart';
 import 'layout_shape_clipper.dart';
+import 'layout_shape_mask.dart';
 import 'layout_slot_toolbar.dart';
 
 /// Floating bottom dock — layouts/shapes rail + optional slot tools.
@@ -34,7 +35,7 @@ class LayoutComposerDock extends StatelessWidget {
   final String? editHint;
   final ValueChanged<LayoutBottomMode> onModeChanged;
   final ValueChanged<LayoutTemplate> onTemplateSelected;
-  final ValueChanged<LayoutShapeId> onShapeSelected;
+  final ValueChanged<LayoutShapeRailEntry> onShapeSelected;
   final ValueChanged<double> onFrameChanged;
   final VoidCallback? onReplaceTap;
   final VoidCallback? onRemoveTap;
@@ -100,6 +101,7 @@ class LayoutComposerDock extends StatelessWidget {
             )
           else
             LayoutShapePicker(
+              selectedTemplateId: selectedTemplateId,
               selectedShape: selectedShape,
               onShapeSelected: onShapeSelected,
             ),
@@ -122,9 +124,10 @@ class LayoutTemplatePicker extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
+      key: const Key('layout_template_picker'),
       height: 76,
       child: ListView.separated(
-        key: const Key('layout_template_picker'),
+        key: const PageStorageKey<String>('layout_template_picker'),
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 2),
         itemCount: LayoutCatalog.templates.length,
@@ -199,32 +202,38 @@ class _TemplateTile extends StatelessWidget {
 
 class LayoutShapePicker extends StatelessWidget {
   const LayoutShapePicker({
+    required this.selectedTemplateId,
     required this.selectedShape,
     required this.onShapeSelected,
     super.key,
   });
 
+  final String selectedTemplateId;
   final LayoutShapeId selectedShape;
-  final ValueChanged<LayoutShapeId> onShapeSelected;
+  final ValueChanged<LayoutShapeRailEntry> onShapeSelected;
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
+      key: const Key('layout_shape_picker'),
       height: 76,
       child: ListView.separated(
-        key: const Key('layout_shape_picker'),
+        key: const PageStorageKey<String>('layout_shape_picker'),
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 2),
-        itemCount: kLayoutShapePickerOrder.length,
+        itemCount: kLayoutShapeRail.length,
         separatorBuilder: (_, __) => const SizedBox(width: 8),
         itemBuilder: (context, index) {
-          final shape = kLayoutShapePickerOrder[index];
-          final isSelected = shape == selectedShape;
-          return _ShapeTile(
-            key: Key('layout_shape_${shape.name}'),
-            shape: shape,
+          final entry = kLayoutShapeRail[index];
+          final isSelected = entry.isCollage
+              ? selectedTemplateId == entry.templateId
+              : !LayoutCatalog.isShapeCollage(selectedTemplateId) &&
+                  entry.shape == selectedShape;
+          return _ShapeRailTile(
+            key: Key(entry.keyName),
+            entry: entry,
             isSelected: isSelected,
-            onTap: () => onShapeSelected(shape),
+            onTap: () => onShapeSelected(entry),
           );
         },
       ),
@@ -232,15 +241,15 @@ class LayoutShapePicker extends StatelessWidget {
   }
 }
 
-class _ShapeTile extends StatelessWidget {
-  const _ShapeTile({
-    required this.shape,
+class _ShapeRailTile extends StatelessWidget {
+  const _ShapeRailTile({
+    required this.entry,
     required this.isSelected,
     required this.onTap,
     super.key,
   });
 
-  final LayoutShapeId shape;
+  final LayoutShapeRailEntry entry;
   final bool isSelected;
   final VoidCallback onTap;
 
@@ -271,15 +280,69 @@ class _ShapeTile extends StatelessWidget {
                 width: isSelected ? 2 : 1,
               ),
             ),
-            child: CustomPaint(
-              painter: LayoutShapePreviewPainter(
-                shape: shape,
-                fillColor: Colors.white.withValues(alpha: 0.38),
-                strokeColor: Colors.white.withValues(alpha: 0.12),
-              ),
-            ),
+            child: _preview(),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _preview() {
+    if (!entry.isCollage) {
+      return _ShapeSilhouette(shape: entry.shape!);
+    }
+    final template = LayoutCatalog.templateById(entry.templateId!);
+    final asset = template.previewAsset;
+    if (asset != null) {
+      return Image.asset(
+        asset,
+        fit: BoxFit.contain,
+        color: Colors.white.withValues(alpha: 0.55),
+        colorBlendMode: BlendMode.srcIn,
+      );
+    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final size = constraints.biggest;
+        return Stack(
+          clipBehavior: Clip.hardEdge,
+          children: [
+            for (final slot in template.slots)
+              Positioned(
+                left: slot.rect.left * size.width,
+                top: slot.rect.top * size.height,
+                width: slot.rect.width * size.width,
+                height: slot.rect.height * size.height,
+                child: _ShapeSilhouette(shape: slot.defaultShape),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _ShapeSilhouette extends StatelessWidget {
+  const _ShapeSilhouette({required this.shape});
+
+  final LayoutShapeId shape;
+
+  @override
+  Widget build(BuildContext context) {
+    final mask = layoutShapeMaskAsset(shape);
+    if (mask != null) {
+      return Image.asset(
+        mask,
+        fit: BoxFit.contain,
+        color: Colors.white.withValues(alpha: 0.55),
+        colorBlendMode: BlendMode.srcIn,
+      );
+    }
+    return CustomPaint(
+      painter: LayoutShapePreviewPainter(
+        shape: shape,
+        fillColor: Colors.white.withValues(alpha: 0.38),
+        strokeColor: Colors.white.withValues(alpha: 0.12),
       ),
     );
   }

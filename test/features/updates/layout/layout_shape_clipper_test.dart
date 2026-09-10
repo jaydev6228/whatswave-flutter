@@ -1,10 +1,12 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:whatswave/features/updates/layout/data/layout_catalog.dart';
 import 'package:whatswave/features/updates/layout/models/layout_models.dart';
 import 'package:whatswave/features/updates/layout/presentation/widgets/layout_shape_clipper.dart';
+import 'package:whatswave/features/updates/layout/presentation/widgets/layout_shape_mask.dart';
 
 /// Bounds of the drawn outline. [Path.getBounds] pads around arcs because it
 /// measures conic control points, which is too loose to catch a silhouette
@@ -204,5 +206,29 @@ void main() {
       ),
       isTrue,
     );
+  });
+
+  test('screenshot paint-brush masks are bundled for the picker', () async {
+    var masks = 0;
+    for (final shape in kLayoutShapePickerOrder) {
+      final asset = layoutShapeMaskAsset(shape);
+      if (asset == null) {
+        continue;
+      }
+      masks += 1;
+      final data = await rootBundle.load(asset);
+      expect(data.lengthInBytes, greaterThan(800), reason: '$shape $asset');
+    }
+    expect(masks, greaterThanOrEqualTo(14));
+  });
+
+  test('PNG mask dest is contain-fitted, not stretched to the slot', () {
+    final dest = layoutShapeMaskDestRect(
+      shape: LayoutShapeId.brushWide,
+      slotSize: const Size(100, 160),
+    )!;
+    expect(dest.width, closeTo(100, 0.5));
+    expect(dest.height, lessThan(90));
+    expect(dest.top, greaterThan(30));
   });
 }
