@@ -4,7 +4,7 @@ import 'package:flutter/services.dart';
 import '../../calls/application/calls_controller.dart';
 import '../../calls/domain/call_contact.dart';
 import '../../calls/domain/call_history_entry.dart';
-import '../../calls/presentation/call_experience_screen.dart';
+import '../../calls/presentation/call_flow.dart';
 import '../../communities/application/communities_controller.dart';
 import '../../communities/domain/app_invite_link.dart';
 import '../../communities/domain/community_contact.dart';
@@ -296,7 +296,9 @@ class _NewChatScreenState extends State<NewChatScreen>
       return;
     }
 
-    final started = await widget.callsController.startOutgoingCall(
+    await startCallFlow(
+      context,
+      controller: widget.callsController,
       contact: CallContact(
         id: matchedUid,
         name: contact.name,
@@ -306,16 +308,6 @@ class _NewChatScreenState extends State<NewChatScreen>
         uid: matchedUid,
       ),
       type: type,
-    );
-    if (!started || !mounted) {
-      return;
-    }
-
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) =>
-            CallExperienceScreen(controller: widget.callsController),
-      ),
     );
   }
 

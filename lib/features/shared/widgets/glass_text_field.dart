@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'liquid_glass.dart';
 
@@ -41,6 +42,9 @@ class GlassTextField extends StatelessWidget {
     this.maxLength,
     this.onSubmitted,
     this.style,
+    this.enabled = true,
+    this.keyboardType,
+    this.inputFormatters,
     super.key,
   });
 
@@ -56,6 +60,9 @@ class GlassTextField extends StatelessWidget {
   final int? maxLength;
   final ValueChanged<String>? onSubmitted;
   final TextStyle? style;
+  final bool enabled;
+  final TextInputType? keyboardType;
+  final List<TextInputFormatter>? inputFormatters;
 
   @override
   Widget build(BuildContext context) {
@@ -66,13 +73,16 @@ class GlassTextField extends StatelessWidget {
       child: TextField(
         key: fieldKey,
         controller: controller,
+        enabled: enabled,
         maxLines: maxLines,
         minLines: minLines,
+        keyboardType: keyboardType,
         textInputAction: textInputAction,
         autofocus: autofocus,
         textCapitalization: textCapitalization,
         textAlign: textAlign,
         maxLength: maxLength,
+        inputFormatters: inputFormatters,
         onSubmitted: onSubmitted,
         style: style,
         decoration: glassFieldDecoration(hintText: hintText),
@@ -120,7 +130,7 @@ class GlassPrimaryButton extends StatelessWidget {
           highlightColor: theme.colorScheme.onSurface.withValues(alpha: 0.08),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-            child: _buttonChild(theme),
+            child: Center(child: _buttonChild(theme)),
           ),
         ),
       ),
@@ -133,17 +143,6 @@ class GlassPrimaryButton extends StatelessWidget {
   }
 
   Widget _buttonChild(ThemeData theme) {
-    if (isLoading) {
-      return SizedBox(
-        width: 18,
-        height: 18,
-        child: CircularProgressIndicator(
-          strokeWidth: 2,
-          color: theme.colorScheme.onSurface,
-        ),
-      );
-    }
-
     final labelWidget = Text(
       label,
       textAlign: TextAlign.center,
@@ -154,6 +153,25 @@ class GlassPrimaryButton extends StatelessWidget {
         color: theme.colorScheme.onSurface,
       ),
     );
+
+    if (isLoading) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: theme.colorScheme.onSurface,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Flexible(child: labelWidget),
+        ],
+      );
+    }
 
     if (icon == null) {
       return labelWidget;

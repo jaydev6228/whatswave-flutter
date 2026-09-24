@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/permissions/location_permission_dialog.dart';
 import '../../shared/widgets/error_dialog.dart';
 import '../application/calls_controller.dart';
 import '../domain/call_contact.dart';
@@ -17,7 +18,11 @@ Future<void> startCallFlow(
     return;
   }
 
-  await _presentCallExperienceIfNeeded(context, controller);
+  await presentCallsControllerFeedback(
+    context,
+    controller,
+    presentSession: true,
+  );
 }
 
 Future<void> simulateIncomingCallFlow(
@@ -31,14 +36,19 @@ Future<void> simulateIncomingCallFlow(
     return;
   }
 
-  await _presentCallExperienceIfNeeded(context, controller);
+  await presentCallsControllerFeedback(
+    context,
+    controller,
+    presentSession: true,
+  );
 }
 
-Future<void> _presentCallExperienceIfNeeded(
+Future<void> presentCallsControllerFeedback(
   BuildContext context,
-  CallsController controller,
-) async {
-  if (controller.currentSession != null) {
+  CallsController controller, {
+  bool presentSession = false,
+}) async {
+  if (presentSession && controller.currentSession != null) {
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
         builder: (_) => CallExperienceScreen(controller: controller),
@@ -48,11 +58,23 @@ Future<void> _presentCallExperienceIfNeeded(
     return;
   }
 
+  if (controller.isPermissionDenied) {
+    await showPermissionDeniedDialog(
+      context,
+      title: controller.permissionDeniedTitle,
+      message: controller.errorMessage ??
+          'You don’t have permission. Allow it in Settings to continue.',
+      onOpenSettings: controller.openSettings,
+    );
+    controller.clearError();
+    return;
+  }
+
   final message = controller.errorMessage;
   if (message == null) {
     return;
   }
 
-  showErrorDialog(context, message);
+  await showErrorDialog(context, message);
   controller.clearError();
 }

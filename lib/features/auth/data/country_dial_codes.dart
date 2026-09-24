@@ -67,16 +67,83 @@ const countryDialCodes = <CountryDialCode>[
   CountryDialCode(isoCode: 'VN', name: 'Vietnam', dialCode: '+84'),
 ];
 
-CountryDialCode countryDialCodeForIso(String? isoCode) {
+CountryDialCode? countryDialCodeForIsoOrNull(String? isoCode) {
   final normalizedIsoCode = isoCode?.trim().toUpperCase();
   if (normalizedIsoCode == null || normalizedIsoCode.isEmpty) {
-    return countryDialCodes.first;
+    return null;
   }
+  for (final country in countryDialCodes) {
+    if (country.isoCode == normalizedIsoCode) {
+      return country;
+    }
+  }
+  return null;
+}
 
-  return countryDialCodes.firstWhere(
-    (country) => country.isoCode == normalizedIsoCode,
-    orElse: () => countryDialCodes.first,
-  );
+CountryDialCode countryDialCodeForIso(String? isoCode) {
+  return countryDialCodeForIsoOrNull(isoCode) ?? countryDialCodes.first;
+}
+
+/// Picks a dial code from the device region. Unicode `rg` overrides
+/// (`en_GB@rg=jpzzzz`, `en-GB-u-rg-jpzzzz`) win -- that is the Settings
+/// Region, not the language. Then an explicit ISO country, then other
+/// locale countries, then a trailing region like `en_JP`.
+CountryDialCode countryDialCodeForDeviceLocale({
+  String? preferredCountryCode,
+  List<String> localeCountryCodes = const [],
+  String? platformLocaleName,
+  List<String> localeTags = const [],
+}) {
+  final tags = <String>[
+    if (platformLocaleName != null) platformLocaleName,
+    ...localeTags,
+  ];
+  final candidates = <String>[
+    for (final tag in tags)
+      if (isoCountryFromUnicodeRegionOverride(tag) != null)
+        isoCountryFromUnicodeRegionOverride(tag)!,
+    if (preferredCountryCode != null) preferredCountryCode,
+    ...localeCountryCodes,
+    for (final tag in tags)
+      if (isoCountryFromLocaleName(tag) != null) isoCountryFromLocaleName(tag)!,
+  ];
+  for (final isoCode in candidates) {
+    final match = countryDialCodeForIsoOrNull(isoCode);
+    if (match != null) {
+      return match;
+    }
+  }
+  return countryDialCodes.first;
+}
+
+/// Settings → Region on iOS/Android is carried as a Unicode locale
+/// override (`rg=jpzzzz`), not as `Locale.countryCode`.
+String? isoCountryFromUnicodeRegionOverride(String? localeName) {
+  if (localeName == null || localeName.isEmpty) {
+    return null;
+  }
+  final match = RegExp(
+    r'(?:@rg=|-u-rg-|[-_]rg[-_])([a-zA-Z]{2})zzzz',
+    caseSensitive: false,
+  ).firstMatch(localeName);
+  return match?.group(1)?.toUpperCase();
+}
+
+String? isoCountryFromLocaleName(String? localeName) {
+  if (localeName == null || localeName.isEmpty) {
+    return null;
+  }
+  final withoutExtensions =
+      localeName.split('@').first.split('-u-').first.trim();
+  final parts = withoutExtensions.split(RegExp(r'[_-]'));
+  if (parts.length < 2) {
+    return null;
+  }
+  final region = parts.last.trim();
+  if (region.length != 2 || !RegExp(r'^[A-Za-z]{2}$').hasMatch(region)) {
+    return null;
+  }
+  return region.toUpperCase();
 }
 
 CountryDialCode countryDialCodeForPhoneDigits(

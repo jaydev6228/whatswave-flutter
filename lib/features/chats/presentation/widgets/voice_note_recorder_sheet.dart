@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../../../app/theme/app_palette.dart';
+import '../../../../core/permissions/app_permission_service.dart';
 import '../../../shared/widgets/liquid_glass.dart';
 import '../../../updates/presentation/widgets/status_chrome.dart';
 import '../../domain/chat_attachment.dart';
@@ -131,15 +132,20 @@ class _VoiceNoteRecorderSheetState extends State<_VoiceNoteRecorderSheet> {
                   style: theme.textTheme.titleMedium),
               const SizedBox(height: 6),
               Text(
-                'Allow microphone access in Settings to record a voice note.',
+                'You don’t have microphone permission. Allow it in Settings to record a voice note.',
                 textAlign: TextAlign.center,
                 style: theme.textTheme.bodyMedium,
               ),
               const SizedBox(height: 20),
               FilledButton(
+                key: const Key('voice_recorder_open_settings_button'),
+                onPressed: () => openAppPermissionSettings(),
+                child: const Text('Open Settings'),
+              ),
+              TextButton(
                 key: const Key('voice_recorder_close_button'),
                 onPressed: () => Navigator.of(context).pop(),
-                child: const Text('Close'),
+                child: const Text('Not now'),
               ),
             ] else if (_stage == _RecorderStage.error) ...[
               const Icon(Icons.error_outline_rounded,

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:livekit_client/livekit_client.dart' as lk;
 
 import '../../../app/theme/app_palette.dart';
+import '../../../core/permissions/location_permission_dialog.dart';
 import '../../shared/widgets/error_dialog.dart';
 import '../../shared/widgets/liquid_glass.dart';
 import '../application/calls_controller.dart';
@@ -2162,6 +2163,18 @@ void _showControllerErrorSnackBar(
   BuildContext context,
   CallsController controller,
 ) {
+  if (controller.isPermissionDenied) {
+    showPermissionDeniedDialog(
+      context,
+      title: controller.permissionDeniedTitle,
+      message: controller.errorMessage ??
+          'You don’t have permission. Allow it in Settings to continue.',
+      onOpenSettings: controller.openSettings,
+    );
+    controller.clearError();
+    return;
+  }
+
   final message = controller.errorMessage;
   if (message == null) {
     return;

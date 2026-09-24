@@ -65,6 +65,8 @@ class CallsController extends ChangeNotifier {
   bool _isClearingHistory = false;
   final Set<String> _deletingHistoryEntryIds = <String>{};
   String? _errorMessage;
+  bool _isPermissionDenied = false;
+  List<CallPermission> _deniedPermissions = const [];
   List<CallContact> _favorites = const <CallContact>[];
   List<CallHistoryEntry> _history = const <CallHistoryEntry>[];
   CallPermissions _permissions = const CallPermissions();
@@ -94,6 +96,13 @@ class CallsController extends ChangeNotifier {
   bool isDeletingHistoryEntry(String entryId) =>
       _deletingHistoryEntryIds.contains(entryId);
   String? get errorMessage => _errorMessage;
+  bool get isPermissionDenied => _isPermissionDenied;
+  String get permissionDeniedTitle {
+    if (_deniedPermissions.length == 1) {
+      return '${_deniedPermissions.first.label} access needed';
+    }
+    return 'Permission needed';
+  }
   List<CallContact> get favorites => List<CallContact>.unmodifiable(_favorites);
   List<CallHistoryEntry> get history =>
       List<CallHistoryEntry>.unmodifiable(_history);
@@ -311,17 +320,23 @@ class CallsController extends ChangeNotifier {
   }
 
   void clearError() {
-    if (_errorMessage == null) {
+    if (_errorMessage == null && !_isPermissionDenied) {
       return;
     }
 
     _errorMessage = null;
+    _isPermissionDenied = false;
+    _deniedPermissions = const [];
     notifyListeners();
   }
+
+  Future<void> openSettings() => _permissionService.openSettings();
 
   void resetPermissions() {
     _permissions = const CallPermissions();
     _errorMessage = null;
+    _isPermissionDenied = false;
+    _deniedPermissions = const [];
     _telemetry.recordInteraction('call_permissions_reset');
     notifyListeners();
   }
@@ -843,6 +858,8 @@ class CallsController extends ChangeNotifier {
     try {
       _permissions = await _permissionService.requestCallPermissions(type);
     } catch (error, stackTrace) {
+      _isPermissionDenied = false;
+      _deniedPermissions = const [];
       _errorMessage = 'We could not check call permissions right now.';
       _telemetry.recordError(
         error,
@@ -860,6 +877,8 @@ class CallsController extends ChangeNotifier {
     final missingPermissions = _permissions.missingFor(type);
     if (missingPermissions.isEmpty) {
       _errorMessage = null;
+      _isPermissionDenied = false;
+      _deniedPermissions = const [];
       _telemetry.recordInteraction(
         'call_permissions_granted',
         attributes: <String, Object?>{
@@ -871,6 +890,8 @@ class CallsController extends ChangeNotifier {
       return true;
     }
 
+    _isPermissionDenied = true;
+    _deniedPermissions = missingPermissions;
     _errorMessage = _permissionDeniedMessage(
       type: type,
       permissions: missingPermissions,
@@ -1587,9 +1608,9 @@ class CallsController extends ChangeNotifier {
         .map((permission) => permission.label.toLowerCase())
         .toList();
     if (labels.length == 1) {
-      return '${permissions.first.label} access is required for ${type.label.toLowerCase()} calls.';
+      return 'You don’t have ${labels.first} permission. Allow it in Settings to place ${type.label.toLowerCase()} calls.';
     }
-    return '${labels.first[0].toUpperCase()}${labels.first.substring(1)} and ${labels.last} access are required for ${type.label.toLowerCase()} calls.';
+    return 'You don’t have ${labels.first} and ${labels.last} permission. Allow them in Settings to place ${type.label.toLowerCase()} calls.';
   }
 
   List<GroupParticipant> _groupParticipantsForHistory(CallSession session) {

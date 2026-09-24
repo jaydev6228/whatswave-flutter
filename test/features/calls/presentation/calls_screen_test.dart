@@ -128,8 +128,14 @@ void main() {
       callButtonKey: const Key('calls_search_audio_ava-patel'),
     );
 
-    expect(find.text('Microphone access is required for audio calls.'),
-        findsOneWidget);
+    expect(find.text('Microphone access needed'), findsOneWidget);
+    expect(find.text('Open Settings'), findsOneWidget);
+    expect(
+      find.text(
+        'You don’t have microphone permission. Allow it in Settings to place audio calls.',
+      ),
+      findsOneWidget,
+    );
     expect(controller.currentSession, isNull);
   });
 

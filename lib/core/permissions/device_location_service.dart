@@ -27,8 +27,26 @@ abstract class DeviceLocationService {
 /// [AppPermissionService] before this is ever called -- this only fails on
 /// genuinely device-level problems (location services turned off, timeout).
 class GeolocatorDeviceLocationService implements DeviceLocationService {
+  const GeolocatorDeviceLocationService({
+    this.allowLastKnownFallback = false,
+  });
+
+  /// When true, a cached GPS fix is used before a fresh reading -- enough
+  /// for a country default, not for dropping a pin.
+  final bool allowLastKnownFallback;
+
   @override
   Future<DeviceLocationFix> getCurrentLocation() async {
+    if (allowLastKnownFallback) {
+      final lastKnown = await Geolocator.getLastKnownPosition();
+      if (lastKnown != null) {
+        return DeviceLocationFix(
+          latitude: lastKnown.latitude,
+          longitude: lastKnown.longitude,
+        );
+      }
+    }
+
     final servicesEnabled = await Geolocator.isLocationServiceEnabled();
     if (!servicesEnabled) {
       throw const DeviceLocationException(

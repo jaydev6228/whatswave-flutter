@@ -46,6 +46,62 @@ void main() {
         );
       },
     );
+
+    testWidgets(
+      'keeps country code compact beside the phone field on ${device.name}',
+      (tester) async {
+        await pumpWhatsWaveAppForDevice(
+          tester,
+          device: device,
+          authRepository: FakeAuthRepository(latency: Duration.zero),
+        );
+
+        final codeRect =
+            tester.getRect(find.byKey(const Key('auth_country_code_field')));
+        final phoneRect =
+            tester.getRect(find.byKey(const Key('auth_phone_field')));
+
+        expect(
+          codeRect.width,
+          lessThan(phoneRect.width),
+          reason:
+              '${device.name} should keep the country code compact instead of stacking it full width.',
+        );
+        expect(
+          (codeRect.center.dy - phoneRect.center.dy).abs(),
+          lessThan(8),
+          reason:
+              '${device.name} should keep country code and phone number on one row.',
+        );
+        expect(
+          (codeRect.height - phoneRect.height).abs(),
+          lessThan(2),
+          reason:
+              '${device.name} should keep country code and phone field the same height.',
+        );
+      },
+    );
+
+    testWidgets(
+      'keeps the welcome screen readable at 200% text scale on ${device.name}',
+      (tester) async {
+        tester.platformDispatcher.textScaleFactorTestValue = 2;
+        addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+
+        await pumpWhatsWaveAppForDevice(
+          tester,
+          device: device,
+          authRepository: FakeAuthRepository(latency: Duration.zero),
+        );
+
+        expect(tester.takeException(), isNull);
+        expect(find.text('Welcome to WhatsWave'), findsOneWidget);
+        expect(
+          tester.getRect(find.byKey(const Key('auth_send_code_button'))).bottom,
+          lessThanOrEqualTo(device.size.height),
+        );
+      },
+    );
   }
 
   testWidgets('completes the new-user onboarding flow into the shell', (

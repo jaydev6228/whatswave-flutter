@@ -158,9 +158,11 @@ void main() {
 
     expect(didStart, isFalse);
     expect(controller.currentSession, isNull);
+    expect(controller.isPermissionDenied, isTrue);
+    expect(controller.permissionDeniedTitle, 'Microphone access needed');
     expect(
       controller.errorMessage,
-      'Microphone access is required for audio calls.',
+      'You don’t have microphone permission. Allow it in Settings to place audio calls.',
     );
     expect(controller.permissions.microphone, CallPermissionStatus.denied);
   });

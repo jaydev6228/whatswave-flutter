@@ -1,5 +1,6 @@
 import 'dart:ui';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:whatswave/app/whatswave_app.dart';
 import 'package:whatswave/core/observability/app_telemetry.dart';
@@ -62,6 +63,21 @@ Future<void> pumpWhatsWaveAppForDevice(
 }) async {
   await tester.binding.setSurfaceSize(device.size);
   addTearDown(() => tester.binding.setSurfaceSize(null));
+
+  const settingsChannel = MethodChannel('whatswave/app_settings');
+  tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+    settingsChannel,
+    (call) async {
+      if (call.method == 'deviceRegionCode') {
+        return authLocaleCountryCode;
+      }
+      return null;
+    },
+  );
+  addTearDown(
+    () => tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(settingsChannel, null),
+  );
 
   await tester.pumpWidget(
     WhatsWaveApp(

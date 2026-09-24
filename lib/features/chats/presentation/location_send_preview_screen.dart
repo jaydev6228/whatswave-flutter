@@ -6,7 +6,9 @@ import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart' as ll;
 
 import '../../../app/theme/app_palette.dart';
+import '../../../core/permissions/app_permission_service.dart';
 import '../../../core/permissions/device_location_service.dart';
+import '../../../core/permissions/location_permission_dialog.dart';
 import '../domain/chat_attachment.dart';
 import 'widgets/location_map_preview.dart'
     show osmTileUrlTemplate, osmUserAgentPackageName;
@@ -103,7 +105,11 @@ class _LocationSendPreviewScreenState extends State<LocationSendPreviewScreen> {
         if (!silent && mounted) {
           setState(
             () => _statusMessage =
-                'Allow location access to share your current location.',
+                'You don’t have location permission. Allow it in Settings to share your current location.',
+          );
+          await showLocationPermissionDeniedDialog(
+            context,
+            onOpenSettings: openAppPermissionSettings,
           );
         }
         return;

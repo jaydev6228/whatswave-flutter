@@ -1,3 +1,6 @@
+import 'dart:io';
+
+import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -19,6 +22,23 @@ abstract class AppPermissionService {
   Future<CallPermissionStatus> requestLocationAccess();
 
   Future<void> openSettings();
+}
+
+const _appSettingsChannel = MethodChannel('whatswave/app_settings');
+
+/// Opens this app's permission page — Settings → Whatswave on iOS,
+/// the app info screen on Android — not the OS Settings home list.
+Future<void> openAppPermissionSettings() async {
+  if (Platform.isIOS) {
+    try {
+      final opened =
+          await _appSettingsChannel.invokeMethod<bool>('openAppSettings');
+      if (opened == true) {
+        return;
+      }
+    } catch (_) {}
+  }
+  await openAppSettings();
 }
 
 class MemoryAppPermissionService implements AppPermissionService {
@@ -174,9 +194,7 @@ class NativeAppPermissionService implements AppPermissionService {
   }
 
   @override
-  Future<void> openSettings() async {
-    await openAppSettings();
-  }
+  Future<void> openSettings() => openAppPermissionSettings();
 
   ContactAccessStatus _mapContactStatus(
     PermissionStatus status, {

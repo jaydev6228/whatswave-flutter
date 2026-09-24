@@ -3,6 +3,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../../../core/permissions/app_permission_service.dart';
+import '../../../../core/permissions/location_permission_dialog.dart';
 import '../../../shared/widgets/liquid_glass.dart';
 import '../../domain/chat_attachment.dart';
 import 'voice_note_recording_session.dart';
@@ -75,6 +77,15 @@ class _ComposerVoiceButtonState extends State<ComposerVoiceButton> {
       _longPressActive = false;
       await _session?.dispose();
       _session = null;
+      if (mounted) {
+        await showPermissionDeniedDialog(
+          context,
+          title: 'Microphone access needed',
+          message:
+              'You don’t have microphone permission. Allow it in Settings to record a voice note.',
+          onOpenSettings: openAppPermissionSettings,
+        );
+      }
       return;
     }
     _elapsed = Duration.zero;

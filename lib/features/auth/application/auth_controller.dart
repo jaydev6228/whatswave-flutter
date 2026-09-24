@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../core/models/app_user.dart';
 import '../../../core/permissions/app_permission_service.dart';
@@ -21,9 +22,17 @@ class AuthController extends ChangeNotifier {
     DeviceLocationService? locationService,
     DeviceCountryLookupService? countryLookupService,
   })  : _repository = repository,
-        _selectedCountry = countryDialCodeForIso(localeCountryCode),
+        _selectedCountry = countryDialCodeForDeviceLocale(
+          preferredCountryCode: localeCountryCode,
+          localeCountryCodes: _localeCountryCodes(),
+          platformLocaleName: _platformLocaleName(),
+          localeTags: _localeTags(),
+        ),
         _permissionService = permissionService ?? MemoryAppPermissionService(),
-        _locationService = locationService ?? GeolocatorDeviceLocationService(),
+        _locationService = locationService ??
+            const GeolocatorDeviceLocationService(
+              allowLastKnownFallback: true,
+            ),
         _countryLookupService =
             countryLookupService ?? NativeDeviceCountryLookupService();
 
@@ -33,6 +42,7 @@ class AuthController extends ChangeNotifier {
   final DeviceLocationService _locationService;
   final DeviceCountryLookupService _countryLookupService;
   bool _hasUserPickedCountry = false;
+  bool _isDetectingCountry = false;
 
   AuthStep _step = AuthStep.splash;
   bool _isBusy = false;
@@ -103,13 +113,16 @@ class AuthController extends ChangeNotifier {
         _step = AuthStep.authenticated;
         _statusMessage = 'Welcome back, ${restoredUser.name}.';
       } else {
+        await _applyNativeDeviceRegion();
         _step = AuthStep.phoneEntry;
         _statusMessage = 'No saved session on this device yet.';
       }
     } on AuthException catch (error) {
+      await _applyNativeDeviceRegion();
       _step = AuthStep.phoneEntry;
       _errorMessage = error.message;
     } catch (_) {
+      await _applyNativeDeviceRegion();
       _step = AuthStep.phoneEntry;
       _errorMessage =
           'We could not restore your session. Please sign in again.';
@@ -153,8 +166,12 @@ class AuthController extends ChangeNotifier {
   /// required step; the locale-based guess (or the user's own choice)
   /// stands untouched if it fails.
   Future<void> detectCountryFromDeviceLocation() async {
-    if (_hasUserPickedCountry) return;
+    if (_hasUserPickedCountry || _isDetectingCountry) return;
+    _isDetectingCountry = true;
     try {
+      await _applyNativeDeviceRegion();
+      if (_hasUserPickedCountry) return;
+
       var status = await _permissionService.locationAccessStatus();
       if (status != CallPermissionStatus.granted) {
         status = await _permissionService.requestLocationAccess();
@@ -178,6 +195,57 @@ class AuthController extends ChangeNotifier {
       notifyListeners();
     } catch (_) {
       // Best-effort only -- keep whichever default is already in place.
+    } finally {
+      _isDetectingCountry = false;
+    }
+  }
+
+  Future<void> _applyNativeDeviceRegion() async {
+    try {
+      final region = await const MethodChannel('whatswave/app_settings')
+          .invokeMethod<String>('deviceRegionCode');
+      final detected = countryDialCodeForIsoOrNull(region);
+      if (detected == null ||
+          detected == _selectedCountry ||
+          _hasUserPickedCountry) {
+        return;
+      }
+      _selectedCountry = detected;
+      if (_step == AuthStep.phoneEntry) {
+        notifyListeners();
+      }
+    } catch (_) {
+      // Channel missing in tests -- keep the locale default.
+    }
+  }
+
+  static List<String> _localeCountryCodes() {
+    try {
+      return WidgetsBinding.instance.platformDispatcher.locales
+          .map((locale) => locale.countryCode)
+          .whereType<String>()
+          .where((code) => code.isNotEmpty)
+          .toList(growable: false);
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  static String? _platformLocaleName() {
+    try {
+      return Platform.localeName;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static List<String> _localeTags() {
+    try {
+      return WidgetsBinding.instance.platformDispatcher.locales
+          .map((locale) => locale.toLanguageTag())
+          .toList(growable: false);
+    } catch (_) {
+      return const [];
     }
   }
 
