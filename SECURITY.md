@@ -10,8 +10,11 @@ Email **jaydevbaloliya@gmail.com** with:
 - how to reproduce it
 - what an attacker could achieve
 
-You should get an acknowledgement within a few days. Please give a
-reasonable window to address it before disclosing publicly.
+You should get an acknowledgement within a few days. Please allow 90
+days before disclosing publicly, or less by agreement if a fix ships
+sooner. If you get no reply within 14 days, treat that as the window
+having started anyway -- a silent maintainer should not be able to
+suppress a finding indefinitely.
 
 ## What is and is not protected
 
@@ -72,14 +75,29 @@ than the claim:
 
 ## Scope
 
-This is a personal project with no production deployment, so there is no
-bug bounty and no formal SLA. Reports are still taken seriously —
-particularly anything involving credentials, Firebase rules, or data
-belonging to one user being reachable by another.
+This is a personal project with no paying users, so there is no bug
+bounty and no formal SLA. It is **not** undeployed, though: there is a
+live Firebase project and a public token-minting endpoint on Vercel, so
+findings against those are real and in scope.
+
+Reports are taken seriously — particularly anything involving
+credentials, Firestore or Storage rules, one user's data being reachable
+by another, or a way to read message content without the recipient's
+keys.
 
 ## Out of scope
 
 - Findings that require a rooted/jailbroken device or a physically
   compromised phone
-- Issues in third-party dependencies (report those upstream)
-- Missing hardening that has no demonstrated impact
+- Missing hardening with no demonstrated impact
+- Metadata exposure, media-server access to call audio/video, and the
+  other limitations listed under "Not encrypted, by design" above. Those
+  are known and documented, not undiscovered
+
+Third-party dependencies are **in scope where this app's security rests
+on them**, which notably includes `libsignal_protocol_dart`: it is a
+third-party pure-Dart implementation of the Signal Protocol and has not
+been independently audited as deployed here. A flaw in it is a flaw in
+this app's confidentiality, so report it here as well as upstream.
+Dependency issues that do not affect this app's security properties are
+better raised with their own maintainers.
