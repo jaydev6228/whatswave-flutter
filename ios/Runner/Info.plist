@@ -41,6 +41,8 @@
 	<string>Whatswave uses the camera for video calls and profile media capture.</string>
 	<key>NSContactsUsageDescription</key>
 	<string>Whatswave uses your contacts to help you find people and invite them into communities.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Whatswave uses Face ID to unlock the app when app lock is turned on.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Whatswave uses your location to share your current location in a chat when you choose to.</string>
 	<key>NSMicrophoneUsageDescription</key>

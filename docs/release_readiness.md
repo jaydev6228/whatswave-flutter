@@ -54,7 +54,11 @@ These are infrastructure gaps, not local Flutter UI gaps:
 - Real Firebase or AWS repositories and server APIs
 - APNs and FCM token sync plus push and call invite delivery
 - A real audio and video calling provider
-- End-to-end encryption and key management
+- ~~End-to-end encryption and key management~~ -- done for chat text (1:1
+  and groups), attachment metadata and attachment bytes, with safety
+  numbers for verification. Still open: stories, calls (LiveKit supports
+  E2EE but it is not enabled) and multi-device. Metadata remains
+  unencrypted by design -- see SECURITY.md
 - Server-side abuse prevention, rate limiting, moderation, and audit controls
 
 ## Recommended next production steps

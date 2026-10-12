@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../../core/crypto/crypto_box.dart';
 import '../domain/chat_attachment.dart';
 import '../domain/chat_message.dart';
 import '../domain/chat_thread.dart';
@@ -11,11 +12,18 @@ import '../domain/chat_thread.dart';
 /// Persists inbox thread summaries on disk so cold starts can paint the chat
 /// list immediately while Firestore syncs in the background.
 class ChatInboxCache {
-  ChatInboxCache({SharedPreferences? preferences}) : _preferences = preferences;
+  ChatInboxCache({SharedPreferences? preferences, CryptoBox? cryptoBox})
+      : _preferences = preferences,
+        _crypto = cryptoBox ?? CryptoBox();
 
-  static const String _storageKeyPrefix = 'chat_inbox_cache_v1';
+  /// v2 because the payload is now sealed rather than plain JSON. The old
+  /// v1 entries are simply never read again, which is the right outcome:
+  /// they are plaintext message text sitting in SharedPreferences.
+  static const String _storageKeyPrefix = 'chat_inbox_cache_v2';
+  static const String _legacyPlaintextKeyPrefix = 'chat_inbox_cache_v1';
 
   final SharedPreferences? _preferences;
+  final CryptoBox _crypto;
   Future<SharedPreferences>? _preferencesFuture;
 
   Future<SharedPreferences> _resolvePreferences() {
@@ -39,7 +47,7 @@ class ChatInboxCache {
     }
 
     try {
-      final decoded = jsonDecode(raw);
+      final decoded = jsonDecode(await _crypto.openFromBase64(raw));
       if (decoded is! Map<String, dynamic>) {
         return null;
       }
@@ -52,6 +60,9 @@ class ChatInboxCache {
           .map(_threadFromCacheJson)
           .toList(growable: false);
     } catch (_) {
+      // Unreadable for any reason -- corrupt, or sealed under a device key
+      // that has since been destroyed by sign-out. A cache that cannot be
+      // read is simply a cache miss; Firestore repopulates it.
       return null;
     }
   }
@@ -67,7 +78,16 @@ class ChatInboxCache {
       'cachedAt': DateTime.now().toIso8601String(),
       'threads': threads.map(_threadToCacheJson).toList(growable: false),
     });
-    await preferences.setString('$_storageKeyPrefix:$uid', payload);
+    // Sealed with the device key. This cache exists to paint the chat list
+    // before Firestore answers, which means it holds real message text --
+    // previously as plain JSON in SharedPreferences, readable by anything
+    // that got at the app's data directory.
+    await preferences.setString(
+      '$_storageKeyPrefix:$uid',
+      await _crypto.sealToBase64(payload),
+    );
+    // Drop any pre-encryption entry for this user as we go.
+    await preferences.remove('$_legacyPlaintextKeyPrefix:$uid');
   }
 
   Map<String, Object?> _threadToCacheJson(ChatThread thread) {

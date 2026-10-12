@@ -4,6 +4,7 @@ import '../../../core/controllers/app_preferences_controller.dart';
 import '../../../core/integrations/integration_hub_controller.dart';
 import '../../../core/models/app_user.dart';
 import '../../../core/observability/app_telemetry.dart';
+import '../../../core/session/backend_reachability.dart';
 import '../../auth/application/auth_controller.dart';
 import '../../calls/application/calls_controller.dart';
 import '../../calls/presentation/calls_screen.dart';
@@ -31,6 +32,7 @@ class AppShell extends StatefulWidget {
     required this.chatsController,
     required this.communitiesController,
     required this.updatesController,
+    this.reachability,
     super.key,
   });
 
@@ -42,6 +44,9 @@ class AppShell extends StatefulWidget {
   final ChatsController chatsController;
   final CommunitiesController communitiesController;
   final UpdatesController updatesController;
+
+  /// Null in local/seeded builds, which have no backend to be cut off from.
+  final BackendReachability? reachability;
 
   @override
   State<AppShell> createState() => _AppShellState();
@@ -114,6 +119,14 @@ class _AppShellState extends State<AppShell> {
             index: _currentTab.index,
             children: pages,
           ),
+          // One banner for every tab rather than per-screen: being offline
+          // is an app-wide fact, and the chats, updates and calls lists are
+          // all equally stale while it holds.
+          if (widget.reachability != null)
+            Align(
+              alignment: Alignment.topCenter,
+              child: _OfflineBanner(reachability: widget.reachability!),
+            ),
           Align(
             alignment: Alignment.bottomCenter,
             child: SafeArea(
@@ -236,6 +249,75 @@ class _AppShellState extends State<AppShell> {
       attributes: <String, Object?>{
         'tab': tab.name,
         'initial': initial,
+      },
+    );
+  }
+}
+
+/// Thin bar that appears when reads start coming from the local cache.
+///
+/// Says "not current" rather than "no internet": the signal is Firestore's
+/// own cache-vs-server metadata, which also catches a captive portal, an
+/// expired token or a backend outage -- none of which are the user's wifi
+/// being off, and all of which look identical from their side.
+class _OfflineBanner extends StatelessWidget {
+  const _OfflineBanner({required this.reachability});
+
+  final BackendReachability reachability;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return AnimatedBuilder(
+      animation: reachability,
+      builder: (context, _) {
+        return AnimatedSwitcher(
+          duration: const Duration(milliseconds: 220),
+          child: !reachability.isOffline
+              ? const SizedBox.shrink()
+              : SafeArea(
+                  bottom: false,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                    child: Material(
+                      key: const Key('offline_banner'),
+                      color: theme.colorScheme.secondaryContainer,
+                      borderRadius: BorderRadius.circular(14),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 10,
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.cloud_off_rounded,
+                              size: 18,
+                              color: theme.colorScheme.onSecondaryContainer,
+                            ),
+                            const SizedBox(width: 10),
+                            // Flexible + wrapping, never a fixed height:
+                            // this has to survive a 200% text scale on a
+                            // compact phone (docs/ui_layout_guidelines.md).
+                            Flexible(
+                              child: Text(
+                                "Offline. You're seeing saved messages, and "
+                                'anything you send will go out when you '
+                                'reconnect.',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color:
+                                      theme.colorScheme.onSecondaryContainer,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+        );
       },
     );
   }

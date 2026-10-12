@@ -12,6 +12,7 @@ import '../../../core/permissions/device_location_service.dart';
 import '../../../core/utils/user_profile_lookup.dart';
 import '../../calls/domain/call_permissions.dart';
 import '../data/chat_inbox_cache.dart';
+import '../data/pending_send_store.dart';
 import '../data/chat_repository.dart';
 import '../domain/chat_attachment.dart';
 import '../domain/chat_message.dart';
@@ -34,12 +35,21 @@ class ChatsController extends ChangeNotifier {
     AppPermissionService? permissionService,
     DeviceLocationService? locationService,
     ChatInboxCache? inboxCache,
+    PendingSendStore? pendingSends,
   })  : _repository = repository,
         _permissionService = permissionService ?? MemoryAppPermissionService(),
         _locationService = locationService ?? GeolocatorDeviceLocationService(),
-        _inboxCache = inboxCache ?? ChatInboxCache();
+        _inboxCache = inboxCache ?? ChatInboxCache(),
+        _pendingSends = pendingSends;
 
   final ChatRepository _repository;
+
+  /// Durable store for sends that have not reached the server.
+  ///
+  /// Null outside a Firebase-backed build, where in-memory state is
+  /// adequate -- the seeded backend never actually fails a send.
+  PendingSendStore? get pendingSends => _pendingSends;
+  final PendingSendStore? _pendingSends;
   final AppPermissionService _permissionService;
   final DeviceLocationService _locationService;
   final ChatInboxCache _inboxCache;
@@ -560,6 +570,30 @@ class ChatsController extends ChangeNotifier {
   @override
   void dispose() {
     _liveThreadsSubscription?.cancel();
+
+    // The typing timers outlived this controller before, and both failure
+    // modes are real: _typingHeartbeatTimer is a Timer.periodic, so it kept
+    // publishing "still typing" to Firestore forever after the controller
+    // was gone, and _typingIdleTimer would fire stopTyping() into a disposed
+    // ChangeNotifier. A widget test surfaced it as "A Timer is still pending
+    // even after the widget tree was disposed".
+    _typingIdleTimer?.cancel();
+    _typingIdleTimer = null;
+    _typingHeartbeatTimer?.cancel();
+    _typingHeartbeatTimer = null;
+
+    // Nothing will clear the published flag now that the idle timer is gone,
+    // so the other participants would be left looking at a "typing..."
+    // indicator that never goes away. Fire-and-forget is the best available:
+    // dispose cannot await, and _publishTyping swallows its own errors and
+    // never touches this notifier.
+    final typingThreadId = _typingThreadId;
+    if (_typingPublished && typingThreadId != null) {
+      _typingPublished = false;
+      _typingThreadId = null;
+      unawaited(_publishTyping(typingThreadId, isTyping: false));
+    }
+
     super.dispose();
   }
 
@@ -895,6 +929,7 @@ class ChatsController extends ChangeNotifier {
     required String text,
     StoryReplyContext? storyReplyContext,
     MessageReplyPreview? replyPreview,
+    String? messageId,
   }) async {
     final normalizedText = text.trim();
     if (normalizedText.isEmpty) {
@@ -912,6 +947,7 @@ class ChatsController extends ChangeNotifier {
         text: normalizedText,
         storyReplyContext: storyReplyContext,
         replyPreview: replyPreview,
+        messageId: messageId,
       ),
       fallbackError: 'We could not send that message right now.',
       clearSearch: false,
@@ -972,6 +1008,7 @@ class ChatsController extends ChangeNotifier {
     String? caption,
     MessageReplyPreview? replyPreview,
     MediaTransfer? transfer,
+    String? messageId,
   }) {
     stopTyping(threadId);
     return _runThreadMutation(
@@ -982,6 +1019,7 @@ class ChatsController extends ChangeNotifier {
         caption: caption,
         replyPreview: replyPreview,
         transfer: transfer,
+        messageId: messageId,
       ),
       fallbackError: 'We could not send that attachment right now.',
       clearSearch: false,

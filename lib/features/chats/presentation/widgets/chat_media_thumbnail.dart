@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -37,10 +38,18 @@ class ChatMediaThumbnailBody extends StatefulWidget {
 class _ChatMediaThumbnailBodyState extends State<ChatMediaThumbnailBody> {
   Future<Uint8List?>? _videoThumbnailFuture;
 
+  /// The path actually rendered.
+  ///
+  /// Identical to `attachment.localMediaPath` for plaintext media, so that
+  /// path stays synchronous and unchanged. An encrypted attachment resolves
+  /// to a decrypted temp file instead, which is necessarily async -- hence
+  /// the null window while it lands.
+  String? _resolvedPath;
+
   @override
   void initState() {
     super.initState();
-    _primeVideoThumbnail();
+    _resolveMediaPath();
   }
 
   @override
@@ -48,13 +57,38 @@ class _ChatMediaThumbnailBodyState extends State<ChatMediaThumbnailBody> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.attachment.id != widget.attachment.id ||
         oldWidget.attachment.localMediaPath !=
-            widget.attachment.localMediaPath) {
-      _primeVideoThumbnail();
+            widget.attachment.localMediaPath ||
+        oldWidget.attachment.mediaKey != widget.attachment.mediaKey) {
+      _resolveMediaPath();
     }
   }
 
+  void _resolveMediaPath() {
+    final attachment = widget.attachment;
+    if (attachment.mediaKey == null) {
+      // Nothing to decrypt: keep the original synchronous behaviour so a
+      // plaintext thumbnail never flickers through an empty frame.
+      _resolvedPath = attachment.localMediaPath;
+      _primeVideoThumbnail();
+      return;
+    }
+    _resolvedPath = null;
+    _videoThumbnailFuture = null;
+    unawaited(
+      resolveAttachmentMediaPath(attachment).then((path) {
+        if (!mounted || widget.attachment.id != attachment.id) {
+          return;
+        }
+        setState(() {
+          _resolvedPath = path;
+          _primeVideoThumbnail();
+        });
+      }),
+    );
+  }
+
   void _primeVideoThumbnail() {
-    final localPath = widget.attachment.localMediaPath;
+    final localPath = _resolvedPath;
     if (widget.attachment.type == ChatAttachmentType.video &&
         localPath != null &&
         statusMediaSourceExists(localPath) &&
@@ -72,7 +106,7 @@ class _ChatMediaThumbnailBodyState extends State<ChatMediaThumbnailBody> {
   @override
   Widget build(BuildContext context) {
     final attachment = widget.attachment;
-    final localPath = attachment.localMediaPath;
+    final localPath = _resolvedPath;
     final isPhoto = attachment.type == ChatAttachmentType.photo ||
         attachment.isImageDocument;
     final isGated = localPath != null && _isGated(localPath);

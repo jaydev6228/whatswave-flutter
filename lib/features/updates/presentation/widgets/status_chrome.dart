@@ -2,7 +2,6 @@ import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 
-import '../../../shared/widgets/liquid_glass.dart';
 
 /// The one background every floating control in the status feature sits on
 /// -- both composers, the trim strip, and the sheets.
@@ -339,11 +338,4 @@ class StatusChromeCaptionField extends StatelessWidget {
 /// part of its chrome. This gives them the app's own glass instead --
 /// blurred, so the media stays visible behind, and theme-following so the
 /// list text keeps its contrast in both light and dark.
-class StatusChromeSheet extends StatelessWidget {
-  const StatusChromeSheet({required this.child, super.key});
 
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) => GlassBottomSheet(child: child);
-}

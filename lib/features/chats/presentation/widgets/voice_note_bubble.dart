@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+
+import '../../domain/chat_attachment.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../../updates/presentation/widgets/status_media_source.dart';
@@ -19,11 +21,18 @@ class VoiceNoteBubble extends StatefulWidget {
     required this.localMediaPath,
     required this.fallbackLabel,
     required this.contentColor,
+    this.attachment,
     this.trailingMeta,
     super.key,
   });
 
   final String localMediaPath;
+
+  /// Supplied when the voice note may be encrypted, so its bytes can be
+  /// decrypted before playback. Optional because [localMediaPath] is still
+  /// the right thing for the waveform seed and for plaintext notes, and
+  /// several callers have no attachment to hand.
+  final ChatAttachment? attachment;
   final String fallbackLabel;
   final Color contentColor;
 
@@ -63,9 +72,23 @@ class _VoiceNoteBubbleState extends State<VoiceNoteBubble> {
     // setState (not a bare field write) so the play button can show a
     // loading spinner for that stretch instead of looking unresponsive.
     setState(() => _isInitializing = true);
-    final controller =
-        (await buildStatusMediaVideoControllerAsync(widget.localMediaPath))
-          ..addListener(_handleUpdate);
+    // An encrypted voice note has to be fetched and decrypted to a local
+    // file first -- the player cannot stream ciphertext.
+    final attachment = widget.attachment;
+    final playablePath = attachment?.mediaKey == null
+        ? widget.localMediaPath
+        : await resolveAttachmentMediaPath(attachment!);
+    if (playablePath == null) {
+      if (mounted) {
+        setState(() {
+          _isInitializing = false;
+          _hasError = true;
+        });
+      }
+      return;
+    }
+    final controller = (await buildStatusMediaVideoControllerAsync(playablePath))
+      ..addListener(_handleUpdate);
     try {
       await controller.initialize();
       if (!mounted) {

@@ -83,6 +83,7 @@ class ChatAttachment {
     this.longitude,
     this.localMediaPath,
     this.sizeBytes,
+    this.mediaKey,
   });
 
   final String id;
@@ -165,6 +166,17 @@ class ChatAttachment {
     };
   }
 
+  /// Base64 AES key for this attachment's encrypted bytes in Storage.
+  ///
+  /// Travels only inside the encrypted message envelope, so it reaches
+  /// exactly the people who can read the message and never Firestore in
+  /// the clear. Null for a plaintext (v1) attachment, which is also how
+  /// the read path knows not to try decrypting.
+  ///
+  /// Deliberately excluded from the local inbox cache's JSON -- that cache
+  /// is for painting the chat list, not for holding key material.
+  final String? mediaKey;
+
   ChatAttachment copyWith({
     String? id,
     ChatAttachmentType? type,
@@ -176,6 +188,7 @@ class ChatAttachment {
     double? longitude,
     String? localMediaPath,
     int? sizeBytes,
+    String? mediaKey,
   }) {
     return ChatAttachment(
       id: id ?? this.id,
@@ -188,6 +201,7 @@ class ChatAttachment {
       longitude: longitude ?? this.longitude,
       localMediaPath: localMediaPath ?? this.localMediaPath,
       sizeBytes: sizeBytes ?? this.sizeBytes,
+      mediaKey: mediaKey ?? this.mediaKey,
     );
   }
 }

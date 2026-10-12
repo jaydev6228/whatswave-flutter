@@ -3,6 +3,9 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import '../../../core/crypto/safety_number_scope.dart';
+import 'widgets/safety_number_card.dart';
+
 import '../../../core/media/avatar_photo_picker.dart';
 import '../../../core/utils/user_profile_lookup.dart';
 import '../../calls/application/calls_controller.dart';
@@ -271,6 +274,22 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                           phone: phone,
                         ),
                         const SizedBox(height: 14),
+                        // Only for 1:1 threads: a safety number is between
+                        // two identities, and a group has no single pair
+                        // to compare.
+                        if (!thread.isGroup &&
+                            (thread.participantUid ?? '').isNotEmpty)
+                          SafetyNumberCard(
+                            safetyNumber: SafetyNumberScope.numberFor(
+                              context,
+                              thread.participantUid!,
+                            ),
+                            contactName: thread.name,
+                            identityChanged: SafetyNumberScope.identityChanged(
+                              context,
+                              thread.participantUid!,
+                            ),
+                          ),
                         if (communityContext != null) ...[
                           _SectionHeading('Community'),
                           _FlatInfoPanel(

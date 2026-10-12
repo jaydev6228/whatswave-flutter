@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:mime/mime.dart';
 
 import 'media_transfer.dart';
 
@@ -21,6 +22,32 @@ abstract class MediaUploader {
     MediaTransfer? transfer,
     String transferSlot = 'file',
   });
+}
+
+/// The content type to store an upload under when the caller didn't name one.
+///
+/// Every caller in this app leaves `contentType` null, which used to mean no
+/// metadata was set at all. That matters for two reasons:
+///
+///  * storage.rules restricts the avatar/icon/status paths to `image/*`, and
+///    an object with no content type cannot satisfy that; and
+///  * an object stored with no type is served back untyped, so a file whose
+///    bytes are HTML would be served as HTML from the Storage origin -- the
+///    download URL then hosts whatever markup was uploaded. Pinning a type
+///    from the extension is what makes the rules' `image/*` check actually
+///    mean something, since the bytes are then served as an image whatever
+///    they really contain.
+///
+/// Falls back to `application/octet-stream` for an extension `mime` doesn't
+/// know. On the image-only paths that is then *denied* by storage.rules,
+/// which is the intended outcome: those paths should not accept a file we
+/// cannot identify.
+String resolveUploadContentType(File file, {String? explicitContentType}) {
+  final explicit = explicitContentType?.trim();
+  if (explicit != null && explicit.isNotEmpty) {
+    return explicit;
+  }
+  return lookupMimeType(file.path) ?? 'application/octet-stream';
 }
 
 class MediaUploadException implements Exception {
@@ -57,7 +84,12 @@ class FirebaseMediaUploader implements MediaUploader {
       // while the bytes kept going up.
       final task = ref.putFile(
         file,
-        contentType == null ? null : SettableMetadata(contentType: contentType),
+        SettableMetadata(
+          contentType: resolveUploadContentType(
+            file,
+            explicitContentType: contentType,
+          ),
+        ),
       );
       if (transfer != null) {
         progressSubscription = task.snapshotEvents.listen(

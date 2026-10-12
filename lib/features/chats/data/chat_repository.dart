@@ -190,6 +190,15 @@ abstract class ChatRepository {
     required String text,
     StoryReplyContext? storyReplyContext,
     MessageReplyPreview? replyPreview,
+    /// The message's document id.
+    ///
+    /// Supplied by the caller so the optimistic bubble and the stored
+    /// message share one identity. Without it the two have different ids
+    /// and the UI has to *guess* which server message corresponds to the
+    /// one in flight -- a guess that matched on sender + text + a two
+    /// minute window, and so mistook an earlier identical message for the
+    /// echo, making the older bubble disappear and reappear.
+    String? messageId,
   });
 
   /// Replaces [messageId]'s text with [text] -- only ever valid for a
@@ -225,6 +234,7 @@ abstract class ChatRepository {
     String? caption,
     MessageReplyPreview? replyPreview,
     MediaTransfer? transfer,
+    String? messageId,
   });
 
   /// Sets (or replaces) the caller's reaction on [messageId] to [emoji]. If

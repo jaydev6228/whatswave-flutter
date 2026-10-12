@@ -464,6 +464,7 @@ class FakeChatRepository implements ChatRepository {
     required String text,
     StoryReplyContext? storyReplyContext,
     MessageReplyPreview? replyPreview,
+    String? messageId,
   }) async {
     await _wait();
     final normalizedText = text.trim();
@@ -475,7 +476,7 @@ class FakeChatRepository implements ChatRepository {
 
     final thread = _threadForId(threadId);
     final newMessage = ChatMessage(
-      id: '${thread.id}-message-${_messageSequence++}',
+      id: messageId ?? '${thread.id}-message-${_messageSequence++}',
       senderName: 'You',
       sentAt: DateTime.now(),
       isFromCurrentUser: true,
@@ -582,6 +583,7 @@ class FakeChatRepository implements ChatRepository {
     String? caption,
     MessageReplyPreview? replyPreview,
     MediaTransfer? transfer,
+    String? messageId,
   }) async {
     if (transfer != null) {
       onAttachmentTransfer?.call(transfer);
@@ -593,7 +595,7 @@ class FakeChatRepository implements ChatRepository {
     final thread = _threadForId(threadId);
     final trimmedCaption = caption?.trim() ?? '';
     final newMessage = ChatMessage(
-      id: '${thread.id}-message-${_messageSequence++}',
+      id: messageId ?? '${thread.id}-message-${_messageSequence++}',
       senderName: 'You',
       sentAt: DateTime.now(),
       isFromCurrentUser: true,

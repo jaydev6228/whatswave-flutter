@@ -38,6 +38,22 @@ Running on the iOS Simulator (iPhone 17 Pro).
 - **Settings** -- profile editing, a privacy center, notification preferences, and an app lock
 - **Light and dark themes** with a soft, liquid-glass-style tab bar and screen transitions
 
+## Licence
+
+Copyright (C) 2026 Jaydev Baloliya.
+
+WhatsWave is free software: you may redistribute it and/or modify it under
+the terms of the **GNU General Public License version 3** as published by the
+Free Software Foundation. It is distributed WITHOUT ANY WARRANTY, without
+even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
+PURPOSE. See [LICENSE](LICENSE).
+
+The licence is GPL-3.0 because the end-to-end encryption is built on
+[`libsignal_protocol_dart`](https://pub.dev/packages/libsignal_protocol_dart),
+which is GPL-3.0. Every maintained Signal Protocol implementation for Dart is
+copyleft, and the alternative -- hand-writing X3DH and the Double Ratchet --
+is not code worth being the author of.
+
 ## Tech stack
 
 | Layer | Choice |
@@ -117,6 +133,16 @@ flutter test                   # Unit + widget tests
 flutter emulators               # List available simulators/emulators
 flutter emulators --launch <id> # Launch one
 ```
+
+```bash
+npm install                     # once, for the security-rules suite
+npm run test:rules              # firestore.rules + storage.rules, on the emulators
+```
+
+The rules suite is separate from `flutter test` on purpose: `firestore.rules`
+and `storage.rules` are where this app's authorization actually lives, and
+they run against the Firebase emulators rather than in the Dart VM. See
+`docs/test_strategy.md`.
 
 ### Recommended development device matrix
 

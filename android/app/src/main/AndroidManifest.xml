@@ -5,9 +5,19 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
+    <!-- allowBackup is false deliberately, and must stay false.
+         flutter_secure_storage keeps its secrets in an encrypted store whose
+         wrapping key lives in the Android Keystore, and the Keystore key is
+         hardware-bound: it does not travel in a backup. Letting auto-backup
+         carry the encrypted blob to a new device produces a store that
+         cannot be unwrapped there ("Failed to unwrap key") rather than a
+         working restore. Key material for this app is restored through the
+         passphrase backup instead, which is designed to cross devices. -->
     <application
         android:label="whatswave"
         android:name="${applicationName}"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
         android:icon="@mipmap/ic_launcher">
         <activity
             android:name=".MainActivity"

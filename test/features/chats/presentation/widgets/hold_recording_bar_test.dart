@@ -4,7 +4,6 @@ import 'package:whatswave/app/theme/app_theme.dart';
 import 'package:whatswave/features/chats/presentation/widgets/composer_voice_button.dart';
 import 'package:whatswave/features/chats/presentation/widgets/voice_note_recorder_sheet.dart';
 import 'package:whatswave/features/shared/widgets/liquid_glass.dart';
-import 'package:whatswave/features/updates/presentation/widgets/status_chrome.dart';
 
 Future<void> _pumpBar(
   WidgetTester tester, {
@@ -127,6 +126,6 @@ void main() {
     // There is no microphone in a widget test, so the sheet settles on its
     // permission-denied stage -- which is fine: the shell under test is the
     // same one every stage renders into.
-    expect(find.byType(StatusChromeSheet), findsOneWidget);
+    expect(find.byType(GlassBottomSheet), findsOneWidget);
   });
 }

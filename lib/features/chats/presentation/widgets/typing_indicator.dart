@@ -1,4 +1,31 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
+
+/// Set by `flutter test` for every test process.
+///
+/// Checked instead of the binding's runtime type, which `ChatsScreen` used
+/// to string-match against `'TestWidgetsFlutterBinding'`. That worked, but
+/// it depended on a framework class keeping its name -- a rename would have
+/// silently switched the animation back on and hung the suite again, which
+/// is a bad way to find out.
+final bool kIsUnderFlutterTest =
+    Platform.environment.containsKey('FLUTTER_TEST');
+
+/// Whether typing dots should run their repeating animation.
+///
+/// `AnimationController.repeat()` schedules frames forever, so any
+/// `pumpAndSettle()` with typing dots on screen spins until it times out.
+/// That is not hypothetical: `ConversationTypingBubble` hardcoded
+/// `animate: true`, so every test that opened the seeded "Design Sprint"
+/// group -- the one demo thread with a `typingPreview` -- timed out. It cost
+/// 13 failures across five files, all of them reported as unrelated
+/// `pumpAndSettle timed out` errors.
+///
+/// [override] is the caller's explicit intent and always wins, so a test
+/// can opt back in to assert the dots really move.
+bool shouldAnimateTypingDots({bool? override}) =>
+    override ?? !kIsUnderFlutterTest;
 
 /// Name + animated dots for a chat list row while someone else is typing.
 class TypingStatusLine extends StatelessWidget {
@@ -222,7 +249,8 @@ class ConversationTypingBubble extends StatelessWidget {
                     key: Key('conversation_typing_dots_$threadId'),
                     threadId: threadId,
                     color: dotColor,
-                    animate: true,
+                    // Was a hardcoded `true`, which is what hung the suite.
+                    animate: shouldAnimateTypingDots(),
                     dotSize: 7,
                   ),
                 ),

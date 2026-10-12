@@ -213,8 +213,13 @@ class _LayoutShapeMaskClipState extends State<LayoutShapeMaskClip> {
         final fitted = applyBoxFit(BoxFit.contain, imageSize, bounds.size);
         final dest = Alignment.center.inscribe(fitted.destination, bounds);
         final matrix = Matrix4.identity()
-          ..translate(dest.left, dest.top)
-          ..scale(dest.width / imageSize.width, dest.height / imageSize.height);
+          ..translateByDouble(dest.left, dest.top, 0, 1)
+          ..scaleByDouble(
+            dest.width / imageSize.width,
+            dest.height / imageSize.height,
+            1,
+            1,
+          );
         return ImageShader(
           image,
           TileMode.decal,

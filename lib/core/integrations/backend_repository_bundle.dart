@@ -1,4 +1,5 @@
 import '../../core/config/backend_runtime_config.dart';
+import '../../core/crypto/message_crypto.dart';
 import '../../core/sample/demo_data.dart';
 import '../../features/auth/data/auth_repository.dart';
 import '../../features/auth/data/fake_auth_repository.dart';
@@ -362,14 +363,20 @@ class BackendRepositoryBundleFactory {
   BackendRepositoryBundle create({
     required BackendRuntimeConfig runtimeConfig,
     required bool enableDemoRestoreSession,
+    /// End-to-end encryption for chat messages. Null outside a
+    /// Firebase-backed build, where it stays plaintext.
+    MessageCrypto? messageCrypto,
   }) {
     return BackendRepositoryBundle(
       authRepository:
           _buildAuthRepository(runtimeConfig, enableDemoRestoreSession),
       callsRepository:
           _buildCallsRepository(runtimeConfig, enableDemoRestoreSession),
-      chatRepository:
-          _buildChatRepository(runtimeConfig, enableDemoRestoreSession),
+      chatRepository: _buildChatRepository(
+        runtimeConfig,
+        enableDemoRestoreSession,
+        messageCrypto,
+      ),
       communitiesRepository:
           _buildCommunitiesRepository(runtimeConfig, enableDemoRestoreSession),
       updatesRepository:
@@ -414,9 +421,10 @@ class BackendRepositoryBundleFactory {
   ChatRepository _buildChatRepository(
     BackendRuntimeConfig runtimeConfig,
     bool enableDemoRestoreSession,
+    MessageCrypto? messageCrypto,
   ) {
     if (runtimeConfig.backendMode == BackendMode.firebaseFirst) {
-      return FirestoreChatRepository();
+      return FirestoreChatRepository(messageCrypto: messageCrypto);
     }
 
     return enableDemoRestoreSession

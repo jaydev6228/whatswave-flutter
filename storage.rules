@@ -2,6 +2,20 @@ rules_version = '2';
 
 service firebase.storage {
   match /b/{bucket}/o {
+    // Upload ceilings. Without these, any signed-in user can write an
+    // object of any size to any writable path -- a cheap way to run up a
+    // Storage bill or fill a bucket, and nothing in the app needs it.
+    //
+    // Sized per use: a chat attachment may legitimately be a long video,
+    // while an avatar or group icon is a cropped square and has no business
+    // being larger than a few MB.
+    function withinSize(maxBytes) {
+      return request.resource.size <= maxBytes;
+    }
+    function isImage() {
+      return request.resource.contentType.matches('image/.*');
+    }
+
     // Chat photo/video attachments, uploaded by FirestoreChatRepository at
     // chatMedia/{threadId}/{messageId}-{attachmentId}.{ext} -- readable by
     // anyone signed in (Storage rules can't cheaply express "any CURRENT
@@ -11,9 +25,16 @@ service firebase.storage {
     // trust model most apps use for shared-media links). Only the uploader
     // (the request's own signed-in user) can write; nothing can overwrite
     // or delete another user's upload -- messages don't support editing.
+    //
+    // Size-capped but deliberately NOT content-type restricted: sending an
+    // arbitrary document (Word/Excel/PowerPoint/PDF, via file_picker) is a
+    // feature, so there is no meaningful allowlist to write here. Note for
+    // later: once attachments are encrypted before upload they arrive as
+    // application/octet-stream, so adding a content-type allowlist here
+    // would break that -- the size cap is the durable control.
     match /chatMedia/{threadId}/{fileName} {
       allow read: if request.auth != null;
-      allow write: if request.auth != null;
+      allow write: if request.auth != null && withinSize(100 * 1024 * 1024);
       allow delete: if false;
     }
 
@@ -26,7 +47,10 @@ service firebase.storage {
     // FirebaseStatusMediaStore.deleteMedia's cleanup on expiry/deletion).
     match /statusMedia/{uid}/{fileName} {
       allow read: if request.auth != null;
-      allow write, delete: if request.auth != null && request.auth.uid == uid;
+      allow delete: if request.auth != null && request.auth.uid == uid;
+      allow write: if request.auth != null && request.auth.uid == uid
+        && withinSize(50 * 1024 * 1024)
+        && (isImage() || request.resource.contentType.matches('video/.*'));
     }
 
     // Profile photos at profilePhotos/{uid}/{fileName} -- public-read to
@@ -35,7 +59,9 @@ service firebase.storage {
     // Only the owner uid can write or delete their own photo.
     match /profilePhotos/{uid}/{fileName} {
       allow read: if request.auth != null;
-      allow write, delete: if request.auth != null && request.auth.uid == uid;
+      allow delete: if request.auth != null && request.auth.uid == uid;
+      allow write: if request.auth != null && request.auth.uid == uid
+        && withinSize(8 * 1024 * 1024) && isImage();
     }
 
     // Group icons at groupPhotos/{threadId}/{fileName} -- uploaded by
@@ -44,9 +70,13 @@ service firebase.storage {
     // group admin, checked against chatThreads/{threadId}.groupAdminUids in
     // Firestore (mirrors firestore.rules' groupAvatarUrl update rule).
     match /groupPhotos/{threadId}/{fileName} {
+      function isThreadAdmin() {
+        return request.auth.uid in firestore.get(/databases/(default)/documents/chatThreads/$(threadId)).data.get('groupAdminUids', []);
+      }
       allow read: if request.auth != null;
-      allow write, delete: if request.auth != null
-        && request.auth.uid in firestore.get(/databases/(default)/documents/chatThreads/$(threadId)).data.get('groupAdminUids', []);
+      allow delete: if request.auth != null && isThreadAdmin();
+      allow write: if request.auth != null && isThreadAdmin()
+        && withinSize(8 * 1024 * 1024) && isImage();
     }
 
     // Community icons at communityPhotos/{communityId}/{fileName} --
@@ -57,10 +87,14 @@ service firebase.storage {
       function communityData() {
         return firestore.get(/databases/(default)/documents/communities/$(communityId)).data;
       }
+      function isCommunityAdmin() {
+        return request.auth.uid == communityData().ownerUid
+            || request.auth.uid in communityData().get('adminUids', []);
+      }
       allow read: if request.auth != null;
-      allow write, delete: if request.auth != null
-        && (request.auth.uid == communityData().ownerUid
-            || request.auth.uid in communityData().get('adminUids', []));
+      allow delete: if request.auth != null && isCommunityAdmin();
+      allow write: if request.auth != null && isCommunityAdmin()
+        && withinSize(8 * 1024 * 1024) && isImage();
     }
 
     // "Add music" catalog audio at statusMusic/{fileName} -- admin-uploaded

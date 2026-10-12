@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
@@ -8,9 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:gal/gal.dart';
-import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
-import 'package:path_provider/path_provider.dart';
 
 import '../../../app/theme/app_palette.dart';
 import '../../../core/media/media_transfer.dart';
@@ -91,7 +87,6 @@ class _ConversationScreenState extends State<ConversationScreen> {
   static const int _kShortThreadMessageThreshold = 40;
   static const Duration _sentMessageEntryDuration = Duration(milliseconds: 220);
   static const Duration _ownSendScrollSuppression = Duration(milliseconds: 700);
-  static const Duration _outboundEchoMatchWindow = Duration(minutes: 2);
 
   final GlobalKey _composerBarKey = GlobalKey();
   final ImagePicker _imagePicker = ImagePicker();
@@ -177,6 +172,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
     _messageListController = ScrollController();
     _composerFocusNode = FocusNode();
     widget.controller.addListener(_reconcileOutboundSendWithController);
+    unawaited(_restorePendingSends());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) {
         return;
@@ -275,11 +271,73 @@ class _ConversationScreenState extends State<ConversationScreen> {
       if (localMessage.deliveryState != MessageDeliveryState.sending) {
         continue;
       }
-      if (_findPersistedMatch(liveThread, localMessage) == null) {
+      if (_persistedById(liveThread, localMessage.id) == null) {
         continue;
       }
       _finalizeOutgoingSend(thread: liveThread, localMessage: localMessage);
     }
+  }
+
+  /// The stored message for an in-flight send, found by identity.
+  ///
+  /// Replaces a heuristic that matched on sender + text + a two minute
+  /// window. The UI now supplies the id on send, so the stored message and
+  /// the optimistic bubble are the same message -- which means sending the
+  /// same text twice in quick succession can no longer make the matcher
+  /// mistake the earlier one for this one's echo and hide it.
+  ChatMessage? _persistedById(ChatThread thread, String messageId) {
+    for (final message in thread.messages) {
+      if (message.id == messageId) {
+        return message;
+      }
+    }
+    return null;
+  }
+
+  /// Brings back sends that never reached the server.
+  ///
+  /// These used to live only in [_localMessages], which is State and is
+  /// cleared on thread change -- so backing out of a chat threw away the
+  /// "Not sent" bubble and its retry button, leaving no record of a
+  /// message the user believes they sent.
+  Future<void> _restorePendingSends() async {
+    final store = widget.controller.pendingSends;
+    if (store == null) {
+      return;
+    }
+    final pending = await store.forThread(widget.threadId);
+    if (!mounted || pending.isEmpty) {
+      return;
+    }
+    setState(() {
+      for (final message in pending) {
+        if (!_localMessages.any((entry) => entry.id == message.id)) {
+          _localMessages.add(message);
+        }
+      }
+    });
+  }
+
+  /// Records a send that failed, so it survives leaving the screen.
+  void _rememberFailedSend(ChatMessage message) {
+    final store = widget.controller.pendingSends;
+    if (store == null) {
+      return;
+    }
+    unawaited(
+      store.remember(threadId: widget.threadId, message: message),
+    );
+  }
+
+  /// Drops a pending record once the message is really sent.
+  void _forgetPendingSend(String messageId) {
+    final store = widget.controller.pendingSends;
+    if (store == null) {
+      return;
+    }
+    unawaited(
+      store.forget(threadId: widget.threadId, messageId: messageId),
+    );
   }
 
   void _endOutboundSend() {
@@ -1205,6 +1263,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
         caption: trimmedCaption.isEmpty ? null : trimmedCaption,
         replyPreview: replyPreview,
         transfer: transfer,
+        // Same id as the optimistic bubble, so the stored message IS that
+        // bubble rather than something the UI has to recognise later.
+        messageId: localMessage.id,
       );
     } finally {
       _outboundTransfers.remove(localMessage.id)?.dispose();
@@ -1217,6 +1278,13 @@ class _ConversationScreenState extends State<ConversationScreen> {
     if (!didSend) {
       _endOutboundSend();
       _upsertLocalMessage(
+        localMessage.copyWith(
+          deliveryState: MessageDeliveryState.failed,
+        ),
+      );
+      // Durable, so backing out of the chat does not lose the
+      // "Not sent" bubble or its retry button.
+      _rememberFailedSend(
         localMessage.copyWith(
           deliveryState: MessageDeliveryState.failed,
         ),
@@ -1282,6 +1350,8 @@ class _ConversationScreenState extends State<ConversationScreen> {
     final wasNearLatest = _isNearLatestMessage();
 
     if (trimmedDraft.isEmpty) {
+      // No optimistic bubble on this path: an empty draft is sent purely
+      // so the repository raises its own validation error.
       await widget.controller.sendTextMessage(
         threadId: threadId,
         text: draft,
@@ -1314,6 +1384,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
       threadId: threadId,
       text: trimmedDraft,
       replyPreview: replyPreview,
+      messageId: localMessage.id,
     );
 
     if (!mounted) {
@@ -1323,6 +1394,13 @@ class _ConversationScreenState extends State<ConversationScreen> {
     if (!didSend) {
       _endOutboundSend();
       _upsertLocalMessage(
+        localMessage.copyWith(
+          deliveryState: MessageDeliveryState.failed,
+        ),
+      );
+      // Durable, so backing out of the chat does not lose the
+      // "Not sent" bubble or its retry button.
+      _rememberFailedSend(
         localMessage.copyWith(
           deliveryState: MessageDeliveryState.failed,
         ),
@@ -1343,8 +1421,12 @@ class _ConversationScreenState extends State<ConversationScreen> {
     required ChatThread thread,
     required ChatMessage localMessage,
   }) {
+    // It reached the server, so it is no longer pending. Safe to call for
+    // a message that was never recorded -- the delete simply matches
+    // nothing.
+    _forgetPendingSend(localMessage.id);
     final freshThread = widget.controller.threadById(thread.id) ?? thread;
-    final persisted = _findPersistedMatch(freshThread, localMessage);
+    final persisted = _persistedById(freshThread, localMessage.id);
     final alreadyFinalized =
         !_localMessages.any((entry) => entry.id == localMessage.id);
 
@@ -1362,52 +1444,6 @@ class _ConversationScreenState extends State<ConversationScreen> {
       _stableListKeysByMessageId[persisted.id] = localMessage.id;
       _markMessageForAnimation(localMessage.id, animate: false);
     }
-  }
-
-  ChatMessage? _findPersistedMatch(
-    ChatThread thread,
-    ChatMessage localMessage,
-  ) {
-    for (final message in thread.messages.reversed) {
-      if (_messageMatchesLocal(message, localMessage)) {
-        return message;
-      }
-    }
-    return null;
-  }
-
-  bool _messageMatchesLocal(ChatMessage persisted, ChatMessage localMessage) {
-    if (!persisted.isFromCurrentUser || !localMessage.isFromCurrentUser) {
-      return false;
-    }
-
-    // Never treat an older same-text bubble as the echo for a new send.
-    if (persisted.sentAt.isBefore(
-      localMessage.sentAt.subtract(_outboundEchoMatchWindow),
-    )) {
-      return false;
-    }
-
-    if (localMessage.hasText || persisted.hasText) {
-      if (persisted.text.trim() != localMessage.text.trim()) {
-        return false;
-      }
-    }
-
-    if (localMessage.hasAttachments) {
-      if (persisted.attachments.length != localMessage.attachments.length) {
-        return false;
-      }
-      for (var index = 0; index < localMessage.attachments.length; index++) {
-        if (localMessage.attachments[index].type !=
-            persisted.attachments[index].type) {
-          return false;
-        }
-      }
-      return true;
-    }
-
-    return localMessage.hasText && persisted.hasText;
   }
 
   void _scheduleScrollToLatestMessage({bool animated = true}) {
@@ -1586,19 +1622,20 @@ class _ConversationScreenState extends State<ConversationScreen> {
       return thread.messages;
     }
 
-    // Hide at most one server echo per in-flight local send. Never hide
-    // older same-text bubbles -- that was dropping visible history when
-    // users spammed similar test messages after a media attachment.
-    final hiddenEchoIds = <String>{};
-    for (final localMessage in _localMessages) {
-      if (localMessage.deliveryState != MessageDeliveryState.sending) {
-        continue;
-      }
-      final echo = _findPersistedMatch(thread, localMessage);
-      if (echo != null) {
-        hiddenEchoIds.add(echo.id);
-      }
-    }
+    // The optimistic bubble and the stored message now share an id (the
+    // UI supplies it on send), so the echo is found by identity rather
+    // than guessed at.
+    //
+    // It used to be guessed -- same sender, same text, within two minutes
+    // -- which meant sending the same text twice in that window made the
+    // matcher mistake the EARLIER message for the echo of the one in
+    // flight and hide it. The older bubble vanished and came back when
+    // the real echo landed. Identity cannot be wrong that way.
+    final hiddenEchoIds = <String>{
+      for (final localMessage in _localMessages)
+        if (localMessage.deliveryState == MessageDeliveryState.sending)
+          localMessage.id,
+    };
 
     final serverMessages = thread.messages.where(
       (message) => !hiddenEchoIds.contains(message.id),
@@ -1651,10 +1688,12 @@ class _ConversationScreenState extends State<ConversationScreen> {
             threadId: threadId,
             attachments: failedMessage.attachments,
             caption: failedMessage.hasText ? failedMessage.text : null,
+            messageId: failedMessage.id,
           )
         : await widget.controller.sendTextMessage(
             threadId: threadId,
             text: failedMessage.text,
+            messageId: failedMessage.id,
           );
 
     if (!mounted) {
@@ -1671,11 +1710,12 @@ class _ConversationScreenState extends State<ConversationScreen> {
       }
     } else {
       _endOutboundSend();
-      _upsertLocalMessage(
-        sendingMessage.copyWith(
-          deliveryState: MessageDeliveryState.failed,
-        ),
+      final stillFailed = sendingMessage.copyWith(
+        deliveryState: MessageDeliveryState.failed,
       );
+      _upsertLocalMessage(stillFailed);
+      // A retry that failed again is still pending, so keep the record.
+      _rememberFailedSend(stillFailed);
     }
     setState(() {});
   }
@@ -2075,7 +2115,6 @@ class _ConversationScreenState extends State<ConversationScreen> {
       return;
     }
 
-    File? tempFile;
     try {
       final hasAccess = await Gal.hasAccess() || await Gal.requestAccess();
       if (!hasAccess) {
@@ -2091,18 +2130,12 @@ class _ConversationScreenState extends State<ConversationScreen> {
         return;
       }
 
-      var localPath = source;
-      if (isRemoteStatusMediaPath(source)) {
-        final response = await http.get(Uri.parse(source));
-        final tempDir = await getTemporaryDirectory();
-        final extension = source.contains('.')
-            ? source.substring(source.lastIndexOf('.'))
-            : (attachment.type == ChatAttachmentType.video ? '.mp4' : '.jpg');
-        tempFile = File(
-          '${tempDir.path}/whatswave-save-${DateTime.now().microsecondsSinceEpoch}$extension',
-        );
-        await tempFile.writeAsBytes(response.bodyBytes);
-        localPath = tempFile.path;
+      // resolveAttachmentMediaPath already does "give me a local file for
+      // this attachment", decrypting and verifying it when encrypted, and
+      // going through the shared disk cache rather than a bare http.get.
+      final localPath = await resolveAttachmentMediaPath(attachment);
+      if (localPath == null) {
+        throw Exception('This media could not be read.');
       }
 
       if (attachment.type == ChatAttachmentType.video) {
@@ -2121,10 +2154,6 @@ class _ConversationScreenState extends State<ConversationScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('We could not save that right now.')),
         );
-      }
-    } finally {
-      if (tempFile != null && await tempFile.exists()) {
-        unawaited(tempFile.delete());
       }
     }
   }
@@ -3362,6 +3391,26 @@ class _MessageBubble extends StatelessWidget {
                               height: 1.28,
                             ),
                           )
+                        // Distinct from deleted: nobody withdrew this, it
+                        // simply cannot be read on this device -- sent
+                        // before this device joined, after a session reset,
+                        // or our own message from an install whose keys are
+                        // gone. Saying so beats an empty bubble, which
+                        // reads as a rendering bug.
+                        else if (message.isUndecryptable)
+                          _textWithInlineMeta(
+                            context,
+                            key: const Key('message_undecryptable'),
+                            text: 'Waiting for this message. '
+                                "It can't be opened on this device.",
+                            contentColor: contentColor,
+                            maxTextWidth: _bubbleTextMaxWidth,
+                            textStyle: theme.textTheme.bodyMedium?.copyWith(
+                              color: contentColor.withValues(alpha: 0.6),
+                              fontStyle: FontStyle.italic,
+                              height: 1.28,
+                            ),
+                          )
                         else ...[
                           if (message.hasReplyPreview) ...[
                             _ReplyPreviewQuoteCard(
@@ -3746,8 +3795,10 @@ class _MessageBubble extends StatelessWidget {
     required TextStyle? textStyle,
     required Color contentColor,
     required double maxTextWidth,
+    Key? key,
   }) {
     return Wrap(
+      key: key,
       crossAxisAlignment: WrapCrossAlignment.end,
       spacing: 8,
       runSpacing: 2,
@@ -4039,6 +4090,7 @@ class _MessageBubble extends StatelessWidget {
       return VoiceNoteBubble(
         key: Key('voice_note_${attachment.id}'),
         localMediaPath: localPath,
+        attachment: attachment,
         fallbackLabel: attachment.details,
         contentColor: contentColor,
         // Only the sole-attachment, no-caption case owns the time+ticks row

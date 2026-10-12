@@ -3,9 +3,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:open_filex/open_filex.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:pdfx/pdfx.dart';
 import 'package:video_player/video_player.dart';
 
@@ -203,14 +201,56 @@ Future<void> showAttachmentPreview(
   );
 }
 
-class _AttachmentCanvas extends StatelessWidget {
+class _AttachmentCanvas extends StatefulWidget {
   const _AttachmentCanvas({required this.attachment});
 
   final ChatAttachment attachment;
 
   @override
+  State<_AttachmentCanvas> createState() => _AttachmentCanvasState();
+}
+
+class _AttachmentCanvasState extends State<_AttachmentCanvas> {
+  /// Same contract as the thumbnail's: identical to
+  /// `attachment.localMediaPath` for plaintext media, a decrypted temp
+  /// file for encrypted media.
+  String? _resolvedPath;
+
+  @override
+  void initState() {
+    super.initState();
+    _resolve();
+  }
+
+  @override
+  void didUpdateWidget(covariant _AttachmentCanvas oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.attachment.id != widget.attachment.id ||
+        oldWidget.attachment.mediaKey != widget.attachment.mediaKey) {
+      _resolve();
+    }
+  }
+
+  void _resolve() {
+    final attachment = widget.attachment;
+    if (attachment.mediaKey == null) {
+      _resolvedPath = attachment.localMediaPath;
+      return;
+    }
+    _resolvedPath = null;
+    unawaited(
+      resolveAttachmentMediaPath(attachment).then((path) {
+        if (mounted && widget.attachment.id == attachment.id) {
+          setState(() => _resolvedPath = path);
+        }
+      }),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final localPath = attachment.localMediaPath;
+    final attachment = widget.attachment;
+    final localPath = _resolvedPath;
     final isImageLike = attachment.type == ChatAttachmentType.photo ||
         attachment.isImageDocument;
     final hasRealMedia = localPath != null &&
@@ -282,6 +322,13 @@ class _AttachmentCanvas extends StatelessWidget {
 /// text, or the OS's own native viewer) needs an actual local file, not a
 /// URL. Downloads to a temp file the first time; harmless to call again for
 /// an already-local path, which is returned unchanged.
+/// A local path for an attachment the OS or an in-app renderer can open.
+///
+/// Delegates to [resolveAttachmentMediaPath], which decrypts an encrypted
+/// attachment and verifies its MAC first. That also fixed a pre-existing
+/// inefficiency here: this used to `http.get` the file directly, bypassing
+/// the shared disk cache entirely, so opening the same document twice
+/// downloaded it twice.
 Future<String> _resolveAttachmentLocalPath(
   ChatAttachment attachment,
   String path,
@@ -289,17 +336,11 @@ Future<String> _resolveAttachmentLocalPath(
   if (!isRemoteStatusMediaPath(path)) {
     return path;
   }
-  final response = await http.get(Uri.parse(path));
-  if (response.statusCode != 200) {
-    throw Exception('Download failed (${response.statusCode})');
+  final resolved = await resolveAttachmentMediaPath(attachment);
+  if (resolved == null) {
+    throw Exception('This attachment could not be opened.');
   }
-  final tempDirectory = await getTemporaryDirectory();
-  final extension = attachment.fileExtension;
-  final file = File(
-    '${tempDirectory.path}/attachment_${attachment.id}$extension',
-  );
-  await file.writeAsBytes(response.bodyBytes);
-  return file.path;
+  return resolved;
 }
 
 /// A document attachment with no practical in-app renderer here

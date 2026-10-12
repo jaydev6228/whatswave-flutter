@@ -1,0 +1,14 @@
+{
+  "name": "whatswave-rules-tests",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Firestore and Storage security-rules tests for WhatsWave. The rules are the app's real authorization boundary -- every per-thread, per-field and per-owner check lives there rather than in Dart -- so they get their own executable test suite.",
+  "scripts": {
+    "test:rules": "node scripts/run-rules-tests.mjs"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^4.0.1",
+    "firebase": "^11.0.0",
+    "firebase-tools": "^15.33.0"
+  }
+}

@@ -1096,9 +1096,9 @@ Path _tiltedOvalPath(Rect bounds) {
   );
   final path = Path()..addOval(oval);
   final matrix = Matrix4.identity()
-    ..translate(box.center.dx, box.center.dy)
+    ..translateByDouble(box.center.dx, box.center.dy, 0, 1)
     ..rotateZ(-0.55)
-    ..translate(-box.center.dx, -box.center.dy);
+    ..translateByDouble(-box.center.dx, -box.center.dy, 0, 1);
   return path.transform(matrix.storage);
 }
 

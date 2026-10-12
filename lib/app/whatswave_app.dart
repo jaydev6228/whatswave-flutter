@@ -12,6 +12,10 @@ import '../core/integrations/integration_hub_controller.dart';
 import '../core/permissions/app_permission_service.dart';
 import '../core/integrations/tracked_repositories.dart';
 import '../core/observability/app_telemetry.dart';
+import '../core/crypto/safety_number_scope.dart';
+import '../core/crypto/signal_crypto_scope.dart';
+import '../core/session/backend_reachability.dart';
+import '../core/session/session_data_cleaner.dart';
 import '../core/widgets/app_lock_gate.dart';
 import '../features/auth/application/auth_controller.dart';
 import '../features/auth/data/auth_repository.dart';
@@ -42,6 +46,7 @@ class WhatsWaveApp extends StatefulWidget {
     this.communitiesRepository,
     this.updatesRepository,
     this.preferencesController,
+    this.cryptoScope,
     this.integrationController,
     this.backendRuntimeConfig,
     this.permissionService,
@@ -56,6 +61,10 @@ class WhatsWaveApp extends StatefulWidget {
   final CommunitiesRepository? communitiesRepository;
   final UpdatesRepository? updatesRepository;
   final AppPreferencesController? preferencesController;
+
+  /// End-to-end encryption, built in main() before the app starts. Null in
+  /// a seeded local build and in widget tests, which stay plaintext.
+  final SignalCryptoScope? cryptoScope;
   final IntegrationHubController? integrationController;
   final BackendRuntimeConfig? backendRuntimeConfig;
   final AppPermissionService? permissionService;
@@ -77,6 +86,10 @@ class _WhatsWaveAppState extends State<WhatsWaveApp> {
   late final CommunitiesController _communitiesController;
   late final UpdatesController _updatesController;
   late final AppPreferencesController _preferencesController;
+
+  /// Null outside firebase-first builds: a seeded local backend is never
+  /// unreachable, so there is nothing to warn about.
+  BackendReachability? _reachability;
   late final IntegrationHubController _integrationController;
   late final BackendRuntimeConfig _backendRuntimeConfig;
   late final AppPermissionService _permissionService;
@@ -97,6 +110,7 @@ class _WhatsWaveAppState extends State<WhatsWaveApp> {
       runtimeConfig: _backendRuntimeConfig,
     );
     final repositoryBundle = const BackendRepositoryBundleFactory().create(
+      messageCrypto: widget.cryptoScope?.messageCrypto,
       runtimeConfig: _backendRuntimeConfig,
       enableDemoRestoreSession: kEnableDemoRestoreSession,
     );
@@ -121,7 +135,14 @@ class _WhatsWaveAppState extends State<WhatsWaveApp> {
       localeCountryCode: widget.authLocaleCountryCode ??
           WidgetsBinding.instance.platformDispatcher.locale.countryCode,
       permissionService: _permissionService,
+      onSignOutCleanup: _clearSignedOutUserData,
     );
+
+    if (_backendRuntimeConfig.prefersFirebase) {
+      _reachability = BackendReachability(
+        servedFromCache: firestoreServedFromCache(),
+      );
+    }
     const liveKitUrl = String.fromEnvironment('LIVEKIT_URL');
     const tokenServerUrl = String.fromEnvironment('LIVEKIT_TOKEN_SERVER_URL');
     final prefersFirebase = _backendRuntimeConfig.prefersFirebase;
@@ -151,6 +172,7 @@ class _WhatsWaveAppState extends State<WhatsWaveApp> {
     );
     _callsController.addListener(_handleIncomingCallSession);
     _chatsController = ChatsController(
+      pendingSends: widget.cryptoScope?.pendingSends,
       repository: TrackedChatRepository(
         delegate: widget.chatRepository ?? repositoryBundle.chatRepository,
         integrations: _integrationController,
@@ -175,6 +197,7 @@ class _WhatsWaveAppState extends State<WhatsWaveApp> {
       musicRepository: repositoryBundle.statusMusicRepository,
     );
     _authController.addListener(_handleIntegrationContextChanged);
+    _authController.addListener(_handleAuthChangedForCrypto);
     _preferencesController.addListener(_handleIntegrationContextChanged);
     _handleIntegrationContextChanged();
     _authController.restoreSession();
@@ -221,11 +244,35 @@ class _WhatsWaveAppState extends State<WhatsWaveApp> {
     );
   }
 
+  /// Clears every trace of the signed-out user from this device.
+  ///
+  /// Lives here rather than in `AuthController` so that controller stays
+  /// unaware of both `SharedPreferences` and the preferences controller --
+  /// it only knows that something has to run before it signs out.
+  Future<void> _clearSignedOutUserData() async {
+    // Keys first: the rest of the wipe is uid-scoped and this is the piece
+    // that makes the local stores unreadable even if a file survives.
+    await widget.cryptoScope?.wipe();
+    await const SessionDataCleaner().clearSignedInUserData();
+    _preferencesController.resetToDefaults();
+  }
+
+  /// Publishes this device's public key material once somebody is signed
+  /// in. Fire-and-forget: a launch must not block on it, and
+  /// [SignalCryptoScope.ensureIdentity] already swallows its own failures.
+  void _handleAuthChangedForCrypto() {
+    if (_authController.isAuthenticated) {
+      unawaited(widget.cryptoScope?.ensureIdentity() ?? Future<void>.value());
+    }
+  }
+
   @override
   void dispose() {
     _authController.removeListener(_handleIntegrationContextChanged);
+    _authController.removeListener(_handleAuthChangedForCrypto);
     _preferencesController.removeListener(_handleIntegrationContextChanged);
     _callsController.removeListener(_handleIncomingCallSession);
+    _reachability?.dispose();
     _authController.dispose();
     _callsController.dispose();
     _chatsController.dispose();
@@ -276,10 +323,20 @@ class _WhatsWaveAppState extends State<WhatsWaveApp> {
   }
 
   Widget _authenticatedHome() {
+    return SafetyNumberScope(
+      service: widget.cryptoScope?.safetyNumbers,
+      store: widget.cryptoScope?.store,
+      localUid: widget.cryptoScope?.currentUid(),
+      child: _buildLockedShell(),
+    );
+  }
+
+  Widget _buildLockedShell() {
     return AppLockGate(
       controller: _preferencesController,
       isEnabled: _authController.isAuthenticated,
       child: AppShell(
+        reachability: _reachability,
         authController: _authController,
         currentUser: _authController.currentUser!,
         preferencesController: _preferencesController,

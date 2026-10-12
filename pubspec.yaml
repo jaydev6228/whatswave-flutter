@@ -31,6 +31,11 @@ dependencies:
   firebase_messaging: ^16.4.3
   livekit_client: ^2.9.0
   http: ^1.6.0
+  # Resolves an upload's content type from its filename, so Storage stores
+  # and serves it as what it is -- see resolveUploadContentType. Already in
+  # the tree transitively (via http/firebase); promoted to a direct
+  # dependency because this app now imports it directly.
+  mime: ^2.0.0
   # Disk cache for remote status/chat media -- see status_media_source.dart.
   cached_network_image: ^3.4.1
   flutter_cache_manager: ^3.4.1
@@ -84,6 +89,57 @@ dependencies:
   # in a message's long-press menu.
   gal: ^2.3.1
   crop_your_image: ^2.0.0
+  # Real authentication behind the app lock (Face ID / Touch ID / fingerprint,
+  # falling back to the device passcode). First-party flutter.dev plugin.
+  # Two native prerequisites, both done -- they fail at runtime, not build
+  # time, so they are easy to miss: Android MainActivity must extend
+  # FlutterFragmentActivity (BiometricPrompt is a Fragment), and iOS needs
+  # NSFaceIDUsageDescription in Info.plist or the OS denies Face ID outright.
+  local_auth: ^2.3.0
+  # End-to-end encryption. Pure Dart (mixin.dev, verified publisher), so it
+  # adds no native build surface -- which matters in this project, where
+  # file_picker and get_video_thumbnail have both had to be pinned or
+  # forked around native regressions -- and it runs inside `flutter test`
+  # with no platform channels, which the whole test strategy depends on.
+  #
+  # GPL-3.0. This is why LICENSE is GPL-3.0 rather than proprietary: every
+  # maintained Signal Protocol implementation for Dart is copyleft, and the
+  # alternative was hand-writing X3DH + Double Ratchet, which is exactly
+  # the code you do not want to be the author of.
+  libsignal_protocol_dart: ^0.8.2
+  # Identity keys, session state and the local data key. iOS Keychain /
+  # Android Keystore.
+  #
+  # Held at 10.x deliberately. 11.x wants win32 ^6, file_picker 10.3.10
+  # wants win32 ^5, and file_picker cannot move (11.x breaks every Android
+  # build -- see its pin above). Forcing win32 forward does not stop at
+  # win32: win32_registry and device_info_plus both fail to compile against
+  # it, and the breakage is not confined to Windows -- it fails the whole
+  # test suite. Three overrides across unrelated packages is too much
+  # instability for the gain.
+  #
+  # What 10.x costs is less than it looks: its Android defaults are already
+  # RSA-OAEP key wrapping over AES-GCM, the same ciphers 11.x uses. The
+  # deprecated Jetpack EncryptedSharedPreferences backend is opt-IN via
+  # `encryptedSharedPreferences: true`, which this app does not set. Move to
+  # 11.x once file_picker can leave 10.3.10.
+  flutter_secure_storage: ^10.3.4
+  # Argon2id for the passphrase-encrypted key backup, and AES/HMAC for
+  # media. Already resolved transitively; promoted because this app now
+  # imports it directly.
+  pointycastle: ^4.0.0
+  # Local plaintext message store. A Signal ciphertext decrypts exactly
+  # once, so re-reading a message doc has to be served from disk rather
+  # than decrypted again -- see docs. Already in the tree via
+  # flutter_cache_manager.
+  sqflite: ^2.4.1
+  # SHA-256 over a message ciphertext, so the local plaintext store can tell
+  # an edit (same message id, new ciphertext) from a re-read. Already in the
+  # tree transitively; promoted because this app imports it directly.
+  crypto: ^3.0.6
+  # Joining database paths. Already in the tree via path_provider/sqflite;
+  # promoted because this app imports it directly.
+  path: ^1.9.0
 
 dev_dependencies:
   flutter_test:
@@ -97,6 +153,21 @@ dev_dependencies:
   # Lets tests stand in a fake video_player platform (test/support), so
   # playback behaviour is coverable without a device.
   video_player_platform_interface: ^6.9.0
+  # setupFirebaseCoreMocks(), so a test can construct the firebase-first
+  # repositories -- see test/support/firebase_core_mocks.dart.
+  firebase_core_platform_interface: ^8.1.0
+  # A real SQLite for tests: sqflite itself is a platform channel and has no
+  # implementation in the Dart VM, so the Signal store would be untestable
+  # without it.
+  sqflite_common_ffi: ^2.3.4
+  # In-memory Firestore for tests, so the key-backup and identity services
+  # are coverable without the emulator (the rules suite covers the rules
+  # themselves; this covers the client logic on top of them).
+  fake_cloud_firestore: ^4.0.0
+  # Companion to fake_cloud_firestore: FirestoreChatRepository reads the
+  # signed-in uid straight off FirebaseAuth, so covering the encrypted
+  # send/read path needs a stand-in for it.
+  firebase_auth_mocks: ^0.15.0
 
 flutter:
   uses-material-design: true

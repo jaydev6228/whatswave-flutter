@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 import '../../../../app/theme/app_palette.dart';
 import '../../../../core/permissions/app_permission_service.dart';
 import '../../../shared/widgets/liquid_glass.dart';
-import '../../../updates/presentation/widgets/status_chrome.dart';
 import '../../domain/chat_attachment.dart';
 import 'voice_note_recording_session.dart';
 

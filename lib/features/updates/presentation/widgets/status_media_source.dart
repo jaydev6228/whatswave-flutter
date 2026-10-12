@@ -1,12 +1,18 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../../../core/crypto/media_crypto.dart';
+import '../../../chats/domain/chat_attachment.dart';
 import '../../data/status_media_remote_cache_index.dart';
 
 const String kBundledStatusMediaPathPrefix = 'asset://';
@@ -80,7 +86,10 @@ Future<void>? _diskCacheProbe;
 
 /// Resolves once the probe has run. Awaited by tests; fire-and-forget in
 /// production, where the first frame or two simply use the network provider.
-@visibleForTesting
+/// Not @visibleForTesting, despite looking like a test seam: the chat
+/// video-thumbnail path genuinely needs to wait for the disk cache before
+/// it can resolve a frame, so this is part of the real API. The annotation
+/// was simply wrong, and had every production caller raising a warning.
 Future<void> ensureStatusMediaDiskCacheReady() {
   return _diskCacheProbe ??= () async {
     try {
@@ -288,4 +297,86 @@ Future<VideoPlayerController> buildStatusMediaVideoControllerAsync(
   }());
 
   return VideoPlayerController.networkUrl(Uri.parse(normalizedPath));
+}
+
+/// Turns an attachment into a path the rest of the media pipeline can use.
+///
+/// For a plaintext attachment this returns [ChatAttachment.localMediaPath]
+/// untouched, so every existing caller behaves exactly as before. For an
+/// encrypted one it fetches the ciphertext, verifies its MAC, decrypts into
+/// a temporary plaintext file and returns that path.
+///
+/// Resolving here rather than teaching each consumer about encryption is
+/// deliberate. The media pipeline decides what to do by testing whether a
+/// path starts with `https://` ([isRemoteStatusMediaPath]) in about eight
+/// places. Introducing a third kind of path would mean every one of those
+/// either silently falling through to a broken placeholder, or cheerfully
+/// rendering ciphertext as a corrupt image. Decrypting before any of them
+/// sees the path leaves that whole set untouched.
+///
+/// Idempotent: the decrypted file is reused once written.
+Future<String?> resolveAttachmentMediaPath(ChatAttachment attachment) async {
+  final path = attachment.localMediaPath;
+  if (path == null || path.isEmpty) {
+    return null;
+  }
+  final mediaKey = attachment.mediaKey;
+  if (mediaKey == null) {
+    // Plaintext (v1), or a local file that was never uploaded.
+    return path;
+  }
+  if (!isRemoteStatusMediaPath(path)) {
+    return path;
+  }
+
+  final plaintextFile = File(
+    p.join(
+      (await getTemporaryDirectory()).path,
+      'ww-media-${attachment.id}${_cacheFileExtension(path)}',
+    ),
+  );
+  if (plaintextFile.existsSync() && await plaintextFile.length() > 0) {
+    return plaintextFile.path;
+  }
+
+  try {
+    // The shared cache holds the ciphertext, keyed by URL -- so a forwarded
+    // copy in another thread is a cache hit, and nothing plaintext is ever
+    // written there.
+    final cached = await statusMediaCacheManager.getFileFromCache(path) ??
+        await statusMediaCacheManager.downloadFile(path);
+    await const MediaCrypto().decryptFile(
+      source: File(cached.file.path),
+      destination: plaintextFile,
+      mediaKey: Uint8List.fromList(base64Decode(mediaKey)),
+    );
+    return plaintextFile.path;
+  } on MediaCryptoException catch (error) {
+    // Failed its integrity check, or the wrong key. Never hand back a path
+    // to bytes we could not verify.
+    debugPrint('Could not decrypt attachment ${attachment.id}: $error');
+    return null;
+  } catch (error) {
+    debugPrint('Could not fetch attachment ${attachment.id}: $error');
+    return null;
+  }
+}
+
+/// Removes decrypted attachment copies. Part of sign-out.
+///
+/// Decrypted media is the one plaintext artefact the encryption scheme
+/// deliberately writes to disk, so the wipe has to name it explicitly --
+/// unlike the keyed stores, it does not become unreadable when the device
+/// key goes.
+Future<void> clearDecryptedMediaCache() async {
+  try {
+    final dir = await getTemporaryDirectory();
+    await for (final entity in dir.list()) {
+      if (entity is File && p.basename(entity.path).startsWith('ww-media-')) {
+        await entity.delete();
+      }
+    }
+  } catch (error) {
+    debugPrint('Could not clear decrypted media: $error');
+  }
 }

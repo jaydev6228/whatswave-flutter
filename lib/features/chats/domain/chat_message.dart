@@ -17,6 +17,7 @@ class ChatMessage {
     this.reactions = const <String, String>{},
     this.storyReplyContext,
     this.isDeleted = false,
+    this.isUndecryptable = false,
     this.isEdited = false,
     this.isStarred = false,
     this.replyPreview,
@@ -57,6 +58,15 @@ class ChatMessage {
   /// filter in the repository (see FirestoreChatRepository's class doc).
   final bool isDeleted;
 
+  /// An encrypted message this device cannot read.
+  ///
+  /// Distinct from [isDeleted], which means the sender withdrew it. This
+  /// one arrived intact and simply is not readable here -- sent before this
+  /// device joined the conversation, after a session reset, or our own
+  /// message from an install whose keys are gone. The bubble says so rather
+  /// than rendering as empty, because an empty bubble reads as a bug.
+  final bool isUndecryptable;
+
   /// True once the sender has edited this message's text after sending --
   /// shown as a small "Edited" label, matching WhatsApp.
   final bool isEdited;
@@ -88,6 +98,7 @@ class ChatMessage {
     Map<String, String>? reactions,
     StoryReplyContext? storyReplyContext,
     bool? isDeleted,
+    bool? isUndecryptable,
     bool? isEdited,
     bool? isStarred,
     MessageReplyPreview? replyPreview,
@@ -104,6 +115,7 @@ class ChatMessage {
       reactions: reactions ?? this.reactions,
       storyReplyContext: storyReplyContext ?? this.storyReplyContext,
       isDeleted: isDeleted ?? this.isDeleted,
+      isUndecryptable: isUndecryptable ?? this.isUndecryptable,
       isEdited: isEdited ?? this.isEdited,
       isStarred: isStarred ?? this.isStarred,
       replyPreview: replyPreview ?? this.replyPreview,

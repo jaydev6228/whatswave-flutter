@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
@@ -7,6 +9,15 @@ import 'package:flutter/material.dart';
 import '../../../app/theme/app_palette.dart';
 import '../../../core/media/media_transfer.dart';
 import '../../updates/presentation/widgets/status_media_source.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+
+import '../../../core/config/runtime_flags.dart';
+import '../../../core/crypto/crypto_box.dart';
+import '../../../core/crypto/media_crypto.dart';
+import '../../../core/crypto/signal_identity_service.dart';
+import '../../../core/crypto/message_crypto.dart';
+import '../../../core/crypto/sender_key_distributor.dart';
 import '../../../core/media/media_uploader.dart';
 import '../../../core/utils/user_profile_lookup.dart';
 import '../domain/chat_attachment.dart';
@@ -49,13 +60,24 @@ class FirestoreChatRepository implements ChatRepository {
     FirebaseFirestore? firestore,
     fb_auth.FirebaseAuth? firebaseAuth,
     MediaUploader? mediaUploader,
+    MessageCrypto? messageCrypto,
+    Uint8List Function()? mediaKeyGenerator,
   })  : _firestore = firestore ?? FirebaseFirestore.instance,
         _firebaseAuth = firebaseAuth ?? fb_auth.FirebaseAuth.instance,
-        _mediaUploader = mediaUploader ?? FirebaseMediaUploader();
+        _mediaUploader = mediaUploader ?? FirebaseMediaUploader(),
+        // Plaintext by default so nothing changes until the app wires a
+        // real one in -- see MessageCrypto.
+        _messageCrypto = messageCrypto ?? const NoopMessageCrypto(),
+        _mediaKeyGenerator = mediaKeyGenerator ??
+            (() => CryptoBox().randomBytes(MediaCrypto.keyLengthBytes));
 
   final FirebaseFirestore _firestore;
   final fb_auth.FirebaseAuth _firebaseAuth;
   final MediaUploader _mediaUploader;
+  final MessageCrypto _messageCrypto;
+
+  /// Overridable so a test can pin the key instead of rolling a fresh one.
+  final Uint8List Function() _mediaKeyGenerator;
   late final UserProfileLookup _profileLookup =
       UserProfileLookup(firestore: _firestore);
 
@@ -150,10 +172,12 @@ class FirestoreChatRepository implements ChatRepository {
       final pageDocs = hasMoreOlder ? docs.take(limit).toList() : docs;
       // docs come newest-first; drop hidden-for-me, then reverse to
       // chronological (oldest first) to match how the list expects them.
-      final messages = pageDocs
-          .where((doc) => !_isHiddenForCurrentUser(doc, uid))
-          .map((doc) => _messageFromDoc(doc, currentUid: uid))
-          .toList()
+      final messages = (await Future.wait(
+        pageDocs
+            .where((doc) => !_isHiddenForCurrentUser(doc, uid))
+            .map((doc) =>
+                _messageFromDoc(doc, currentUid: uid, threadId: threadId)),
+      ))
           .reversed
           .toList(growable: false);
       return ChatMessagePage(messages: messages, hasMoreOlder: hasMoreOlder);
@@ -452,6 +476,11 @@ class FirestoreChatRepository implements ChatRepository {
         storagePath: 'groupPhotos/$threadId/icon$extension',
       );
       await _threadsRef.doc(threadId).update({'groupAvatarUrl': downloadUrl});
+    } on SignalIdentityException catch (e) {
+      // Encryption could not be set up. Failing the send is deliberate:
+      // falling back to plaintext here would downgrade a message the user
+      // believes is encrypted, silently.
+      throw ChatRepositoryException(e.message);
     } on MediaUploadException catch (e) {
       throw ChatRepositoryException(e.message);
     } on FirebaseException catch (e) {
@@ -625,6 +654,7 @@ class FirestoreChatRepository implements ChatRepository {
     required String text,
     StoryReplyContext? storyReplyContext,
     MessageReplyPreview? replyPreview,
+    String? messageId,
   }) async {
     await _sendMessage(
       threadId: threadId,
@@ -632,6 +662,7 @@ class FirestoreChatRepository implements ChatRepository {
       attachments: const [],
       storyReplyContext: storyReplyContext,
       replyPreview: replyPreview,
+      messageId: messageId,
     );
     return fetchThreads();
   }
@@ -696,8 +727,10 @@ class FirestoreChatRepository implements ChatRepository {
     String? caption,
     MessageReplyPreview? replyPreview,
     MediaTransfer? transfer,
+    String? messageId,
   }) async {
     await _sendMessage(
+      messageId: messageId,
       threadId: threadId,
       text: caption ?? '',
       attachments: attachments,
@@ -777,15 +810,24 @@ class FirestoreChatRepository implements ChatRepository {
           .collectionGroup('messages')
           .where('starredBy', arrayContains: uid)
           .get();
-      return snapshot.docs
-          .where((doc) => !_isHiddenForCurrentUser(doc, uid))
-          .map(
-            (doc) => StarredMessageEntry(
-              threadId: doc.reference.parent.parent!.id,
-              message: _messageFromDoc(doc, currentUid: uid),
+      return Future.wait(
+        snapshot.docs
+            .where((doc) => !_isHiddenForCurrentUser(doc, uid))
+            .map((doc) async {
+          // The parent of a message's parent collection is its thread --
+          // available here, which is what lets a cross-thread query
+          // decrypt each result in the right thread's context.
+          final threadId = doc.reference.parent.parent!.id;
+          return StarredMessageEntry(
+            threadId: threadId,
+            message: await _messageFromDoc(
+              doc,
+              currentUid: uid,
+              threadId: threadId,
             ),
-          )
-          .toList(growable: false);
+          );
+        }),
+      );
     } on FirebaseException catch (e) {
       throw ChatRepositoryException(
         e.message ?? 'We could not load your starred messages right now.',
@@ -800,6 +842,7 @@ class FirestoreChatRepository implements ChatRepository {
     StoryReplyContext? storyReplyContext,
     MessageReplyPreview? replyPreview,
     MediaTransfer? transfer,
+    String? messageId,
   }) async {
     final uid = _requireCurrentUid;
     final senderName = _firebaseAuth.currentUser?.displayName ?? 'You';
@@ -811,13 +854,23 @@ class FirestoreChatRepository implements ChatRepository {
                   ?.cast<String>() ??
               const <String>[];
 
-      final messageRef = _threadsRef.doc(threadId).collection('messages').doc();
+      // The caller's id when it supplied one, so the optimistic bubble
+      // and this document are the same message rather than two things the
+      // UI has to match up by guesswork.
+      final messagesRef = _threadsRef.doc(threadId).collection('messages');
+      final messageRef =
+          messageId == null ? messagesRef.doc() : messagesRef.doc(messageId);
       final uploadedAttachments = await Future.wait(
         attachments.map(
           (attachment) => _uploadAttachmentMedia(
             attachment,
             threadId: threadId,
             messageId: messageRef.id,
+            // Only encrypt bytes if this message will itself be sealed --
+            // otherwise the key is written to Firestore in the clear right
+            // beside the ciphertext.
+            encryptMedia: kEncryptAttachmentMedia &&
+                _messageCrypto.canSeal(participantUids),
             transfer: transfer,
           ),
         ),
@@ -830,17 +883,54 @@ class FirestoreChatRepository implements ChatRepository {
         return;
       }
 
+      // Everything that is content goes into one payload, so the sealed
+      // version leaks neither the attachment count nor their types.
+      final payload = <String, Object?>{
+        'text': text,
+        'attachments': uploadedAttachments.map(_attachmentToMap).toList(),
+        if (storyReplyContext != null)
+          'storyReplyContext': storyReplyContext.toJson(),
+        if (replyPreview != null) 'replyPreview': replyPreview.toJson(),
+      };
+      // Sender keys FIRST: this both mints this device's sending chain for
+      // the group and rotates it if the membership shrank. Encrypting
+      // before it runs finds no chain at all ("No key state in record"),
+      // and after a removal would hand the departed member one more
+      // readable message.
+      final keyDeliveries = await _messageCrypto.prepareGroupSend(
+        threadId: threadId,
+        participantUids: participantUids,
+      );
+
+      final sealed = await _messageCrypto.sealOutgoing(
+        threadId: threadId,
+        messageId: messageRef.id,
+        participantUids: participantUids,
+        payloadJson: jsonEncode(payload),
+      );
+
       final batch = _firestore.batch();
+      keyDeliveries.addToBatch(batch);
       batch.set(messageRef, {
         'senderUid': uid,
         'senderName': senderName,
         'sentAt': FieldValue.serverTimestamp(),
-        'text': text,
-        'attachments': uploadedAttachments.map(_attachmentToMap).toList(),
         'deliveryState': MessageDeliveryState.delivered.name,
-        if (storyReplyContext != null)
-          'storyReplyContext': storyReplyContext.toJson(),
-        if (replyPreview != null) 'replyPreview': replyPreview.toJson(),
+        if (sealed == null) ...<String, Object?>{
+          // Plaintext (schema v1): the local/seeded backend, a group until
+          // sender keys land, or a peer who has not published keys yet.
+          'text': text,
+          'attachments': payload['attachments']!,
+          if (storyReplyContext != null)
+            'storyReplyContext': storyReplyContext.toJson(),
+          if (replyPreview != null) 'replyPreview': replyPreview.toJson(),
+        } else ...<String, Object?>{
+          'schemaVersion': 2,
+          'text': sealed,
+          // Always empty under v2, which also satisfies the
+          // delete-for-everyone rule's `attachments == []` by construction.
+          'attachments': <Object?>[],
+        },
       });
 
       final threadUpdate = <String, Object?>{
@@ -1001,30 +1091,78 @@ class FirestoreChatRepository implements ChatRepository {
           await threadRef.collection('messages').orderBy('sentAt').get();
     }
 
-    final messages = messagesSnapshot.docs
-        .where((messageDoc) {
-          final hiddenFor =
-              (messageDoc.data()['hiddenFor'] as List<dynamic>?) ??
-                  const <dynamic>[];
-          return !hiddenFor.contains(currentUid);
-        })
-        .map(
-          (messageDoc) => _messageFromDoc(messageDoc, currentUid: currentUid),
-        )
-        .toList(growable: false);
-
-    return messages;
+    return Future.wait(
+      messagesSnapshot.docs.where((messageDoc) {
+        final hiddenFor =
+            (messageDoc.data()['hiddenFor'] as List<dynamic>?) ??
+                const <dynamic>[];
+        return !hiddenFor.contains(currentUid);
+      }).map(
+        (messageDoc) => _messageFromDoc(
+          messageDoc,
+          currentUid: currentUid,
+          threadId: threadRef.id,
+        ),
+      ),
+    );
   }
 
-  ChatMessage _messageFromDoc(
+  /// Message documents come in two shapes.
+  ///
+  /// `schemaVersion` absent or 1 is the original plaintext document, and is
+  /// read exactly as it always was -- every message written before
+  /// encryption existed keeps rendering, with no backfill and no migration.
+  ///
+  /// `schemaVersion: 2` carries the whole payload (text, attachments, story
+  /// reply context, reply preview) as one sealed blob in `text`, with
+  /// `attachments` always an empty list. Reusing `text` rather than adding
+  /// a field is deliberate: the edit and delete-for-everyone rules are
+  /// `hasOnly` allowlists over `text`/`attachments`, so a new field would
+  /// be *denied* and both rules would have to be widened.
+  Future<ChatMessage> _messageFromDoc(
     QueryDocumentSnapshot<Map<String, dynamic>> doc, {
     required String currentUid,
-  }) {
+    required String threadId,
+  }) async {
     final data = doc.data();
     final sentAt = data['sentAt'];
-    final attachmentsRaw = (data['attachments'] as List<dynamic>?) ?? const [];
     final reactionsRaw =
         (data['reactions'] as Map<String, dynamic>?) ?? const {};
+    final isDeleted = (data['isDeleted'] as bool?) ?? false;
+    final schemaVersion = (data['schemaVersion'] as num?)?.toInt() ?? 1;
+
+    var text = (data['text'] as String?) ?? '';
+    var attachmentsRaw = (data['attachments'] as List<dynamic>?) ?? const [];
+    var storyReplyRaw = data['storyReplyContext'];
+    var replyPreviewRaw = data['replyPreview'];
+    var isUndecryptable = false;
+
+    // isDeleted is checked before any decrypt: delete-for-everyone writes
+    // an empty `text`, and '' is not a valid envelope.
+    if (schemaVersion >= 2 && !isDeleted && text.isNotEmpty) {
+      final payload = await _messageCrypto.openIncoming(
+        threadId: threadId,
+        messageId: doc.id,
+        senderUid: (data['senderUid'] as String?) ?? '',
+        cipherText: text,
+      );
+      if (payload == null) {
+        // Sent before this device could read the thread, a reset session,
+        // or our own message from another install. A placeholder, never an
+        // exception -- one unreadable message must not fail the whole page.
+        text = '';
+        attachmentsRaw = const [];
+        storyReplyRaw = null;
+        replyPreviewRaw = null;
+        isUndecryptable = true;
+      } else {
+        final decoded = jsonDecode(payload) as Map<String, dynamic>;
+        text = (decoded['text'] as String?) ?? '';
+        attachmentsRaw = (decoded['attachments'] as List<dynamic>?) ?? const [];
+        storyReplyRaw = decoded['storyReplyContext'];
+        replyPreviewRaw = decoded['replyPreview'];
+      }
+    }
 
     return ChatMessage(
       id: doc.id,
@@ -1035,7 +1173,7 @@ class FirestoreChatRepository implements ChatRepository {
       senderUid: data['senderUid'] as String?,
       sentAt: sentAt is Timestamp ? sentAt.toDate() : DateTime.now(),
       isFromCurrentUser: data['senderUid'] == currentUid,
-      text: (data['text'] as String?) ?? '',
+      text: text,
       attachments: attachmentsRaw
           .whereType<Map<String, dynamic>>()
           .map(_attachmentFromMap)
@@ -1044,12 +1182,13 @@ class FirestoreChatRepository implements ChatRepository {
       reactions: reactionsRaw.map(
         (uid, emoji) => MapEntry(uid, emoji as String),
       ),
-      storyReplyContext: StoryReplyContext.fromJson(data['storyReplyContext']),
-      isDeleted: (data['isDeleted'] as bool?) ?? false,
+      storyReplyContext: StoryReplyContext.fromJson(storyReplyRaw),
+      isDeleted: isDeleted,
+      isUndecryptable: isUndecryptable,
       isEdited: (data['isEdited'] as bool?) ?? false,
       isStarred: ((data['starredBy'] as List<dynamic>?) ?? const [])
           .contains(currentUid),
-      replyPreview: MessageReplyPreview.fromJson(data['replyPreview']),
+      replyPreview: MessageReplyPreview.fromJson(replyPreviewRaw),
     );
   }
 
@@ -1065,6 +1204,7 @@ class FirestoreChatRepository implements ChatRepository {
     ChatAttachment attachment, {
     required String threadId,
     required String messageId,
+    required bool encryptMedia,
     MediaTransfer? transfer,
   }) async {
     final localPath = attachment.localMediaPath;
@@ -1095,20 +1235,56 @@ class FirestoreChatRepository implements ChatRepository {
               ChatAttachmentType.voiceNote => '.m4a',
               _ => '',
             };
-      final downloadUrl = await _mediaUploader.uploadFile(
-        file,
-        storagePath:
-            'chatMedia/$threadId/$messageId-${attachment.id}$extension',
-        transfer: transfer,
-        // One slot per attachment, so an album's ring sums its photos
-        // instead of each upload overwriting the last one's byte counts.
-        transferSlot: attachment.id,
-      );
-      // File the copy we just sent under its new URL, so this device reads
-      // its own media off disk instead of pulling it back down -- and so
-      // every "is this here?" check says yes for media that plainly is.
-      await cacheUploadedMedia(remoteUrl: downloadUrl, localFile: file);
-      return attachment.copyWith(localMediaPath: downloadUrl);
+      // Encrypt before upload when the thread is encrypted, so Storage
+      // only ever holds ciphertext. The key rides in the message envelope,
+      // which means it reaches exactly the people who can read the message.
+      File uploadFile = file;
+      String? mediaKey;
+      File? encryptedTemp;
+      if (encryptMedia) {
+        final key = _mediaKeyGenerator();
+        encryptedTemp = File(
+          p.join(
+            (await getTemporaryDirectory()).path,
+            'ww-enc-$messageId-${attachment.id}',
+          ),
+        );
+        await const MediaCrypto().encryptFile(
+          source: file,
+          destination: encryptedTemp,
+          mediaKey: key,
+        );
+        uploadFile = encryptedTemp;
+        mediaKey = base64Encode(key);
+      }
+
+      try {
+        final downloadUrl = await _mediaUploader.uploadFile(
+          uploadFile,
+          storagePath:
+              'chatMedia/$threadId/$messageId-${attachment.id}$extension',
+          transfer: transfer,
+          // One slot per attachment, so an album's ring sums its photos
+          // instead of each upload overwriting the last one's byte counts.
+          transferSlot: attachment.id,
+        );
+        // File the copy we just sent under its new URL, so this device
+        // reads its own media off disk instead of pulling it back down.
+        //
+        // Must be the bytes that were actually uploaded. Caching the
+        // plaintext here while every other device caches ciphertext would
+        // make the resolver "decrypt" already-plain bytes into garbage --
+        // on the sender's device only, which is the worst kind of bug.
+        await cacheUploadedMedia(remoteUrl: downloadUrl, localFile: uploadFile);
+        return attachment.copyWith(
+          localMediaPath: downloadUrl,
+          mediaKey: mediaKey,
+        );
+      } finally {
+        if (encryptedTemp != null && encryptedTemp.existsSync()) {
+          await encryptedTemp.delete();
+        }
+      }
     } catch (e) {
       // Best-effort -- see doc comment above. Deliberately catches
       // everything, not just MediaUploadException: a raw platform/plugin
@@ -1137,6 +1313,10 @@ class FirestoreChatRepository implements ChatRepository {
       if (attachment.localMediaPath != null)
         'localMediaPath': attachment.localMediaPath,
       if (attachment.sizeBytes != null) 'sizeBytes': attachment.sizeBytes,
+      // Only ever reaches Firestore inside the sealed v2 envelope -- a v1
+      // (plaintext) attachment has no mediaKey because its bytes are not
+      // encrypted either.
+      if (attachment.mediaKey != null) 'mediaKey': attachment.mediaKey,
     };
   }
 
@@ -1152,6 +1332,7 @@ class FirestoreChatRepository implements ChatRepository {
       longitude: (map['longitude'] as num?)?.toDouble(),
       localMediaPath: map['localMediaPath'] as String?,
       sizeBytes: (map['sizeBytes'] as num?)?.toInt(),
+      mediaKey: map['mediaKey'] as String?,
     );
   }
 

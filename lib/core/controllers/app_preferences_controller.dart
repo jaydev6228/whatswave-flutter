@@ -47,6 +47,7 @@ class AppPreferencesController extends ChangeNotifier {
   bool _hasLoaded = false;
   bool _isLoading = false;
   bool _isAppLocked = false;
+  bool _isPrivacyCovered = false;
   DateTime? _backgroundedAt;
   Future<void> _pendingPersistence = Future<void>.value();
 
@@ -64,6 +65,19 @@ class AppPreferencesController extends ChangeNotifier {
   bool get hasLoaded => _hasLoaded;
   bool get isLoading => _isLoading;
   bool get isAppLocked => _isAppLocked;
+
+  /// Hide the app's content without demanding authentication.
+  ///
+  /// The OS screenshots the app as it leaves the foreground, and that
+  /// screenshot is what the app switcher shows. Locking only on `resumed`
+  /// -- which is what this used to do -- means the switcher happily
+  /// displays the last open chat to anyone who picks the phone up, app lock
+  /// on or not. Covering on the way out puts the cover in the snapshot.
+  ///
+  /// Deliberately separate from [isAppLocked]: a quick app-switch and back
+  /// should not demand Face ID, it should just not leak the screen. Whether
+  /// authentication is required on return is still the timeout's call.
+  bool get isPrivacyCovered => _isPrivacyCovered;
 
   Future<void> ensureLoaded() async {
     if (_hasLoaded || _isLoading) {
@@ -149,6 +163,7 @@ class AppPreferencesController extends ChangeNotifier {
     _appLockEnabled = value;
     if (!value) {
       _isAppLocked = false;
+      _isPrivacyCovered = false;
       _backgroundedAt = null;
     }
     notifyListeners();
@@ -230,24 +245,50 @@ class AppPreferencesController extends ChangeNotifier {
       return;
     }
 
+    // `inactive` is the earliest warning that the app is leaving the
+    // foreground -- it fires as the app switcher opens, before the snapshot
+    // is taken -- but it also fires for transient interruptions like a
+    // permission dialog or Control Centre. So it covers the screen without
+    // starting the background clock.
+    if (state == AppLifecycleState.inactive) {
+      if (!_isPrivacyCovered) {
+        _isPrivacyCovered = true;
+        notifyListeners();
+      }
+      return;
+    }
+
     if (state == AppLifecycleState.hidden ||
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
       _backgroundedAt ??= _nowProvider();
+      if (!_isPrivacyCovered) {
+        _isPrivacyCovered = true;
+        notifyListeners();
+      }
       return;
     }
 
     if (state == AppLifecycleState.resumed) {
-      if (_backgroundedAt == null) {
+      final backgroundedAt = _backgroundedAt;
+      final wasCovered = _isPrivacyCovered;
+      _isPrivacyCovered = false;
+
+      if (backgroundedAt == null) {
+        // Never actually backgrounded (a dialog, Control Centre): uncover,
+        // but never demand authentication for that.
+        if (wasCovered) {
+          notifyListeners();
+        }
         return;
       }
 
-      final elapsed = _nowProvider().difference(_backgroundedAt!);
       _backgroundedAt = null;
-      if (elapsed >= _appLockTimeout.duration) {
+      if (_nowProvider().difference(backgroundedAt) >=
+          _appLockTimeout.duration) {
         _isAppLocked = true;
-        notifyListeners();
       }
+      notifyListeners();
     }
   }
 
@@ -266,6 +307,35 @@ class AppPreferencesController extends ChangeNotifier {
     }
 
     _isAppLocked = false;
+    _isPrivacyCovered = false;
+    _backgroundedAt = null;
+    notifyListeners();
+  }
+
+  /// Drops every preference back to its default, in memory.
+  ///
+  /// Pairs with [SessionDataCleaner], which wipes the backing store on
+  /// sign-out. Without this the controller would still be holding the
+  /// previous user's values and the next `_persistState()` would write them
+  /// straight back out, undoing the wipe.
+  ///
+  /// Deliberately does not persist: leaving the store genuinely empty is the
+  /// point, and every field below is already the value a fresh install
+  /// starts from.
+  void resetToDefaults() {
+    _themeMode = ThemeMode.system;
+    _notificationsEnabled = true;
+    _readReceiptsEnabled = true;
+    _appLockEnabled = false;
+    _appLockTimeout = AppLockTimeout.immediately;
+    _lastSeenAudience = PrivacyAudience.contacts;
+    _profilePhotoAudience = PrivacyAudience.everyone;
+    _statusAudience = PrivacyAudience.contacts;
+    _groupsAudience = PrivacyAudience.contacts;
+    _securityNotificationsEnabled = true;
+    _mediaAutoDownloadEnabled = true;
+    _isAppLocked = false;
+    _isPrivacyCovered = false;
     _backgroundedAt = null;
     notifyListeners();
   }

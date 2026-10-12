@@ -1051,6 +1051,7 @@ class _SummaryOnlyAfterSendRepository implements ChatRepository {
     String? caption,
     MessageReplyPreview? replyPreview,
     MediaTransfer? transfer,
+    String? messageId,
   }) async {
     return _summaryOnly(
       await _delegate.sendAttachmentMessage(
@@ -1068,6 +1069,7 @@ class _SummaryOnlyAfterSendRepository implements ChatRepository {
     required String text,
     StoryReplyContext? storyReplyContext,
     MessageReplyPreview? replyPreview,
+    String? messageId,
   }) async {
     return _summaryOnly(
       await _delegate.sendTextMessage(
@@ -1193,6 +1195,7 @@ class _StaleSummaryAfterSendRepository implements ChatRepository {
     required String text,
     StoryReplyContext? storyReplyContext,
     MessageReplyPreview? replyPreview,
+    String? messageId,
   }) async {
     _preSendSnapshot = _summaryOnly(await _delegate.fetchThreads());
     await _delegate.sendTextMessage(
@@ -1305,6 +1308,7 @@ class _FailingChatRepository implements ChatRepository {
     String? caption,
     MessageReplyPreview? replyPreview,
     MediaTransfer? transfer,
+    String? messageId,
   }) {
     throw UnimplementedError();
   }
@@ -1324,6 +1328,7 @@ class _FailingChatRepository implements ChatRepository {
     required String text,
     StoryReplyContext? storyReplyContext,
     MessageReplyPreview? replyPreview,
+    String? messageId,
   }) {
     throw UnimplementedError();
   }
@@ -1531,6 +1536,7 @@ class _SendFailingChatRepository implements ChatRepository {
     String? caption,
     MessageReplyPreview? replyPreview,
     MediaTransfer? transfer,
+    String? messageId,
   }) {
     throw const ChatRepositoryException('Message service offline');
   }
@@ -1564,6 +1570,7 @@ class _SendFailingChatRepository implements ChatRepository {
     required String text,
     StoryReplyContext? storyReplyContext,
     MessageReplyPreview? replyPreview,
+    String? messageId,
   }) {
     throw const ChatRepositoryException('Message service offline');
   }

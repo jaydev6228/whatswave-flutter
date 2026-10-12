@@ -26,7 +26,7 @@ class CallsController extends ChangeNotifier {
     AppTelemetry? telemetry,
     DateTime Function()? now,
     CallSignalingService? signalingService,
-    LiveKitTokenService? tokenService,
+    CallTokenService? tokenService,
     String? liveKitUrl,
     Stream<String?>? currentUserIdStream,
     RingtonePlayer? ringtonePlayer,
@@ -52,7 +52,7 @@ class CallsController extends ChangeNotifier {
   final AppTelemetry _telemetry;
   final DateTime Function() _now;
   final CallSignalingService? _signalingService;
-  final LiveKitTokenService? _tokenService;
+  final CallTokenService? _tokenService;
   final String? _liveKitUrl;
   final RingtonePlayer _ringtonePlayer;
   final Duration outgoingRingDuration;
@@ -87,6 +87,7 @@ class CallsController extends ChangeNotifier {
   lk.Room? _room;
   lk.EventsListener<lk.RoomEvent>? _roomListener;
   lk.LocalVideoTrack? _localVideoTrack;
+  bool _isReconnecting = false;
   final Map<String, lk.VideoTrack> _remoteVideoTracks =
       <String, lk.VideoTrack>{};
 
@@ -108,6 +109,13 @@ class CallsController extends ChangeNotifier {
       List<CallHistoryEntry>.unmodifiable(_history);
   CallPermissions get permissions => _permissions;
   CallSession? get currentSession => _currentSession;
+
+  /// True while LiveKit is re-establishing a dropped connection -- typically
+  /// a WiFi/cellular handover. Deliberately a flag rather than a new
+  /// [CallSessionPhase]: reconnecting is orthogonal to the call's lifecycle,
+  /// and adding a phase would force every `switch` over phase in the call UI
+  /// to grow a case that means "same as connected, but with a spinner".
+  bool get isReconnecting => _isReconnecting;
 
   /// The local camera preview for a real (LiveKit-backed) call. Null for
   /// simulated calls, or before the camera has connected.
@@ -1128,6 +1136,13 @@ class CallsController extends ChangeNotifier {
     _maybeEndLonelyGroupHostCall();
   }
 
+  /// Is [session] still the call we are in? Room events can arrive after a
+  /// call was ended locally, or for a room we have already torn down.
+  bool _isCurrentSession(CallSession session) {
+    final current = _currentSession;
+    return current != null && current.id == session.id;
+  }
+
   Future<void> _handleRemoteParticipantLeft(String participantIdentity) async {
     final session = _currentSession;
     if (session == null) {
@@ -1257,8 +1272,11 @@ class CallsController extends ChangeNotifier {
     try {
       final token = await tokenService.fetchToken(roomName);
       final room = lk.Room();
-      await room.connect(liveKitUrl, token);
 
+      // Subscribe BEFORE connecting. Anything that fires during the connect
+      // handshake -- a participant already waiting in the room, or an
+      // immediate disconnect -- is missed outright if the listener is only
+      // attached afterwards.
       final roomListener = room.createListener();
       roomListener.on<lk.TrackSubscribedEvent>((event) {
         if (event.track is lk.VideoTrack) {
@@ -1282,6 +1300,54 @@ class CallsController extends ChangeNotifier {
         _cancelGroupHostNoAnswerTimeout();
         notifyListeners();
       });
+
+      // The LiveKit SDK retries a dropped connection on its own, so a brief
+      // WiFi/cellular handover never reaches us. These three fire when it
+      // starts retrying, succeeds, and gives up for good respectively.
+      //
+      // Without the disconnect handler a call whose media path is gone sits
+      // at "connected" forever with the duration timer still ticking, which
+      // is what made a failed handover look like a live call.
+      roomListener.on<lk.RoomReconnectingEvent>((_) {
+        if (!_isCurrentSession(session)) {
+          return;
+        }
+        _isReconnecting = true;
+        notifyListeners();
+      });
+      roomListener.on<lk.RoomReconnectedEvent>((_) {
+        if (!_isCurrentSession(session)) {
+          return;
+        }
+        _isReconnecting = false;
+        notifyListeners();
+      });
+      roomListener.on<lk.RoomDisconnectedEvent>((_) {
+        if (!_isCurrentSession(session)) {
+          return;
+        }
+        _isReconnecting = false;
+        final connected = _currentSession?.connectedAt != null;
+        _telemetry.recordInteraction(
+          'call_room_disconnected',
+          attributes: <String, Object?>{
+            ..._sessionTelemetryAttributes(_currentSession!),
+            'was_connected': connected,
+          },
+        );
+        // A call that had already connected really did happen, so it belongs
+        // in the log as completed with its true duration. One that dropped
+        // before connecting never happened at all.
+        unawaited(
+          _finishSession(
+            status: connected
+                ? CallHistoryStatus.completed
+                : CallHistoryStatus.failed,
+          ),
+        );
+      });
+
+      await room.connect(liveKitUrl, token);
 
       lk.LocalTrackPublication? cameraPub;
       if (session.isVideo) {
@@ -1332,7 +1398,9 @@ class CallsController extends ChangeNotifier {
       _startDurationTicker();
       notifyListeners();
     } catch (error, stackTrace) {
-      _errorMessage = 'We could not connect that call.';
+      _errorMessage = error is CallTokenException && error.isNotAParticipant
+          ? 'You are no longer part of that call.'
+          : 'We could not connect that call.';
       _telemetry.recordError(
         error,
         stackTrace,
@@ -1366,6 +1434,7 @@ class CallsController extends ChangeNotifier {
     _roomListener = null;
     _localVideoTrack = null;
     _remoteVideoTracks.clear();
+    _isReconnecting = false;
     await roomListener?.dispose();
     await room?.disconnect();
     await room?.dispose();

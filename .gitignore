@@ -5,7 +5,10 @@
 .packages
 build/
 coverage/
-pubspec.lock
+# pubspec.lock IS tracked, deliberately. Ignoring it is correct for a
+# library and wrong for an application: without it every machine resolves
+# its own dependency versions, which is exactly how this checkout ended up
+# with a different set from the machine it was transferred from.
 test/.tmp_layout/
 
 # IDE
@@ -46,6 +49,13 @@ firebase.json
 .firebase/
 firebase-debug.log
 firebase-debug.*.log
+
+# Node (rules tests at the repo root, and the LiveKit token server)
+node_modules/
+
+# firebase.test.json is deliberately NOT ignored, unlike firebase.json: it
+# carries only rules paths and emulator ports -- no project id, app ids or
+# credentials -- so CI can run the security-rules suite from a clean clone.
 
 # LiveKit token server (server/livekit-token) -- Node/Vercel project
 server/livekit-token/node_modules/

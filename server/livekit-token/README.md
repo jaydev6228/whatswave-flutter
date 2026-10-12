@@ -12,12 +12,24 @@ free tier instead.
 2. The function verifies that ID token against this Firebase project (via
    `firebase-admin`, using the service account key below) to get the
    caller's real `uid`.
-3. It mints a LiveKit token scoped to `identity: uid`, `room: roomName`, and
+3. It reads `calls/{roomName}` and confirms that `uid` is actually a party to
+   that call -- the caller, the 1:1 callee, or a member of a group call's
+   `participantUids`. If not, it returns 403 and mints nothing.
+4. It mints a LiveKit token scoped to `identity: uid`, `room: roomName`, and
    returns it.
 
 A caller can only ever get a token identifying themselves -- there's no way
 to request a token for a different `uid`, since the identity always comes
 from the verified ID token, never from the request body.
+
+Step 3 is the other half of that, and it is not optional. A verified ID token
+proves *who* is asking but says nothing about *which* room they may join, and
+room names are the `calls/{callId}` document ids. Without the membership check
+any signed-in user who learned or guessed a call id could mint a valid
+`roomJoin` grant and walk into a conversation between two other people. The
+check fails closed: a missing or unreadable call doc denies the token, and a
+denial returns the same 403 whether the call does not exist or simply is not
+yours, so the endpoint can't be used to enumerate call ids.
 
 ## Environment variables (set in the Vercel dashboard, never committed)
 
@@ -52,5 +64,8 @@ curl -X POST https://<your-deployment>.vercel.app/api/token \
   -d '{"roomName": "test-room"}'
 ```
 
-Expect `{"token": "eyJ..."}`. A missing/invalid Authorization header should
-return 401; a missing `roomName` should return 400.
+Expect `{"token": "eyJ..."}` only for a room the token's own user is a party
+to -- `test-room` above will return 403 unless a `calls/test-room` doc exists
+naming that uid. A missing/invalid Authorization header should return 401; a
+missing or malformed `roomName` should return 400; a well-formed room the user
+has nothing to do with should return 403.

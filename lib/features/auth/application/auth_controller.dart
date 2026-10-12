@@ -16,12 +16,14 @@ enum AuthStep { splash, phoneEntry, otpEntry, profileSetup, authenticated }
 class AuthController extends ChangeNotifier {
   AuthController({
     required AuthRepository repository,
+    Future<void> Function()? onSignOutCleanup,
     this.defaultAbout = 'Available on WhatsWave.',
     String? localeCountryCode,
     AppPermissionService? permissionService,
     DeviceLocationService? locationService,
     DeviceCountryLookupService? countryLookupService,
   })  : _repository = repository,
+        _onSignOutCleanup = onSignOutCleanup,
         _selectedCountry = countryDialCodeForDeviceLocale(
           preferredCountryCode: localeCountryCode,
           localeCountryCodes: _localeCountryCodes(),
@@ -37,6 +39,11 @@ class AuthController extends ChangeNotifier {
             countryLookupService ?? NativeDeviceCountryLookupService();
 
   final AuthRepository _repository;
+
+  /// Wipes this device's copy of the signed-out user's data. Runs *before*
+  /// the repository sign-out, because the caches it clears are keyed by the
+  /// still-signed-in uid -- see [SessionDataCleaner.clearSignedInUserData].
+  final Future<void> Function()? _onSignOutCleanup;
   final String defaultAbout;
   final AppPermissionService _permissionService;
   final DeviceLocationService _locationService;
@@ -519,6 +526,17 @@ class AuthController extends ChangeNotifier {
     _setBusy(true);
     _clearFeedback(notify: false);
     notifyListeners();
+
+    // Order matters: the uid-scoped caches have to go while the uid is
+    // still resolvable. After _repository.signOut() there is no current
+    // user, so the keys no longer resolve and the data would be stranded on
+    // disk for the next account to inherit.
+    try {
+      await _onSignOutCleanup?.call();
+    } catch (_) {
+      // Best-effort -- a cleanup failure must never leave the user stuck
+      // signed in. The sign-out below still proceeds.
+    }
 
     try {
       await _repository.signOut();

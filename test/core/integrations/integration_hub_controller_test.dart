@@ -5,7 +5,13 @@ import 'package:whatswave/core/integrations/backend_integration_bundle.dart';
 import 'package:whatswave/core/integrations/backend_repository_bundle.dart';
 import 'package:whatswave/core/integrations/integration_hub_controller.dart';
 
+import '../../support/firebase_core_mocks.dart';
+
 void main() {
+  // The firebase-first bundle constructs real Firebase-backed
+  // repositories, which resolve their Firebase singletons eagerly.
+  setUpAll(installFirebaseCoreMocks);
+
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUp(() {
@@ -111,8 +117,14 @@ void main() {
     );
   });
 
-  test('firebase-first scaffolding reports missing setup before live sync',
+  test('firebase-first push surfaces a failure when FCM is unreachable',
       () async {
+    // Firebase-first wires the real FirebaseMessagingPushRegistrationService,
+    // which has no platform to talk to in a test, so registration fails.
+    // That is the honest expectation here: this test used to assert an
+    // `actionRequired` scaffold state gated on the WW_*_READY flags, from
+    // back when push was simulated. What is still worth asserting is that
+    // the controller *surfaces* the failure instead of swallowing it.
     final config = BackendRuntimeConfig.fromValues(
       backendModeValue: 'firebase',
       environmentValue: 'staging',
@@ -139,12 +151,10 @@ void main() {
     );
 
     expect(controller.runtimeConfig.backendMode, BackendMode.firebaseFirst);
-    expect(controller.pushProviderName, 'Firebase push scaffold');
-    expect(controller.pushRegistration.state,
-        PushRegistrationState.actionRequired);
+    expect(controller.pushProviderName, 'Firebase Cloud Messaging');
+    expect(controller.pushRegistration.state, PushRegistrationState.failed);
     expect(controller.failedActivityCount, greaterThan(0));
-    expect(controller.recentActivity.first.title,
-        'Firebase push setup incomplete');
+    expect(controller.recentActivity.first.status, SyncActivityStatus.failed);
     expect(upload.state, MediaTransferState.failed);
   });
 
@@ -167,9 +177,15 @@ void main() {
     final bundle = const BackendIntegrationBundleFactory().create(
       runtimeConfig: config,
     );
+    // The push service is injected rather than taken from the bundle: the
+    // bundle's firebase-first choice is the real FCM client, which cannot
+    // register off-device (covered by the failure test above). What this
+    // test is actually about is the controller's success path -- that a
+    // registered token reaches `pushRegistration` and is surfaced only as a
+    // truncated preview.
     final controller = IntegrationHubController(
       runtimeConfig: config,
-      pushRegistrationService: bundle.pushRegistrationService,
+      pushRegistrationService: const _RegisteringPushService(),
       mediaTransferService: bundle.mediaTransferService,
       providerCatalog: bundle.providerCatalog,
     );
@@ -185,11 +201,9 @@ void main() {
       kind: MediaTransferKind.statusVideo,
     );
 
-    expect(controller.pushProviderName, 'Firebase push scaffold');
     expect(controller.mediaTransferProviderName, 'Firebase Storage scaffold');
     expect(controller.pushRegistration.state, PushRegistrationState.registered);
-    expect(
-        controller.pushRegistration.tokenPreview, startsWith('fcm_scaffold_'));
+    expect(controller.pushRegistration.tokenPreview, 'tok_abcdefgh');
     expect(upload.state, MediaTransferState.uploaded);
     expect(controller.runtimeConfig.firebaseProjectLabel, 'ww-dev');
   });
@@ -212,11 +226,11 @@ void main() {
     );
     expect(
       controller.repositoryReadiness.first.providerName,
-      'Firebase Auth scaffold',
+      'Firebase Phone Auth',
     );
     expect(
       controller.repositoryReadiness.first.status,
-      RepositoryAdapterStatus.localFallback,
+      RepositoryAdapterStatus.liveCloud,
     );
     expect(
       controller.repositoryReadiness[2].capabilities,
@@ -287,4 +301,33 @@ class _StubIntegrationProviderCatalog implements IntegrationProviderCatalog {
           summary: 'Future mixed-provider option.',
         ),
       ];
+}
+
+/// Stands in for a push backend that registers successfully, so the
+/// controller's success path is coverable without a real FCM platform.
+class _RegisteringPushService implements PushRegistrationService {
+  const _RegisteringPushService();
+
+  @override
+  DeliveryTarget get target => DeliveryTarget.firebaseReady;
+
+  @override
+  String get providerName => 'Test push backend';
+
+  @override
+  Future<PushRegistrationSyncResult> syncRegistration({
+    required PushRegistrationContext context,
+    required bool forceFailure,
+  }) async {
+    return PushRegistrationSyncResult(
+      registration: PushRegistration(
+        state: PushRegistrationState.registered,
+        tokenPreview: 'tok_abcdefgh',
+        lastSyncedAt: DateTime.now(),
+      ),
+      activityStatus: SyncActivityStatus.synced,
+      activityTitle: 'Push token registered',
+      activityDetails: 'Registered with the test push backend.',
+    );
+  }
 }

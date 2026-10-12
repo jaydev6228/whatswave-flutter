@@ -71,6 +71,11 @@ Future<ChatsController> _openThread(
     repository: repository,
     permissionService: MemoryAppPermissionService(),
   );
+  // The composer starts a periodic typing heartbeat on this controller, and
+  // a Timer.periodic is never cleared by pumping. The test owns the
+  // controller, so the test has to dispose it -- otherwise the timer
+  // outlives the widget tree and the binding fails the test for it.
+  addTearDown(controller.dispose);
 
   await tester.pumpWidget(
     MaterialApp(
@@ -164,6 +169,17 @@ void main() {
       await tester.pumpAndSettle(const Duration(seconds: 10));
       // The ring goes when the send does.
       expect(find.byType(MediaTransferRing), findsNothing);
+
+      // Tear the tree down here, inside the body, where its timers can
+      // still be pumped away. ConversationScreen.dispose() clears the
+      // caller's typing state, which is a fire-and-forget repository write
+      // -- and this repository has a 5s latency, so that write schedules a
+      // 5s timer *during disposal*. Left to the implicit teardown after the
+      // body, that timer has no one left to pump it and the binding fails
+      // the test with "A Timer is still pending even after the widget tree
+      // was disposed".
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump(const Duration(seconds: 6));
     },
   );
 

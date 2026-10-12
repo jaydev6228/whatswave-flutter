@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:whatswave/app/theme/app_theme.dart';
 import 'package:whatswave/core/models/status_story.dart';
 import 'package:whatswave/features/updates/presentation/media_status_composer_screen.dart';
+import 'package:whatswave/features/shared/widgets/liquid_glass.dart';
 import 'package:whatswave/features/updates/presentation/widgets/status_chrome.dart';
 import 'package:whatswave/features/updates/presentation/widgets/status_media_decoration_overlay.dart';
 import 'package:whatswave/features/shared/widgets/status_motion.dart';
@@ -1931,7 +1932,7 @@ void main() {
     await tester.tap(find.byKey(const Key('updates_media_add_emoji_button')));
     await tester.pumpAndSettle();
     expect(
-      find.byType(StatusChromeSheet),
+      find.byType(GlassBottomSheet),
       findsOneWidget,
       reason: 'the sheet is still a flat app panel',
     );

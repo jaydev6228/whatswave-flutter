@@ -442,6 +442,7 @@ class TrackedChatRepository implements ChatRepository {
     required String text,
     StoryReplyContext? storyReplyContext,
     MessageReplyPreview? replyPreview,
+    String? messageId,
   }) async {
     try {
       final threads = await _delegate.sendTextMessage(
@@ -449,6 +450,7 @@ class TrackedChatRepository implements ChatRepository {
         text: text,
         storyReplyContext: storyReplyContext,
         replyPreview: replyPreview,
+        messageId: messageId,
       );
       unawaited(
         _integrations.recordSyncSuccess(
@@ -567,6 +569,7 @@ class TrackedChatRepository implements ChatRepository {
     String? caption,
     MessageReplyPreview? replyPreview,
     MediaTransfer? transfer,
+    String? messageId,
   }) async {
     final combinedLabel = attachments.length == 1
         ? attachments.single.compactLabel
@@ -586,6 +589,8 @@ class TrackedChatRepository implements ChatRepository {
         attachments: attachments,
         caption: caption,
         replyPreview: replyPreview,
+        transfer: transfer,
+        messageId: messageId,
       );
     } on ChatRepositoryException catch (error) {
       unawaited(

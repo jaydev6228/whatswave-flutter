@@ -1,5 +1,8 @@
-# Uncomment this line to define a global platform for your project
-# platform :ios, '13.0'
+# Must match Runner's own IPHONEOS_DEPLOYMENT_TARGET (15.0). Left
+# commented out, every pod falls back to its own podspec minimum and Xcode
+# 27 refuses the build outright: "deployment target 13.0, but the range of
+# supported versions is 15.0 to 27.1.x".
+platform :ios, '15.0'
 
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
@@ -47,6 +50,11 @@ post_install do |installer|
     # camera, microphone, and contacts (see app_permission_service.dart),
     # so all four need a macro.
     target.build_configurations.each do |config|
+      # Deliberately after flutter_additional_ios_build_settings, which
+      # resets every pod to Flutter's own minimum (13.0). Xcode 27 rejects
+      # anything below 15.0, so this has to be the last word.
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
+
       config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] ||= ['$(inherited)']
       config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] << 'PERMISSION_LOCATION=1'
       config.build_settings['GCC_PREPROCESSOR_DEFINITIONS'] << 'PERMISSION_CAMERA=1'

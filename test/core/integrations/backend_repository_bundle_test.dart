@@ -9,7 +9,13 @@ import 'package:whatswave/features/chats/data/fake_chat_repository.dart';
 import 'package:whatswave/features/communities/data/fake_communities_repository.dart';
 import 'package:whatswave/features/updates/data/fake_updates_repository.dart';
 
+import '../../support/firebase_core_mocks.dart';
+
 void main() {
+  // The firebase-first bundle constructs real Firebase-backed
+  // repositories, which resolve their Firebase singletons eagerly.
+  setUpAll(installFirebaseCoreMocks);
+
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUp(() {
@@ -48,7 +54,7 @@ void main() {
     expect(user?.name, DemoData.currentUser.name);
   });
 
-  test('describes firebase-first repositories as local fallback scaffolds', () {
+  test('describes firebase-first repositories as live cloud adapters', () {
     final config = BackendRuntimeConfig.fromValues(
       backendModeValue: 'firebase',
       environmentValue: 'development',
@@ -62,22 +68,34 @@ void main() {
 
     expect(bundle.repositoryCatalog.adapters, hasLength(5));
     expect(
-      bundle.repositoryCatalog.adapters.first.providerName,
-      'Firebase Auth scaffold',
+      bundle.repositoryCatalog.adapters.map((a) => a.providerName),
+      <String>[
+        'Firebase Phone Auth',
+        'Firestore chats',
+        'Firestore updates (media stays local)',
+        'Firestore communities (contacts stay local)',
+        'LiveKit + Firestore signaling',
+      ],
     );
+    // Every firebase-first area is genuinely backed by a cloud service now
+    // -- this test previously asserted the opposite, from back when they
+    // were all local scaffolds, and the assertion was only passing
+    // vacuously because constructing the bundle threw before reaching it.
     expect(
-      bundle.repositoryCatalog.adapters.first.status,
-      RepositoryAdapterStatus.localFallback,
+      bundle.repositoryCatalog.adapters
+          .map((a) => a.status)
+          .toSet(),
+      <RepositoryAdapterStatus>{RepositoryAdapterStatus.liveCloud},
     );
-    expect(
-      bundle.repositoryCatalog.adapters[1].nextSteps,
-      contains(
-        'Enable Firestore collections, indexes, and security rules for messages and threads.',
-      ),
-    );
+    // The runtime config still has to surface on the adapters, which is the
+    // part of this test that was actually worth keeping.
     expect(
       bundle.repositoryCatalog.adapters[2].capabilities,
       contains('Firebase emulators'),
+    );
+    expect(
+      bundle.repositoryCatalog.adapters.first.capabilities,
+      contains('Project: ww-dev'),
     );
   });
 

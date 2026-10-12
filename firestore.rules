@@ -149,17 +149,40 @@ service cloud.firestore {
         // Star/unstar -- a participant may only add or remove their own
         // uid in starredBy; everyone else's starred state is untouched.
         // See FirestoreChatRepository.toggleMessageStar.
+        //
+        // Each branch constrains BOTH directions of the set change, which
+        // the hiddenFor rule above does too. Checking only one direction is
+        // not a near-miss, it is wide open: `hasOnly` on an empty set is
+        // vacuously true, so with no existing starredBy the unstar branch
+        // alone accepted *any* array -- including one naming somebody else.
+        // That mattered well beyond a wrong star, because the
+        // collection-group rule below grants read to every uid in
+        // starredBy: a participant could hand a non-participant read access
+        // to a single message by "starring" it for them.
+        //
+        // star:   new is old (optionally plus me), and never drops anyone
+        // unstar: old is new (optionally plus me), and never gains anyone
         allow update: if request.auth != null
                        && request.auth.uid in
                           get(/databases/$(database)/documents/chatThreads/$(threadId)).data.participantUids
                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['starredBy'])
                        && (
-                            request.resource.data.starredBy.hasOnly(
-                              resource.data.get('starredBy', []).concat([request.auth.uid])
+                            (
+                              request.resource.data.starredBy.hasOnly(
+                                resource.data.get('starredBy', []).concat([request.auth.uid])
+                              )
+                              && request.resource.data.starredBy.hasAll(
+                                   resource.data.get('starredBy', [])
+                                 )
                             )
-                            || resource.data.get('starredBy', []).hasOnly(
-                                 request.resource.data.starredBy.concat([request.auth.uid])
-                               )
+                            || (
+                              resource.data.get('starredBy', []).hasOnly(
+                                request.resource.data.starredBy.concat([request.auth.uid])
+                              )
+                              && resource.data.get('starredBy', []).hasAll(
+                                   request.resource.data.starredBy
+                                 )
+                            )
                           );
         allow delete: if false;
       }
@@ -417,6 +440,76 @@ service cloud.firestore {
       // whoever created it. Only the owner can write their own profile.
       allow read: if request.auth != null;
       allow write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // ---- End-to-end encryption key distribution -------------------------
+    //
+    // Everything in these two collections is PUBLIC key material. Private
+    // keys live only in the device keystore and never reach Firestore, so
+    // a wide read permission here is the design, not a concession: a public
+    // key that nobody can fetch cannot start a conversation.
+
+    match /signalIdentities/{ownerUid} {
+      // Anyone signed in may read: you need a stranger's identity key and
+      // signed pre-key before you can message them for the first time.
+      allow read: if request.auth != null;
+      // Only you may publish yours. This is the whole integrity story for
+      // identity -- if another user could overwrite your identity key they
+      // could impersonate you to anyone who has not yet verified your
+      // safety number.
+      allow write: if request.auth != null && request.auth.uid == ownerUid;
+    }
+
+    match /signalPreKeys/{ownerUid}/keys/{preKeyId} {
+      // Owner publishes their own one-time pre-keys.
+      allow create, update: if request.auth != null
+                             && request.auth.uid == ownerUid;
+      // Any signed-in user may read AND delete one. The delete looks alarming
+      // and is correct: consuming a one-time pre-key means removing it, and
+      // the consumer is by definition someone else. Reusing one weakens the
+      // forward secrecy of the session it starts, so deletion is part of the
+      // protocol rather than cleanup.
+      //
+      // The worst a malicious client can do is drain somebody's pool, after
+      // which new sessions with them fall back to the signed pre-key only --
+      // degraded, not broken, and self-healing when the owner next tops up.
+      // Preventing that would need server-side rate limiting, which is
+      // already on the "still blocked for public release" list.
+      allow read, delete: if request.auth != null;
+    }
+
+    match /signalKeyDeliveries/{recipientUid}/inbox/{deliveryId} {
+      // A member's group sending key, wrapped in the pairwise session with
+      // the recipient -- so the payload is already unreadable to anyone
+      // else, including whoever can read this document.
+      //
+      // Per-recipient rather than per-thread deliberately: a member removed
+      // from a group must stop receiving rotations, and keying the mailbox
+      // by recipient gets that without consulting the thread at all.
+      allow create: if request.auth != null
+                     && request.resource.data.senderUid == request.auth.uid
+                     && request.resource.data.keys().hasOnly(
+                          ['senderUid', 'threadId', 'type', 'payload',
+                           'createdAt']);
+      // Only the recipient reads, and deletes once processed -- consuming a
+      // distribution message twice would roll a chain backwards.
+      allow read, delete: if request.auth != null
+                           && request.auth.uid == recipientUid;
+      // Never editable: a delivery is write-once.
+      allow update: if false;
+    }
+
+    match /signalBackups/{ownerUid} {
+      // The passphrase-encrypted identity key. Owner-only, same shape as
+      // pushTokens below.
+      //
+      // Note what this rule cannot do: the blob's secrecy rests entirely on
+      // the passphrase, because anyone who can read it gets unlimited
+      // offline guesses and there is no server here to rate-limit them.
+      // That is why the KDF cost (Argon2id, 64 MiB, t=3) is the real
+      // control, and why the KDF parameters are authenticated inside the
+      // blob rather than merely stored beside it.
+      allow read, write: if request.auth != null && request.auth.uid == ownerUid;
     }
 
     match /pushTokens/{ownerUid} {

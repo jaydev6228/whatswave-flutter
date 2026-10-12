@@ -384,14 +384,8 @@ class _ChatsScreenState extends State<ChatsScreen> {
     return showErrorDialog(context, message, title: 'Unavailable');
   }
 
-  bool _resolveTypingIndicatorAnimation() {
-    if (widget.animateTypingIndicators != null) {
-      return widget.animateTypingIndicators!;
-    }
-    return !WidgetsBinding.instance.runtimeType
-        .toString()
-        .contains('TestWidgetsFlutterBinding');
-  }
+  bool _resolveTypingIndicatorAnimation() =>
+      shouldAnimateTypingDots(override: widget.animateTypingIndicators);
 
   String _emptyStateTitle(ChatsController controller) {
     if (controller.searchQuery.trim().isNotEmpty) {

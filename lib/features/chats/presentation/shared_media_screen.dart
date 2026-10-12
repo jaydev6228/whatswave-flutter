@@ -89,6 +89,9 @@ class SharedMediaThumbnail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // The grid renders through ChatMediaThumbnail, which resolves an
+    // encrypted path itself; this local read only drives the video badge,
+    // where the raw URL is the right thing to test for existence.
     final localPath = attachment.localMediaPath;
     final hasResolvableVideo = attachment.type == ChatAttachmentType.video &&
         localPath != null &&

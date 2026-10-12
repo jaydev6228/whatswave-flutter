@@ -328,6 +328,15 @@ void main() {
 
     // The location bubble renders a lazy map snippet (placeholder or real map).
     expect(find.byType(LazyLocationMapSnippet), findsOneWidget);
+
+    // Unmount inside the body so the tree's dispose-time work can still be
+    // pumped. This test typed into the composer, so ConversationScreen's
+    // dispose() clears the typing state -- a fire-and-forget repository
+    // write, and this repository has a 120ms latency, so disposal schedules
+    // a timer. Left to the implicit teardown there is nobody left to pump
+    // it, and the binding fails the test for a timer outliving the tree.
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(milliseconds: 300));
   });
 
   testWidgets(
@@ -2022,6 +2031,55 @@ void main() {
   });
 
   testWidgets(
+      'sending the same text twice does not make the first bubble flicker',
+      (tester) async {
+    // The optimistic bubble used to be matched to its stored counterpart by
+    // guesswork -- same sender, same text, within two minutes -- because
+    // the two had different ids. Send "Hi" twice inside that window and the
+    // matcher decided the EARLIER "Hi" was the echo of the one in flight
+    // and hid it, so the first bubble vanished and came back. The UI now
+    // supplies the id, so the match is by identity and cannot do that.
+    await _pumpChatsScreen(
+      tester,
+      device: iphoneProProfile,
+      controller: ChatsController(
+        repository: FakeChatRepository(latency: Duration.zero),
+        permissionService: MemoryAppPermissionService(),
+      ),
+    );
+
+    await tester.tap(find.byKey(const Key('chat_tile_ava-patel')));
+    await tester.pumpAndSettle();
+
+    for (var i = 0; i < 2; i++) {
+      await tester.enterText(
+        find.byKey(const Key('conversation_composer_field')),
+        'Hi',
+      );
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('conversation_send_button')));
+      await tester.pumpAndSettle();
+    }
+
+    expect(
+      find.text('Hi'),
+      findsNWidgets(2),
+      reason: 'both identical messages must stay on screen',
+    );
+
+    // And a third, to be sure nothing collapses as the window fills.
+    await tester.enterText(
+      find.byKey(const Key('conversation_composer_field')),
+      'Hi',
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('conversation_send_button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Hi'), findsNWidgets(3));
+  });
+
+  testWidgets(
       'shows a failed outgoing message state and retries it successfully',
       (tester) async {
     await _pumpChatsScreen(
@@ -2340,6 +2398,7 @@ class _FailingChatRepository implements ChatRepository {
     String? caption,
     MessageReplyPreview? replyPreview,
     MediaTransfer? transfer,
+    String? messageId,
   }) {
     throw UnimplementedError();
   }
@@ -2359,6 +2418,7 @@ class _FailingChatRepository implements ChatRepository {
     required String text,
     StoryReplyContext? storyReplyContext,
     MessageReplyPreview? replyPreview,
+    String? messageId,
   }) {
     throw UnimplementedError();
   }
@@ -2564,12 +2624,14 @@ class _FlakySendChatRepository implements ChatRepository {
     String? caption,
     MessageReplyPreview? replyPreview,
     MediaTransfer? transfer,
+    String? messageId,
   }) =>
       _delegate.sendAttachmentMessage(
         threadId: threadId,
         attachments: attachments,
         caption: caption,
         replyPreview: replyPreview,
+        messageId: messageId,
       );
 
   @override
@@ -2601,6 +2663,7 @@ class _FlakySendChatRepository implements ChatRepository {
     required String text,
     StoryReplyContext? storyReplyContext,
     MessageReplyPreview? replyPreview,
+    String? messageId,
   }) {
     if (_shouldFailNextTextSend) {
       _shouldFailNextTextSend = false;
