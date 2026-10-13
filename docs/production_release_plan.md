@@ -28,22 +28,78 @@ You own WhatsWave's code, so you could add an App Store exception to your own
 `LICENSE` at will. You cannot grant an exception for code you do not own, and
 the GPL obligation here flows from MixinNetwork's package.
 
-Options, cheapest first:
+#### Permissive alternatives — surveyed 2026-10-13
 
-| | Approach | Cost | Risk |
+There is **no permissively licensed pure-Dart ratchet implementation.** Every
+Dart package implementing X3DH/Double Ratchet is GPL or AGPL. Verified by
+reading each `LICENSE` file, because two of them are advertised misleadingly:
+
+| Package | Actual licence | Usable on the App Store? |
+|---|---|---|
+| `libsignal_protocol_dart` 0.8.2 (current) | GPL-3.0, no exception | No |
+| `libsignal` 8.0.0 (djx-y-z wrapper) | AGPL-3.0 | **No — see note** |
+| `vodozemac` 0.8.0 (famedly Dart bindings) | **AGPL-3.0** | No |
+| `olm` 3.1.0 (famedly Dart bindings) | Apache-2.0 | Licence fine, library dead |
+| `cryptography` 2.9.0 (dint) | Apache-2.0 | Yes — primitives only, no ratchet |
+
+Three traps in that table:
+
+- **`libsignal` advertises "AGPL-3.0 with an app store exception."** Its own
+  README then says the exception *"covers only the code in this repository; it
+  does not extend to Signal's `libsignal` contained in the precompiled
+  binaries."* Upstream `signalapp/libsignal` is plain AGPL-3.0 with no such
+  grant — I checked, it is tracked as an open issue. So this package is
+  strictly worse than what we have: same blocker, plus AGPL network copyleft.
+- **famedly's `vodozemac` Dart bindings are AGPL-3.0** even though upstream
+  `matrix-org/vodozemac` is Apache-2.0. The badge on pub.dev lists the
+  dependency licences alongside its own, which is easy to misread.
+- **`olm`'s bindings genuinely are Apache-2.0**, but `matrix-org/olm` is
+  **archived** — Matrix deprecated libolm in favour of vodozemac. And
+  `flutter_olm`, which you need to build the native library for mobile, is
+  AGPL-3.0. Dead end.
+
+#### The two that actually work
+
+Both are Rust, so both need a Dart binding via `flutter_rust_bridge`. That is
+the point in your favour: **you write the binding, so you own it and license
+it however you like.** The copyleft question disappears because neither
+upstream is copyleft.
+
+| | Library | Licence | Maps onto your design |
 |---|---|---|---|
-| **a** | Email MixinNetwork and ask for an App Store exception or an alternative licence | one email | they may decline |
-| **b** | Replace with MLS (RFC 9420) via `openmls` (Rust, MIT) through `flutter_rust_bridge` | 3–5 weeks | adds a native build surface |
-| **c** | Ship Android-only on Play under GPL-3.0 | zero | no iOS |
+| **A** | [`matrix-org/vodozemac`](https://github.com/matrix-org/vodozemac) | Apache-2.0, active | Olm = Double Ratchet, Megolm = group ratchet. Near 1:1 with the pairwise sessions + sender keys you already built |
+| **B** | [`openmls/openmls`](https://github.com/openmls/openmls) | **MIT**, active, 1k stars | MLS (RFC 9420). Groups scale O(log n) instead of your current O(n²) client fanout |
 
-**Do (a) this week** — it is one email and it unblocks everything. If they
-decline, (b) is the real answer, and MLS is a better fit than sender keys for
-groups anyway. Play Store is not affected: GPL apps distribute there routinely
-and Play adds no DRM to free apps.
+**A is the smaller change.** Your `WhatsWaveSignalStore`,
+`SenderKeyDistributor`, and envelope format all survive — Olm sessions replace
+`SessionCipher`, Megolm sessions replace sender keys, and the store interface
+is the same shape. Estimate 3–4 weeks.
 
-**Do not reimplement the Double Ratchet from that package's source.** You (and
-I) have read it; a reimplementation is a derivative work and the licence
-question gets worse, not better.
+**B is better long term** and is the MIT option if that matters to you. MLS
+fixes the quadratic group fanout flagged in Part 3 for free. But MLS assumes a
+Delivery Service that orders and fans out commits, which this app does not
+have — it would land after B7. Estimate 6–8 weeks, and it is the right answer
+if you are building the server tier anyway.
+
+#### One upside worth noting
+
+The GPL-3.0 relicence of WhatsWave was forced *only* by this dependency. Drop
+it and you own every line again — `LICENSE.proprietary.bak` is still in the
+repo, so you can go back to proprietary, or MIT, or keep GPL by choice rather
+than obligation.
+
+#### Order of operations
+
+1. **Email MixinNetwork this week.** A GPL copyright holder can grant an
+   App Store exception; Signal added exactly this kind of §7 permission for
+   their own apps. Costs one email and may end the problem outright.
+2. If they decline, take **A (vodozemac)** unless you have already committed
+   to building the server tier, in which case take **B (openmls)**.
+
+**Do not reimplement the Double Ratchet from `libsignal_protocol_dart`'s
+source.** You and I have both read it; a reimplementation is a derivative work
+and the licence question gets worse, not better. Starting from vodozemac or
+openmls has no such taint.
 
 ### B2. Release builds are signed with debug keys
 
