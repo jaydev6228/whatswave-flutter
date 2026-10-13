@@ -38,6 +38,57 @@ const androidMediumProfile = TestDeviceProfile(
   size: Size(412, 915),
 );
 
+/// 320pt wide is the narrowest viewport Flutter ships to on either store --
+/// iPhone SE (1st gen) and the low-end Android phones that still make up a
+/// large share of installs outside the US. It is where overflow shows up
+/// first, and nothing in the suite rendered it before.
+const smallestPhoneProfile = TestDeviceProfile(
+  name: 'Smallest phone (320pt)',
+  size: Size(320, 568),
+);
+
+const tabletProfile = TestDeviceProfile(
+  name: 'Tablet',
+  size: Size(768, 1024),
+);
+
+/// A text scale and brightness pairing. These are the two axes that break
+/// layouts without changing the viewport, so a size-only matrix misses them.
+/// 2.0 is Android's ceiling for the font-size slider; iOS AX5 goes higher
+/// still, but 2.0 catches all but the most fragile rows.
+class UiVariant {
+  const UiVariant({
+    required this.name,
+    this.textScale = 1.0,
+    this.brightness = Brightness.light,
+  });
+
+  final String name;
+  final double textScale;
+  final Brightness brightness;
+
+  @override
+  String toString() => name;
+}
+
+const defaultVariant = UiVariant(name: 'default');
+const largeTextVariant = UiVariant(name: 'text scale 2.0', textScale: 2.0);
+const darkVariant = UiVariant(name: 'dark', brightness: Brightness.dark);
+
+/// What every screen must survive. Two extremes of width crossed with the
+/// variants that break layouts in place -- four cases per screen, which stays
+/// fast enough to run on every push.
+const layoutMatrix = <TestDeviceProfile>[
+  smallestPhoneProfile,
+  tabletProfile,
+];
+
+const layoutVariants = <UiVariant>[
+  defaultVariant,
+  largeTextVariant,
+  darkVariant,
+];
+
 const deviceMatrix = <TestDeviceProfile>[
   iphoneSeProfile,
   iphoneProProfile,
