@@ -51,3 +51,33 @@ export function deadTokenOwners(responses, owners) {
   });
   return dead;
 }
+
+/// An incoming call, as a notification.
+///
+/// Calls reach the callee through a Firestore snapshot listener, which the OS
+/// suspends the moment the app is backgrounded -- so without a push the call
+/// never arrives at all and the caller just waits. This is the push.
+export function buildCallNotification({ callerName, type }) {
+  const caller = (callerName || '').trim() || 'Someone';
+  const isVideo = type === 'video';
+  return {
+    title: caller,
+    body: isVideo ? 'Incoming video call' : 'Incoming voice call',
+  };
+}
+
+/// Whether a freshly created call document should ring anyone.
+///
+/// A call is written once per invitee, so group calls arrive here as several
+/// documents. Only a ringing call with a callee is worth waking a device for;
+/// anything already accepted, declined or ended is history being written, not
+/// an invitation.
+export function shouldRingFor(call) {
+  if (!call) return false;
+  if (call.status !== 'ringing') return false;
+  if (typeof call.calleeUid !== 'string' || call.calleeUid.length === 0) {
+    return false;
+  }
+  // Never ring the person who placed it.
+  return call.calleeUid !== call.callerUid;
+}

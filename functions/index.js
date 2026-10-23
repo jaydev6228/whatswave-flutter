@@ -5,7 +5,13 @@ import { onDocumentCreated } from 'firebase-functions/v2/firestore';
 import { setGlobalOptions } from 'firebase-functions/v2';
 import { logger } from 'firebase-functions';
 
-import { buildNotification, recipientsFor, deadTokenOwners } from './notify.js';
+import {
+  buildNotification,
+  buildCallNotification,
+  recipientsFor,
+  deadTokenOwners,
+  shouldRingFor,
+} from './notify.js';
 
 initializeApp();
 
@@ -191,4 +197,56 @@ export const deleteAccount = onCall(async (request) => {
 
   logger.info('account deleted', { uid });
   return { deleted: true };
+});
+
+export const notifyOnCall = onDocumentCreated('calls/{callId}', async (event) => {
+  const call = event.data?.data();
+  if (!shouldRingFor(call)) return;
+
+  const tokenSnap = await db.doc(`pushTokens/${call.calleeUid}`).get();
+  const token = tokenSnap.data()?.token;
+  if (typeof token !== 'string' || token.length === 0) return;
+
+  const { title, body } = buildCallNotification({
+    callerName: call.callerName,
+    type: call.type,
+  });
+
+  try {
+    await getMessaging().send({
+      token,
+      notification: { title, body },
+      data: {
+        type: 'call',
+        callId: event.params.callId,
+        roomName: String(call.roomName ?? ''),
+        callType: String(call.type ?? 'audio'),
+      },
+      android: {
+        // A ringing call is the one case that justifies waking a sleeping
+        // device: it is useless thirty seconds later.
+        priority: 'high',
+        ttl: 45_000,
+        notification: {
+          channelId: 'calls',
+          priority: 'max',
+          sound: 'default',
+          // Replaces rather than stacks if the caller retries.
+          tag: `call-${call.roomName ?? event.params.callId}`,
+        },
+      },
+      apns: {
+        headers: { 'apns-priority': '10', 'apns-expiration': '0' },
+        payload: { aps: { sound: 'default', 'interruption-level': 'time-sensitive' } },
+      },
+    });
+  } catch (error) {
+    if (error.code === 'messaging/registration-token-not-registered') {
+      await db.doc(`pushTokens/${call.calleeUid}`).delete();
+    }
+    logger.warn('call push failed', {
+      callId: event.params.callId,
+      code: error.code,
+    });
+  }
 });

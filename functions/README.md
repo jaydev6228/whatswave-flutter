@@ -65,9 +65,10 @@ failing silently, which is the one mercy here.
 
 ## Not done
 
-- **Call notifications.** A call still does not ring an unopened app. Doing it
-  properly on iOS needs PushKit and CallKit, which is a separate project from
-  this one.
+- **Full iOS call handling.** `notifyOnCall` now rings an unopened app, but on
+  iOS it arrives as an ordinary notification rather than a system call screen.
+  A real incoming-call UI there needs PushKit and CallKit, which also needs a
+  paid Apple developer account -- a separate project.
 - **Account deletion.** It needs the Admin SDK to cascade across `users`,
   `signalIdentities`, `signalPreKeys`, `signalBackups`, `signalKeyDeliveries`,
   `pushTokens`, Storage objects and every thread's `participantUids`. This

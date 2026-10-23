@@ -26,8 +26,21 @@ class MainActivity : FlutterFragmentActivity() {
                 NotificationManager.IMPORTANCE_HIGH,
             )
             channel.description = "New message notifications"
-            getSystemService(NotificationManager::class.java)
-                ?.createNotificationChannel(channel)
+
+            // A ringing call is useless thirty seconds late, so it gets its
+            // own channel the user can keep loud while muting chat.
+            val calls = NotificationChannel(
+                "calls",
+                "Calls",
+                NotificationManager.IMPORTANCE_HIGH,
+            )
+            calls.description = "Incoming voice and video calls"
+            calls.setBypassDnd(true)
+
+            getSystemService(NotificationManager::class.java)?.apply {
+                createNotificationChannel(channel)
+                createNotificationChannel(calls)
+            }
         }
     }
 
