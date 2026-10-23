@@ -286,21 +286,33 @@ class ChatsController extends ChangeNotifier {
       return;
     }
 
-    _isLoading = true;
     _errorMessage = null;
-    notifyListeners();
 
+    // Read the cache BEFORE announcing the load. The old order set
+    // _isLoading and notified first, so a cold start painted a spinner,
+    // then the cached chats, then the network list -- three visual states
+    // in under a second, which is the jerk on every launch. Painting the
+    // cache first means a returning user never sees a spinner at all.
+    var paintedFromCache = false;
     if (!_hasLoaded) {
       try {
         final cachedThreads = await _inboxCache.load();
         if (cachedThreads != null && cachedThreads.isNotEmpty) {
           _threads = cachedThreads;
-          notifyListeners();
+          paintedFromCache = true;
         }
       } catch (_) {
-        // Best-effort -- network fetch below remains the source of truth.
+        // Best-effort -- the network fetch below remains the source of truth.
       }
     }
+
+    _isLoading = true;
+    // A spinner over content the user can already read is worse than no
+    // spinner. The screen only shows one when there was nothing to paint.
+    if (paintedFromCache) {
+      _hasLoaded = true;
+    }
+    notifyListeners();
 
     try {
       _threads = _mergeIncomingThreads(await _repository.fetchThreads());

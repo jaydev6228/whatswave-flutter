@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:whatswave/features/shared/widgets/avatar_badge.dart';
 
@@ -59,12 +60,14 @@ void main() {
       );
       await tester.pump();
 
-      final image = tester.widget<Image>(find.byType(Image));
-      expect(image.image, isA<NetworkImage>());
-      expect(
-        (image.image as NetworkImage).url,
-        'https://firebasestorage.example/avatar.jpg',
-      );
+      // CachedNetworkImage, not Image(NetworkImage(..)). NetworkImage
+      // caches only in Flutter's in-memory ImageCache, which is empty again
+      // on every cold start -- every avatar in the chat list was
+      // re-downloaded from Firebase Storage each launch. Asserting this is
+      // asserting that avatars survive a restart.
+      final cached =
+          tester.widget<CachedNetworkImage>(find.byType(CachedNetworkImage));
+      expect(cached.imageUrl, 'https://firebasestorage.example/avatar.jpg');
     }, createHttpClient: (context) => _ThrowingHttpClient());
   });
 

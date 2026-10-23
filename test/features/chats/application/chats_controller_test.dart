@@ -14,6 +14,7 @@ import 'package:whatswave/features/chats/data/chat_repository.dart';
 import 'package:whatswave/features/chats/data/fake_chat_repository.dart';
 import 'package:whatswave/features/chats/domain/chat_attachment.dart';
 import 'package:whatswave/features/chats/domain/chat_message.dart';
+import 'package:whatswave/features/chats/data/chat_inbox_cache.dart';
 import 'package:whatswave/features/chats/domain/chat_thread.dart';
 import 'package:whatswave/features/chats/domain/message_reply_preview.dart';
 import 'package:whatswave/features/chats/domain/story_reply_context.dart';
@@ -874,6 +875,42 @@ void main() {
       expect(repository.typingFalseCount, 1);
     });
   });
+
+  test(
+      'a returning user never sees a spinner -- the cache paints before the '
+      'load is announced', () async {
+    // The jerk on every launch: loadThreads used to set _isLoading and
+    // notify BEFORE reading the cache, so a cold start rendered a spinner,
+    // then the cached chats, then the network list. Three visual states in
+    // under a second. Painting the cache first removes the first two.
+    final cached = <ChatThread>[
+      _threadWithMessages('cached-1', 1),
+    ];
+    final cache = _StubInboxCache(cached);
+    final repository = FakeChatRepository();
+    final controller = ChatsController(
+      repository: repository,
+      inboxCache: cache,
+    );
+    addTearDown(controller.dispose);
+
+    final sawSpinnerState = <bool>[];
+    controller.addListener(() {
+      // What the screen checks to decide whether to render the spinner.
+      sawSpinnerState.add(controller.isLoading && !controller.hasLoaded);
+    });
+
+    await controller.loadThreads();
+
+    expect(
+      sawSpinnerState.any((showsSpinner) => showsSpinner),
+      isFalse,
+      reason: 'with cached threads to paint, no notification should ever '
+          'leave the screen in its spinner state',
+    );
+    expect(controller.threads, isNotEmpty);
+
+  });
 }
 
 /// Fake repo that counts typing publishes for controller regression tests.
@@ -1663,4 +1700,22 @@ class _SendFailingChatRepository implements ChatRepository {
   @override
   Future<List<ChatThread>> deleteGroupAvatar(String threadId) =>
       _delegate.deleteGroupAvatar(threadId);
+}
+
+/// Returns a fixed cache payload without touching SharedPreferences or the
+/// device keystore. Both methods are overridden so the real CryptoBox is
+/// never exercised.
+class _StubInboxCache extends ChatInboxCache {
+  _StubInboxCache(this._cached);
+
+  final List<ChatThread>? _cached;
+  int saves = 0;
+
+  @override
+  Future<List<ChatThread>?> load() async => _cached;
+
+  @override
+  Future<void> save(List<ChatThread> threads) async {
+    saves++;
+  }
 }

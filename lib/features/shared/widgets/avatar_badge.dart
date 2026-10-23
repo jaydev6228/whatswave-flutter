@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:cached_network_image/cached_network_image.dart';
+
 import 'package:flutter/material.dart';
 
 class AvatarBadge extends StatelessWidget {
@@ -55,12 +57,32 @@ class AvatarBadge extends StatelessWidget {
     // picked file's own local path instead -- resolve either correctly
     // rather than assuming every avatarUrl is a real network URL.
     final isRemote = url.startsWith('http://') || url.startsWith('https://');
-    final imageProvider =
-        isRemote ? NetworkImage(url) : FileImage(File(url)) as ImageProvider;
+
+    if (isRemote) {
+      // CachedNetworkImage rather than Image(NetworkImage(..)): NetworkImage
+      // caches only in Flutter's in-memory ImageCache, which is empty again
+      // on every cold start, so every avatar in the chat list was
+      // re-downloaded from Firebase Storage each time the app opened.
+      //
+      // The widget rather than CachedNetworkImageProvider, because the
+      // provider does not surface a failed fetch through Image.errorBuilder
+      // -- the image simply never arrives and the avatar stays blank
+      // forever. errorWidget here is what keeps the initials fallback.
+      return ClipOval(
+        child: CachedNetworkImage(
+          imageUrl: url,
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
+          placeholder: (_, __) => initialsBadge,
+          errorWidget: (_, __, ___) => initialsBadge,
+        ),
+      );
+    }
 
     return ClipOval(
       child: Image(
-        image: imageProvider,
+        image: FileImage(File(url)),
         width: size,
         height: size,
         fit: BoxFit.cover,
