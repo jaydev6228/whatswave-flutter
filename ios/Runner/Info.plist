@@ -37,6 +37,15 @@
 	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<!-- WhatsWave implements the Signal Protocol and AES-256 itself, so it
+	     does not qualify for the exemptions that cover apps using only HTTPS
+	     or Apple-provided cryptography. Declaring this here stops every
+	     upload stalling on App Store Connect's export questionnaire.
+
+	     Declaring true does not by itself satisfy US export law -- see
+	     docs/export_compliance.md for what else is owed. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>Whatswave uses the camera for video calls and profile media capture.</string>
 	<key>NSContactsUsageDescription</key>
