@@ -7,6 +7,7 @@ import '../../../app/theme/app_palette.dart';
 import '../../../core/permissions/location_permission_dialog.dart';
 import '../../shared/widgets/error_dialog.dart';
 import '../../shared/widgets/liquid_glass.dart';
+import '../../../core/controllers/app_preferences_scope.dart';
 import '../application/calls_controller.dart';
 import '../domain/call_contact.dart';
 import '../domain/call_session.dart';
@@ -630,6 +631,16 @@ class _LocalVideoPreviewCard extends StatelessWidget {
                             child: lk.VideoTrackRenderer(
                               localVideoTrack!,
                               fit: lk.VideoViewFit.cover,
+                              // Your own preview only. The far side always
+                              // receives the true image -- mirroring what we
+                              // transmit would print any text in frame
+                              // backwards, which is why no video app does it.
+                              mirrorMode:
+                                  (AppPreferencesScope.maybeOf(context)
+                                              ?.mirrorSelfView ??
+                                          true)
+                                      ? lk.VideoViewMirrorMode.mirror
+                                      : lk.VideoViewMirrorMode.off,
                             ),
                           )
                         : session.isLocalVideoEnabled

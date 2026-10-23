@@ -29,6 +29,7 @@ class AppPreferencesController extends ChangeNotifier {
       'app_preferences_security_notifications_v1';
   static const _mediaAutoDownloadEnabledKey =
       'app_preferences_media_auto_download_enabled_v1';
+  static const _mirrorSelfViewKey = 'app_preferences_mirror_self_view_v1';
 
   final DateTime Function() _nowProvider;
   SharedPreferences? _preferences;
@@ -44,6 +45,7 @@ class AppPreferencesController extends ChangeNotifier {
   PrivacyAudience _groupsAudience = PrivacyAudience.contacts;
   bool _securityNotificationsEnabled = true;
   bool _mediaAutoDownloadEnabled = true;
+  bool _mirrorSelfView = true;
   bool _hasLoaded = false;
   bool _isLoading = false;
   bool _isAppLocked = false;
@@ -62,6 +64,16 @@ class AppPreferencesController extends ChangeNotifier {
   PrivacyAudience get groupsAudience => _groupsAudience;
   bool get securityNotificationsEnabled => _securityNotificationsEnabled;
   bool get mediaAutoDownloadEnabled => _mediaAutoDownloadEnabled;
+
+  /// Whether your own video preview is flipped like a mirror.
+  ///
+  /// On by default, which is what every video app does and what feels
+  /// natural -- you are used to seeing yourself mirrored. It changes only
+  /// your preview: the person you are calling always receives the true,
+  /// unmirrored image, because mirroring what you transmit would show any
+  /// text in frame backwards. Zoom's "Mirror my video" is the same setting
+  /// with the same scope.
+  bool get mirrorSelfView => _mirrorSelfView;
   bool get hasLoaded => _hasLoaded;
   bool get isLoading => _isLoading;
   bool get isAppLocked => _isAppLocked;
@@ -116,6 +128,7 @@ class AppPreferencesController extends ChangeNotifier {
           preferences.getBool(_securityNotificationsKey) ?? true;
       _mediaAutoDownloadEnabled =
           preferences.getBool(_mediaAutoDownloadEnabledKey) ?? true;
+      _mirrorSelfView = preferences.getBool(_mirrorSelfViewKey) ?? true;
       _hasLoaded = true;
     } finally {
       _isLoading = false;
@@ -236,6 +249,16 @@ class AppPreferencesController extends ChangeNotifier {
     }
 
     _mediaAutoDownloadEnabled = value;
+    notifyListeners();
+    _queuePersistence();
+  }
+
+  void setMirrorSelfView(bool value) {
+    if (_mirrorSelfView == value) {
+      return;
+    }
+
+    _mirrorSelfView = value;
     notifyListeners();
     _queuePersistence();
   }
@@ -391,6 +414,7 @@ class AppPreferencesController extends ChangeNotifier {
       _mediaAutoDownloadEnabledKey,
       _mediaAutoDownloadEnabled,
     );
+    await preferences.setBool(_mirrorSelfViewKey, _mirrorSelfView);
   }
 
   ThemeMode _themeModeFromStorage(String? value) {

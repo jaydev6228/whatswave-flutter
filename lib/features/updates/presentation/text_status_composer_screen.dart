@@ -90,7 +90,11 @@ class _TextStatusComposerScreenState extends State<TextStatusComposerScreen> {
   /// the way WhatsApp does.
   bool _isEditing = true;
 
-  bool get _canShare => _captionController.text.trim().isNotEmpty;
+  /// An emoji on its own is a status worth posting -- requiring text as
+  /// well left the share button dead after the user had clearly composed
+  /// something, with nothing on screen explaining why.
+  bool get _canShare =>
+      _captionController.text.trim().isNotEmpty || _overlayItems.isNotEmpty;
 
   @override
   void initState() {
@@ -796,13 +800,22 @@ class _TextStatusOverlayItem extends StatefulWidget {
 }
 
 class _TextStatusOverlayItemState extends State<_TextStatusOverlayItem> {
+  /// The live value while a gesture is in flight.
+  ///
+  /// Dragging used to call onChanged on every frame, which setState'd the
+  /// whole composer -- canvas, text field, toolbars and every other overlay
+  /// rebuilt 60+ times a second, and the emoji visibly lagged the finger.
+  /// The gesture now updates only this widget, and the parent is told once,
+  /// on release.
+  StatusMediaOverlayItem? _liveItem;
+
   StatusMediaOverlayItem? _gestureAnchor;
   Offset? _gestureStartFocalPoint;
   StatusMediaOverlayItem? _resizeAnchor;
 
   @override
   Widget build(BuildContext context) {
-    final item = widget.item;
+    final item = _liveItem ?? widget.item;
     final canvasSize = widget.canvasSize;
     final offset = statusStoryOverlayOffsetFor(canvasSize, item);
 
@@ -841,17 +854,22 @@ class _TextStatusOverlayItemState extends State<_TextStatusOverlayItem> {
                 final nextDy =
                     ((anchor.positionDy * canvasSize.height) + delta.dy) /
                         canvasSize.height;
-                widget.onChanged(
-                  anchor.copyWith(
+                setState(() {
+                  _liveItem = anchor.copyWith(
                     positionDx: nextDx.clamp(0.06, 0.94),
                     positionDy: nextDy.clamp(0.06, 0.94),
                     scale: (anchor.scale * details.scale).clamp(0.5, 3.0),
                     rotation: anchor.rotation + details.rotation,
-                  ),
-                );
+                  );
+                });
                 widget.onDragUpdate(details.focalPoint);
               },
               onScaleEnd: (_) {
+                final settled = _liveItem;
+                if (settled != null) {
+                  widget.onChanged(settled);
+                }
+                _liveItem = null;
                 _gestureAnchor = null;
                 _gestureStartFocalPoint = null;
                 widget.onDragEnd();
@@ -904,13 +922,20 @@ class _TextStatusOverlayItemState extends State<_TextStatusOverlayItem> {
                   // so a diagonal drag -- the natural one for a corner --
                   // moves at the rate it looks like it should.
                   final growth = (details.delta.dx + details.delta.dy) / 90;
-                  widget.onChanged(
-                    anchor.copyWith(
+                  setState(() {
+                    _liveItem = (_liveItem ?? anchor).copyWith(
                       scale: (item.scale + growth).clamp(0.5, 3.0),
-                    ),
-                  );
+                    );
+                  });
                 },
-                onPanEnd: (_) => _resizeAnchor = null,
+                onPanEnd: (_) {
+                  final settled = _liveItem;
+                  if (settled != null) {
+                    widget.onChanged(settled);
+                  }
+                  _liveItem = null;
+                  _resizeAnchor = null;
+                },
                 child: Container(
                   width: 26,
                   height: 26,

@@ -14,6 +14,7 @@ import '../core/integrations/tracked_repositories.dart';
 import '../core/observability/app_telemetry.dart';
 import '../core/crypto/safety_number_scope.dart';
 import '../core/crypto/signal_crypto_scope.dart';
+import '../core/controllers/app_preferences_scope.dart';
 import '../core/notifications/push_tap_router.dart';
 import '../features/settings/data/account_deletion_service.dart';
 import '../core/session/backend_reachability.dart';
@@ -299,17 +300,20 @@ class _WhatsWaveAppState extends State<WhatsWaveApp> {
     return AnimatedBuilder(
       animation: Listenable.merge([_preferencesController, _authController]),
       builder: (context, _) {
-        return AppTelemetryScope(
-          telemetry: _telemetry,
-          child: MaterialApp(
-            navigatorKey: _rootNavigatorKey,
-            debugShowCheckedModeBanner: false,
-            title: 'WhatsWave',
-            theme: AppTheme.lightTheme(),
-            darkTheme: AppTheme.darkTheme(),
-            themeMode: _preferencesController.themeMode,
-            scrollBehavior: const WhatsWaveScrollBehavior(),
-            home: _buildHome(),
+        return AppPreferencesScope(
+          controller: _preferencesController,
+          child: AppTelemetryScope(
+            telemetry: _telemetry,
+            child: MaterialApp(
+              navigatorKey: _rootNavigatorKey,
+              debugShowCheckedModeBanner: false,
+              title: 'WhatsWave',
+              theme: AppTheme.lightTheme(),
+              darkTheme: AppTheme.darkTheme(),
+              themeMode: _preferencesController.themeMode,
+              scrollBehavior: const WhatsWaveScrollBehavior(),
+              home: _buildHome(),
+            ),
           ),
         );
       },
