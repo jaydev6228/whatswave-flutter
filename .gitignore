@@ -48,6 +48,11 @@ firebase.json
 .firebaserc
 .firebase/
 firebase-debug.log
+# Every emulator writes its own <name>-debug.log on startup. firestore-debug.log
+# was committed once because only firebase-debug.log was listed here, and it
+# then churned 50 lines on every `npm run test:rules`.
+*-debug.log
+firebase-debug.*.log
 firebase-debug.*.log
 
 # Node (rules tests at the repo root, and the LiveKit token server)
