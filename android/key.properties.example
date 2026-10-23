@@ -1,0 +1,9 @@
+# Copy to android/key.properties and fill in. That file is gitignored and
+# must never be committed -- it holds the passwords to your upload key.
+#
+# storeFile is an absolute path to a keystore kept OUTSIDE this repository,
+# so that deleting the checkout cannot destroy it.
+storeFile=/Users/you/keystores/whatswave-upload.jks
+storePassword=
+keyAlias=upload
+keyPassword=
