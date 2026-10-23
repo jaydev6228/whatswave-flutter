@@ -1763,9 +1763,15 @@ class _LocalMediaStoryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox.expand(
+    // The media and the overlays placed on it share one fixed-ratio canvas.
+    // The media used to fill the screen while the overlays were anchored to
+    // the screen minus this device's insets, so a stored fraction pointed at
+    // a different part of the picture on every phone -- and on "Fit to
+    // screen" the picture itself was cropped to the screen's own shape, so
+    // there was no stable arrangement to point at in the first place.
+    return StatusStoryFixedCanvas(
       key: const Key('updates_story_viewer_media_surface'),
-      child: Stack(
+      builder: (context, _) => Stack(
         fit: StackFit.expand,
         children: [
           StatusStoryMediaSurface(
@@ -1783,18 +1789,19 @@ class _LocalMediaStoryCard extends StatelessWidget {
             loadingPlaceholderColor: story.accentColor,
             onPhotoLoadSettled: onPhotoLoadSettled,
           ),
-          SafeArea(
-            child: StatusMediaDecorationOverlay(
-              segment: segment,
-              accentColor: story.accentColor,
-              padding: kStatusMediaOverlayCanvasPadding,
-              showBackdrop: false,
-              // The caption now lives in the viewer's own bottom chrome
-              // (see _StatusStoryViewerScreenState's Column, right above the
-              // reply bar) as plain text, matching WhatsApp's real look --
-              // showing it again here as a boxed card would duplicate it.
-              showCaption: false,
-            ),
+          // Not inside a SafeArea: that insetted this layer alone, moving
+          // every placed item relative to the media beside it by however
+          // much this device's notch and home indicator came to.
+          StatusMediaDecorationOverlay(
+            segment: segment,
+            accentColor: story.accentColor,
+            padding: kStatusMediaOverlayCanvasPadding,
+            showBackdrop: false,
+            // The caption now lives in the viewer's own bottom chrome
+            // (see _StatusStoryViewerScreenState's Column, right above the
+            // reply bar) as plain text, matching WhatsApp's real look --
+            // showing it again here as a boxed card would duplicate it.
+            showCaption: false,
           ),
         ],
       ),

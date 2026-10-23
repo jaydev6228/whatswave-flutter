@@ -5,6 +5,7 @@ import 'package:whatswave/app/theme/app_theme.dart';
 import 'package:whatswave/core/models/status_story.dart';
 import 'package:whatswave/features/updates/presentation/status_story_viewer_screen.dart';
 import 'package:whatswave/features/updates/presentation/text_status_composer_screen.dart';
+import 'package:whatswave/features/updates/presentation/widgets/status_story_media_surface.dart';
 import 'package:whatswave/features/updates/presentation/widgets/text_status_canvas.dart';
 
 import '../../../../support/device_matrix.dart';

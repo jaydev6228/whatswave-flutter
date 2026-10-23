@@ -1092,17 +1092,18 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen>
     );
   }
 
-  Size _composerSafeAreaSize(BuildContext context) {
-    final screenSize = MediaQuery.sizeOf(context);
-    final padding = MediaQuery.paddingOf(context);
-    return Size(
-      screenSize.width,
-      math.max(screenSize.height - padding.top - padding.bottom, 0),
-    );
+  /// The box the story's own layers render in -- the fixed-ratio canvas, not
+  /// the device's safe area.
+  ///
+  /// A placement clamp measured against a different box than the one the
+  /// item is drawn in can only disagree with it, and this clamp decides
+  /// where a newly added overlay is allowed to sit.
+  Size _storyCanvasSize(BuildContext context) {
+    return statusStoryFixedCanvasSizeFor(MediaQuery.sizeOf(context));
   }
 
   Size _overlayFrameSizeForCurrentContext() {
-    return _mediaFrameSizeFor(_composerSafeAreaSize(context));
+    return _mediaFrameSizeFor(_storyCanvasSize(context));
   }
 
   StatusMediaOverlayItem _normalizedOverlayItemForCurrentFrame(
@@ -2653,8 +2654,10 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen>
             // making them agree means changing what offsetDx/offsetDy mean,
             // which every already-posted story is stored against.
             Positioned.fill(
-              child: _buildComposerMediaLayer(
-                showFrameOutline: showPlacementGuide,
+              child: StatusStoryFixedCanvas(
+                builder: (context, _) => _buildComposerMediaLayer(
+                  showFrameOutline: showPlacementGuide,
+                ),
               ),
             ),
             // Crop window corner handles -- a separate layer, in the exact
@@ -2666,9 +2669,8 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen>
             // through to that layer untouched.
             if (_isCropMode)
               Positioned.fill(
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final canvasSize = constraints.biggest;
+                child: StatusStoryFixedCanvas(
+                  builder: (context, canvasSize) {
                     _lastCropCanvasSize = canvasSize;
                     // Where the selection lands on screen once the media
                     // has been transformed under it -- which, mid corner
@@ -2720,9 +2722,8 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen>
               ),
             if (_isDrawMode)
               Positioned.fill(
-                child: LayoutBuilder(
-                  builder: (context, constraints) {
-                    final canvasSize = constraints.biggest;
+                child: StatusStoryFixedCanvas(
+                  builder: (context, canvasSize) {
                     return GestureDetector(
                       key: const Key('updates_media_draw_surface'),
                       behavior: HitTestBehavior.opaque,
@@ -2757,165 +2758,153 @@ class _MediaStatusComposerScreenState extends State<MediaStatusComposerScreen>
                 behavior: HitTestBehavior.translucent,
               ),
             ),
+            // Placed items share the media's fixed-ratio canvas instead of
+            // the device's safe area. Insetting this layer alone moved every
+            // one of them relative to the picture underneath, by however much
+            // that phone's notch and home indicator came to -- and a fraction
+            // of a screen-shaped canvas is a different point on a differently
+            // shaped screen. Still above the gradient and the canvas tap
+            // catcher, so paint order and hit testing are unchanged.
+            Positioned.fill(
+              child: StatusStoryFixedCanvas(
+                builder: (context, availableSize) {
+                  final frameSize = statusStoryFrameSizeFor(
+                    availableSize,
+                    _mediaTransform.frameAspectRatio,
+                  );
+                  return Center(
+                    child: SizedBox(
+                      width: frameSize.width,
+                      height: frameSize.height,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        // Lets a dragged overlay keep tracking the
+                        // finger past the frame edge, all the way
+                        // down to the delete target below the
+                        // canvas -- Stack clips overflow by
+                        // default, which would otherwise make the
+                        // overlay vanish the moment it left the
+                        // photo instead of following the drag.
+                        clipBehavior: Clip.none,
+                        children: [
+                          // Nothing placed on the media while
+                          // cropping. Long overlay text covers
+                          // the frame, which both hides what
+                          // is being cropped and gets in the
+                          // way of the corner handles. They
+                          // are all still there on Done.
+                          if (!_isCropMode)
+                            for (final item in _overlayItems)
+                              _InteractiveMediaOverlay(
+                                key: Key(
+                                  'updates_overlay_item_${item.id}',
+                                ),
+                                item: item,
+                                canvasSize: frameSize,
+                                // No selection border while actively
+                                // typing -- matches WhatsApp, whose
+                                // text tool never shows a bounding
+                                // box that reads like a crop frame
+                                // around the text being edited.
+                                // Never for text. Its box is
+                                // clamped to the media frame,
+                                // so on text taller than the
+                                // frame -- which is the whole
+                                // point of letting it use the
+                                // screen -- the border landed
+                                // exactly on the frame edges
+                                // and read as a crop outline
+                                // rather than a selection.
+                                // Emoji, stickers and music
+                                // are small enough that the
+                                // box always hugs them, and
+                                // there it earns its keep.
+                                isSelected:
+                                    item.type != StatusMediaOverlayType.text &&
+                                        _selectedOverlayId == item.id,
+                                allowTransformGestures:
+                                    _editingTextOverlayId != item.id,
+                                // No onDoubleTap any more -- a
+                                // single tap on text now reopens
+                                // editing directly (see
+                                // _handleOverlayTap), so keeping a
+                                // double-tap handler around would
+                                // only make Flutter wait out the
+                                // double-tap window before firing
+                                // the single tap, adding a laggy
+                                // delay to something that should
+                                // feel instant.
+                                onTap: _editingTextOverlayId == item.id
+                                    ? null
+                                    : () => _handleOverlayTap(item),
+                                onScaleStart: (details) => _onOverlayScaleStart(
+                                  item,
+                                  details,
+                                ),
+                                onScaleUpdate: (details) =>
+                                    _onOverlayScaleUpdate(
+                                  details,
+                                  frameSize,
+                                ),
+                                onScaleEnd: _onOverlayScaleEnd,
+                                // The item being actively edited is
+                                // rendered by a dedicated, centered
+                                // widget below instead (see
+                                // _isEditingTextOverlay), decoupled
+                                // from its dragged position -- so it
+                                // stays put and legible above the
+                                // keyboard like WhatsApp's own text
+                                // tool, not wherever it was last
+                                // placed on the canvas.
+                                child: _editingTextOverlayId == item.id
+                                    ? const SizedBox.shrink()
+                                    : OverflowBox(
+                                        // Loosens the frame's own
+                                        // SizedBox, which would
+                                        // otherwise clamp text to
+                                        // the frame while the
+                                        // posted story lets it use
+                                        // the whole screen -- the
+                                        // preview has to be handed
+                                        // the same room or it lies
+                                        // about the result.
+                                        //
+                                        // fit: deferToChild is
+                                        // what makes this shrink
+                                        // to the text. The default
+                                        // fills, which drew the
+                                        // selection border around
+                                        // the whole canvas and let
+                                        // the overlay swallow taps
+                                        // everywhere;
+                                        // UnconstrainedBox
+                                        // shrink-wraps too but
+                                        // reports the overflow as
+                                        // a layout error, which
+                                        // long text legitimately
+                                        // causes here.
+                                        fit: OverflowBoxFit.deferToChild,
+                                        alignment: Alignment.center,
+                                        maxWidth: availableSize.width,
+                                        maxHeight: availableSize.height,
+                                        child: StatusOverlayContent(
+                                          item: item,
+                                          compact: false,
+                                          accentColor: AppPalette.emerald,
+                                          canvasSize: availableSize,
+                                        ),
+                                      ),
+                              ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
             SafeArea(
               child: Stack(
                 children: [
-                  Positioned.fill(
-                    child: Stack(
-                      children: [
-                        Positioned.fill(
-                          child: LayoutBuilder(
-                            builder: (context, constraints) {
-                              final availableSize = Size(
-                                constraints.maxWidth,
-                                constraints.maxHeight,
-                              );
-                              final frameSize = statusStoryFrameSizeFor(
-                                availableSize,
-                                _mediaTransform.frameAspectRatio,
-                              );
-                              return Center(
-                                child: SizedBox(
-                                  width: frameSize.width,
-                                  height: frameSize.height,
-                                  child: Stack(
-                                    fit: StackFit.expand,
-                                    // Lets a dragged overlay keep tracking the
-                                    // finger past the frame edge, all the way
-                                    // down to the delete target below the
-                                    // canvas -- Stack clips overflow by
-                                    // default, which would otherwise make the
-                                    // overlay vanish the moment it left the
-                                    // photo instead of following the drag.
-                                    clipBehavior: Clip.none,
-                                    children: [
-                                      // Nothing placed on the media while
-                                      // cropping. Long overlay text covers
-                                      // the frame, which both hides what
-                                      // is being cropped and gets in the
-                                      // way of the corner handles. They
-                                      // are all still there on Done.
-                                      if (!_isCropMode)
-                                        for (final item in _overlayItems)
-                                          _InteractiveMediaOverlay(
-                                            key: Key(
-                                              'updates_overlay_item_${item.id}',
-                                            ),
-                                            item: item,
-                                            canvasSize: frameSize,
-                                            // No selection border while actively
-                                            // typing -- matches WhatsApp, whose
-                                            // text tool never shows a bounding
-                                            // box that reads like a crop frame
-                                            // around the text being edited.
-                                            // Never for text. Its box is
-                                            // clamped to the media frame,
-                                            // so on text taller than the
-                                            // frame -- which is the whole
-                                            // point of letting it use the
-                                            // screen -- the border landed
-                                            // exactly on the frame edges
-                                            // and read as a crop outline
-                                            // rather than a selection.
-                                            // Emoji, stickers and music
-                                            // are small enough that the
-                                            // box always hugs them, and
-                                            // there it earns its keep.
-                                            isSelected: item.type !=
-                                                    StatusMediaOverlayType
-                                                        .text &&
-                                                _selectedOverlayId == item.id,
-                                            allowTransformGestures:
-                                                _editingTextOverlayId !=
-                                                    item.id,
-                                            // No onDoubleTap any more -- a
-                                            // single tap on text now reopens
-                                            // editing directly (see
-                                            // _handleOverlayTap), so keeping a
-                                            // double-tap handler around would
-                                            // only make Flutter wait out the
-                                            // double-tap window before firing
-                                            // the single tap, adding a laggy
-                                            // delay to something that should
-                                            // feel instant.
-                                            onTap: _editingTextOverlayId ==
-                                                    item.id
-                                                ? null
-                                                : () => _handleOverlayTap(item),
-                                            onScaleStart: (details) =>
-                                                _onOverlayScaleStart(
-                                              item,
-                                              details,
-                                            ),
-                                            onScaleUpdate: (details) =>
-                                                _onOverlayScaleUpdate(
-                                              details,
-                                              frameSize,
-                                            ),
-                                            onScaleEnd: _onOverlayScaleEnd,
-                                            // The item being actively edited is
-                                            // rendered by a dedicated, centered
-                                            // widget below instead (see
-                                            // _isEditingTextOverlay), decoupled
-                                            // from its dragged position -- so it
-                                            // stays put and legible above the
-                                            // keyboard like WhatsApp's own text
-                                            // tool, not wherever it was last
-                                            // placed on the canvas.
-                                            child: _editingTextOverlayId ==
-                                                    item.id
-                                                ? const SizedBox.shrink()
-                                                : OverflowBox(
-                                                    // Loosens the frame's own
-                                                    // SizedBox, which would
-                                                    // otherwise clamp text to
-                                                    // the frame while the
-                                                    // posted story lets it use
-                                                    // the whole screen -- the
-                                                    // preview has to be handed
-                                                    // the same room or it lies
-                                                    // about the result.
-                                                    //
-                                                    // fit: deferToChild is
-                                                    // what makes this shrink
-                                                    // to the text. The default
-                                                    // fills, which drew the
-                                                    // selection border around
-                                                    // the whole canvas and let
-                                                    // the overlay swallow taps
-                                                    // everywhere;
-                                                    // UnconstrainedBox
-                                                    // shrink-wraps too but
-                                                    // reports the overflow as
-                                                    // a layout error, which
-                                                    // long text legitimately
-                                                    // causes here.
-                                                    fit: OverflowBoxFit
-                                                        .deferToChild,
-                                                    alignment: Alignment.center,
-                                                    maxWidth:
-                                                        availableSize.width,
-                                                    maxHeight:
-                                                        availableSize.height,
-                                                    child: StatusOverlayContent(
-                                                      item: item,
-                                                      compact: false,
-                                                      accentColor:
-                                                          AppPalette.emerald,
-                                                      canvasSize: availableSize,
-                                                    ),
-                                                  ),
-                                          ),
-                                    ],
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
                   // WhatsApp's own top chrome: close/tool icons always live
                   // here, with the video trim filmstrip and a mute toggle
                   // directly beneath -- never swapped out for a tool's own

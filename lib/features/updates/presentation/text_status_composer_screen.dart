@@ -10,6 +10,7 @@ import 'status_system_chrome.dart';
 import 'widgets/emoji_picker_sheet.dart';
 import 'widgets/status_chrome.dart';
 import 'widgets/status_media_decoration_overlay.dart';
+import 'widgets/status_story_media_surface.dart';
 import 'widgets/text_status_canvas.dart';
 import 'widgets/status_text_editing_tools.dart';
 import 'widgets/overlay_delete_target.dart';

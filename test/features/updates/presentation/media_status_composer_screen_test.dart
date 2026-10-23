@@ -1068,7 +1068,7 @@ void main() {
 
   testWidgets(
       '"Fit to screen" previews the real posted frame -- the crop window '
-      'takes the full screen\'s shape, so a wide video shows the strip that '
+      'takes the story canvas\'s shape, so a wide video shows the strip that '
       'will actually survive rather than pretending nothing is cropped',
       (tester) async {
     await tester.binding.setSurfaceSize(iphoneProProfile.size);
@@ -1094,11 +1094,15 @@ void main() {
     await tester.tap(find.byKey(const Key('updates_media_crop_rotate_button')));
     await tester.pumpAndSettle();
 
-    // The composer's media canvas is full-bleed, exactly like the viewer
-    // renders a posted segment -- otherwise "fit to screen" would fit to a
-    // shorter box than the screen it actually fills once posted.
+    // The composer's media canvas is the fixed-ratio story canvas, exactly
+    // like the viewer renders a posted segment -- "fit to screen" fits to
+    // that canvas, which is the same shape on every device, rather than to
+    // this particular screen.
     final canvasSize = tester.getSize(find.byType(StatusStoryMediaSurface));
-    expect(canvasSize.height, closeTo(iphoneProProfile.size.height, 0.5));
+    expect(
+      canvasSize.height,
+      closeTo(statusStoryFixedCanvasSizeFor(iphoneProProfile.size).height, 0.5),
+    );
 
     await tester.tap(
       find.byKey(const Key('updates_media_crop_aspect_ratio_button')),
@@ -1116,7 +1120,9 @@ void main() {
 
     // A null frame ratio means "cover the whole canvas" in the posted
     // render, so the crop window must take the canvas's own shape -- not
-    // fall back to the media's bounds and claim nothing gets cropped.
+    // fall back to the media's bounds and claim nothing gets cropped. That
+    // canvas is now a fixed ratio, so this preview is also what every other
+    // device shows, not just this one.
     final mediaBounds = statusMediaBoundsFor(canvasSize, 2);
     final window = cropWindowRectFor(
       mediaBounds,
@@ -1129,7 +1135,7 @@ void main() {
     expect(
       window.width / window.height,
       closeTo(canvasSize.width / canvasSize.height, 0.001),
-      reason: 'fit to screen must preview the screen\'s own shape',
+      reason: 'fit to screen must preview the story canvas\'s own shape',
     );
     expect(
       window.width,

@@ -10,6 +10,67 @@ import '../../../../core/models/status_story.dart';
 import '../../../shared/widgets/avatar_badge.dart';
 import 'status_media_source.dart';
 
+/// Every story -- text and media alike -- composes and renders inside this
+/// one ratio, whatever shape the device screen is.
+///
+/// Overlay positions travel as fractions of the canvas, so a canvas shaped
+/// like the screen puts the same fraction somewhere else on a phone with a
+/// different aspect ratio -- an emoji arranged above the words on a 19.5:9
+/// iPhone landed on top of them on a shorter Android, and an emoji pinned to
+/// a face sat beside it once the photo was cropped to a different shape. A
+/// fixed ratio is what makes the arrangement the author saw the arrangement
+/// everyone sees.
+const double kStatusStoryCanvasAspectRatio = 9 / 16;
+
+/// The largest [kStatusStoryCanvasAspectRatio] box that fits in [available].
+///
+/// Degenerate or unbounded boxes pass straight through: a canvas with no
+/// real size to divide has no ratio to hold, and returning [available]
+/// keeps the caller laying out exactly as it did before.
+Size statusStoryFixedCanvasSizeFor(Size available) {
+  if (!available.width.isFinite ||
+      !available.height.isFinite ||
+      available.width <= 0 ||
+      available.height <= 0) {
+    return available;
+  }
+  final width = math.min(
+    available.width,
+    available.height * kStatusStoryCanvasAspectRatio,
+  );
+  return Size(width, width / kStatusStoryCanvasAspectRatio);
+}
+
+/// Centres a fixed-ratio story canvas in the space it is given, letterboxed
+/// with whatever is left over, and hands [builder] the box it settled on.
+///
+/// The composer and the viewer both go through this so the text and the
+/// overlays anchored to it measure against the same numbers on both sides
+/// of a post.
+class StatusStoryFixedCanvas extends StatelessWidget {
+  const StatusStoryFixedCanvas({
+    required this.builder,
+    super.key,
+  });
+
+  final Widget Function(BuildContext context, Size canvasSize) builder;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final canvasSize = statusStoryFixedCanvasSizeFor(constraints.biggest);
+        return Center(
+          child: SizedBox.fromSize(
+            size: canvasSize,
+            child: builder(context, canvasSize),
+          ),
+        );
+      },
+    );
+  }
+}
+
 Size statusStoryFrameSizeFor(Size canvasSize, double? aspectRatio) {
   if (aspectRatio == null || !aspectRatio.isFinite || aspectRatio <= 0) {
     return canvasSize;
