@@ -72,12 +72,12 @@ class _AppShellState extends State<AppShell> {
     super.initState();
     widget.chatsController.ensureLoaded();
     widget.updatesController.ensureLoaded();
-    widget.pushTapRouter?.pendingThreadId.addListener(_openThreadFromPush);
+    widget.pushTapRouter?.addTapListener(_openThreadFromPush);
   }
 
   @override
   void dispose() {
-    widget.pushTapRouter?.pendingThreadId.removeListener(_openThreadFromPush);
+    widget.pushTapRouter?.removeTapListener(_openThreadFromPush);
     super.dispose();
   }
 
@@ -91,6 +91,14 @@ class _AppShellState extends State<AppShell> {
       return;
     }
     router.consume();
+
+    // addTapListener can fire during initState, where Navigator.of(context)
+    // is not usable yet. Waiting a frame costs nothing and makes the
+    // launched-from-notification path identical to the backgrounded one.
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted) {
+      return;
+    }
 
     widget.chatsController.openThread(threadId);
     widget.chatsController.ensureThreadMessagesLoaded(threadId);

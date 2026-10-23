@@ -73,6 +73,38 @@ void main() {
     expect(router.pendingThreadId.value, 'thread-2');
   });
 
+  test('a listener attached AFTER a launch tap still gets it', () async {
+    // The regression this exists for. The terminated-launch payload is read
+    // in main(), before any widget is built, so the shell always attaches
+    // its listener too late. A plain ValueNotifier.addListener fires only
+    // on later changes and silently drops it -- the notification tap then
+    // lands on whatever screen the app happens to open.
+    await start(launch: <String, dynamic>{'threadId': 'thread-7'});
+
+    String? opened;
+    router.addTapListener(() => opened = router.pendingThreadId.value);
+
+    expect(opened, 'thread-7');
+  });
+
+  test('a listener attached with nothing pending is not called', () async {
+    await start();
+    var calls = 0;
+    router.addTapListener(() => calls++);
+    expect(calls, 0);
+  });
+
+  test('removeTapListener stops later taps', () async {
+    await start();
+    var calls = 0;
+    void listener() => calls++;
+    router.addTapListener(listener);
+    router.removeTapListener(listener);
+    opened.add(<String, dynamic>{'threadId': 'thread-9'});
+    await Future<void>.delayed(Duration.zero);
+    expect(calls, 0);
+  });
+
   test('taps stop routing once disposed', () async {
     await start();
     router.dispose();

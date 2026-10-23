@@ -59,6 +59,26 @@ class PushTapRouter {
     pendingThreadId.value = threadId;
   }
 
+  /// Adds [listener], and calls it straight away if a tap is already
+  /// waiting.
+  ///
+  /// Use this rather than `pendingThreadId.addListener`. A plain
+  /// `addListener` fires only on *later* changes, and the
+  /// terminated-launch payload is read in main() before any widget exists
+  /// -- so attaching a listener from initState silently drops the exact
+  /// case this class was written for, and the notification tap lands on
+  /// whatever screen the app opens to.
+  void addTapListener(VoidCallback listener) {
+    pendingThreadId.addListener(listener);
+    if (pendingThreadId.value != null) {
+      listener();
+    }
+  }
+
+  void removeTapListener(VoidCallback listener) {
+    pendingThreadId.removeListener(listener);
+  }
+
   /// Call once the navigation has happened, so returning to the shell does
   /// not re-open the same thread.
   void consume() {
