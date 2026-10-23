@@ -107,3 +107,88 @@ export const notifyOnMessage = onDocumentCreated(
     }
   },
 );
+
+import { getAuth } from 'firebase-admin/auth';
+import { getStorage } from 'firebase-admin/storage';
+import { onCall, HttpsError } from 'firebase-functions/v2/https';
+import { FieldValue } from 'firebase-admin/firestore';
+
+import { buildDeletionPlan } from './deletion_plan.js';
+
+/// Erases the caller's account.
+///
+/// Callable rather than an HTTP endpoint so the caller's identity comes from
+/// a verified Firebase token rather than anything in the request body: a
+/// client can only ever delete itself.
+///
+/// What survives and why is documented in deletion_plan.js. In short:
+/// messages already delivered to other people stay, because deleting them
+/// rewrites someone else's history -- and they are unreadable anyway once
+/// this destroys the identity keys.
+export const deleteAccount = onCall(async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) {
+    throw new HttpsError('unauthenticated', 'Sign in to delete your account.');
+  }
+
+  const plan = buildDeletionPlan(uid);
+  const bulk = db.bulkWriter();
+
+  // Order matters only at the end: the Auth user goes last, so a failure
+  // part-way through leaves an account that can retry rather than orphaned
+  // data with no way to sign in and clear it.
+
+  for (const path of plan.subcollectionDeletes) {
+    await db.recursiveDelete(db.collection(path), bulk);
+  }
+
+  for (const path of plan.documentDeletes) {
+    bulk.delete(db.doc(path));
+  }
+
+  for (const { collection, field, op, value } of plan.queryDeletes) {
+    const snap = await db.collection(collection).where(field, op, value).get();
+    for (const doc of snap.docs) bulk.delete(doc.ref);
+  }
+
+  for (const { group, docId } of plan.collectionGroupDeletes) {
+    const snap = await db.collectionGroup(group).get();
+    for (const doc of snap.docs) {
+      if (doc.id === docId) bulk.delete(doc.ref);
+    }
+  }
+
+  // Shared documents: remove the member, keep the document.
+  for (const { collection, field, value } of plan.membershipRemovals) {
+    const snap = await db
+      .collection(collection)
+      .where(field, 'array-contains', value)
+      .get();
+    for (const doc of snap.docs) {
+      bulk.update(doc.ref, { [field]: FieldValue.arrayRemove(value) });
+    }
+  }
+
+  await bulk.close();
+
+  for (const prefix of plan.storagePrefixes) {
+    try {
+      await getStorage().bucket().deleteFiles({ prefix });
+    } catch (error) {
+      // A missing prefix is the normal case for a user who never posted a
+      // status. Worth logging, never worth failing the deletion over.
+      logger.warn('storage prefix not fully removed', { prefix, error: error.message });
+    }
+  }
+
+  // Proof the request was honoured, holding nothing but the fact of it.
+  // Written before the Auth delete so it survives even if that step fails.
+  await db.doc(`accountDeletions/${uid}`).set({
+    deletedAt: FieldValue.serverTimestamp(),
+  });
+
+  await getAuth().deleteUser(uid);
+
+  logger.info('account deleted', { uid });
+  return { deleted: true };
+});

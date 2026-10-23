@@ -15,6 +15,7 @@ import '../core/observability/app_telemetry.dart';
 import '../core/crypto/safety_number_scope.dart';
 import '../core/crypto/signal_crypto_scope.dart';
 import '../core/notifications/push_tap_router.dart';
+import '../features/settings/data/account_deletion_service.dart';
 import '../core/session/backend_reachability.dart';
 import '../core/session/session_data_cleaner.dart';
 import '../core/widgets/app_lock_gate.dart';
@@ -344,6 +345,11 @@ class _WhatsWaveAppState extends State<WhatsWaveApp> {
       child: AppShell(
         reachability: _reachability,
         pushTapRouter: widget.pushTapRouter,
+        // The crypto scope is non-null only in a Firebase-backed build,
+        // which is exactly when there is a deployed function to call.
+        accountDeletionService: widget.cryptoScope == null
+            ? const NoopAccountDeletionService()
+            : FirebaseAccountDeletionService(),
         authController: _authController,
         currentUser: _authController.currentUser!,
         preferencesController: _preferencesController,

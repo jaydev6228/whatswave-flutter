@@ -12,6 +12,7 @@ import '../../chats/application/chats_controller.dart';
 import '../../chats/presentation/chats_screen.dart';
 import '../../chats/presentation/conversation_screen.dart';
 import '../../../core/notifications/push_tap_router.dart';
+import '../../settings/data/account_deletion_service.dart';
 import '../../chats/presentation/new_chat_screen.dart';
 import '../../communities/application/communities_controller.dart';
 import '../../communities/presentation/communities_screen.dart';
@@ -35,6 +36,7 @@ class AppShell extends StatefulWidget {
     required this.updatesController,
     this.reachability,
     this.pushTapRouter,
+    this.accountDeletionService = const NoopAccountDeletionService(),
     super.key,
   });
 
@@ -53,6 +55,9 @@ class AppShell extends StatefulWidget {
   /// Null in local/seeded builds and in widget tests. Non-null only where
   /// FirebaseMessaging is live.
   final PushTapRouter? pushTapRouter;
+
+  /// Real only in a Firebase build; a no-op everywhere else.
+  final AccountDeletionService accountDeletionService;
 
   @override
   State<AppShell> createState() => _AppShellState();
@@ -147,6 +152,7 @@ class _AppShellState extends State<AppShell> {
         callsController: widget.callsController,
         updatesController: widget.updatesController,
         communitiesController: widget.communitiesController,
+        accountDeletionService: widget.accountDeletionService,
       ),
     ];
 

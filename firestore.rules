@@ -528,6 +528,14 @@ service cloud.firestore {
       allow read, write: if request.auth != null && request.auth.uid == ownerUid;
     }
 
+    match /accountDeletions/{deletedUid} {
+      // Written only by the deleteAccount function via the Admin SDK, which
+      // bypasses these rules entirely. No client ever reads or writes it --
+      // a list of who deleted their account is exactly the kind of thing an
+      // enumeration bug would hand over, so it is closed to everyone.
+      allow read, write: if false;
+    }
+
     match /pushTokens/{ownerUid} {
       // Only the owner can read/write their own push token -- a future
       // server-side sender would use the Admin SDK, which bypasses these

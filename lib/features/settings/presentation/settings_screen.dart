@@ -4,6 +4,7 @@ import '../../../core/config/backend_runtime_config.dart';
 import '../../../core/controllers/app_preferences_controller.dart';
 import '../../../core/integrations/integration_hub_controller.dart';
 import '../../../core/models/app_user.dart';
+import '../data/account_deletion_service.dart';
 import '../../auth/application/auth_controller.dart';
 import '../../calls/application/calls_controller.dart';
 import '../../chats/application/chats_controller.dart';
@@ -33,6 +34,7 @@ class SettingsScreen extends StatelessWidget {
     required this.callsController,
     required this.updatesController,
     required this.communitiesController,
+    this.accountDeletionService = const NoopAccountDeletionService(),
     super.key,
   });
 
@@ -44,6 +46,10 @@ class SettingsScreen extends StatelessWidget {
   final CallsController callsController;
   final UpdatesController updatesController;
   final CommunitiesController communitiesController;
+
+  /// Defaults to a no-op so the seeded local backend and widget tests have
+  /// nothing to call. Only a Firebase build passes a real one.
+  final AccountDeletionService accountDeletionService;
 
   @override
   Widget build(BuildContext context) {
@@ -224,15 +230,34 @@ class SettingsScreen extends StatelessWidget {
                       Card(
                         child: Padding(
                           padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-                          child: SettingsTile(
-                            key: const Key('settings_sign_out_tile'),
-                            icon: Icons.logout_rounded,
-                            title: 'Sign out',
-                            subtitle: 'Sign out of WhatsWave on this device.',
-                            destructive: true,
-                            onTap: authController.isBusy
-                                ? null
-                                : () => _confirmSignOut(context),
+                          child: Column(
+                            children: [
+                              SettingsTile(
+                                key: const Key('settings_sign_out_tile'),
+                                icon: Icons.logout_rounded,
+                                title: 'Sign out',
+                                subtitle:
+                                    'Sign out of WhatsWave on this device.',
+                                destructive: true,
+                                onTap: authController.isBusy
+                                    ? null
+                                    : () => _confirmSignOut(context),
+                              ),
+                              // Apple guideline 5.1.1(v) requires account
+                              // deletion to be reachable in-app, not only by
+                              // emailing support.
+                              SettingsTile(
+                                key: const Key('settings_delete_account_tile'),
+                                icon: Icons.delete_forever_rounded,
+                                title: 'Delete account',
+                                subtitle:
+                                    'Permanently erase your account and data.',
+                                destructive: true,
+                                onTap: authController.isBusy
+                                    ? null
+                                    : () => _confirmDeleteAccount(context),
+                              ),
+                            ],
                           ),
                         ),
                       ),
@@ -340,6 +365,61 @@ class SettingsScreen extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Future<void> _confirmDeleteAccount(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return LiquidGlassDialog(
+          title: const Text('Delete account?'),
+          // Spelled out rather than summarised: this cannot be undone, and
+          // the encryption makes parts of it irreversible in a way users do
+          // not expect from "delete".
+          content: const Text(
+            'This permanently erases your profile, your encryption keys, '
+            'your status posts and your call history.\n\n'
+            'Messages you already sent stay on the devices of the people you '
+            'sent them to, and cannot be recovered or read by anyone else '
+            'once your keys are gone.\n\n'
+            'This cannot be undone.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              key: const Key('settings_confirm_delete_account_button'),
+              style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(dialogContext).colorScheme.error,
+                foregroundColor: Theme.of(dialogContext).colorScheme.onError,
+              ),
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true || !context.mounted) {
+      return;
+    }
+
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await accountDeletionService.deleteAccount();
+    } on AccountDeletionException catch (error) {
+      messenger.showSnackBar(SnackBar(content: Text(error.message)));
+      return;
+    }
+
+    // The server already deleted the Auth user, so the local session is
+    // stale. signOut also runs the teardown that clears cached messages and
+    // media on this device -- without it the next person to sign in here
+    // would inherit them.
+    await authController.signOut();
   }
 
   Future<void> _confirmSignOut(BuildContext context) async {

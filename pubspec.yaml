@@ -52,6 +52,10 @@ dependencies:
   # SDK package at once. Bump this only alongside bumping every other
   # firebase_* dependency above to versions that also want 12.17.0+.
   firebase_storage: 13.4.5
+  # Calls the deleteAccount callable. The callable protocol could be done
+  # by hand over `http`, but that means hardcoding the region URL and
+  # reimplementing error mapping -- first-party plugin is the smaller risk.
+  cloud_functions: ^6.0.3
   # Pinned to 10.3.10 (not ^11.x) -- 11.0.0+'s android/build.gradle stopped
   # applying the kotlin-android plugin, breaking every Android build with
   # "cannot find symbol FilePickerPlugin" (a confirmed upstream regression,
