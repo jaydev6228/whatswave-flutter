@@ -14,6 +14,7 @@ import '../core/integrations/tracked_repositories.dart';
 import '../core/observability/app_telemetry.dart';
 import '../core/crypto/safety_number_scope.dart';
 import '../core/crypto/signal_crypto_scope.dart';
+import '../core/notifications/push_tap_router.dart';
 import '../core/session/backend_reachability.dart';
 import '../core/session/session_data_cleaner.dart';
 import '../core/widgets/app_lock_gate.dart';
@@ -52,6 +53,7 @@ class WhatsWaveApp extends StatefulWidget {
     this.permissionService,
     this.authLocaleCountryCode,
     this.telemetry,
+    this.pushTapRouter,
     super.key,
   });
 
@@ -65,6 +67,10 @@ class WhatsWaveApp extends StatefulWidget {
   /// End-to-end encryption, built in main() before the app starts. Null in
   /// a seeded local build and in widget tests, which stay plaintext.
   final SignalCryptoScope? cryptoScope;
+
+  /// Routes a tapped push notification to its thread. Null in seeded local
+  /// builds and widget tests, which have no FirebaseMessaging.
+  final PushTapRouter? pushTapRouter;
   final IntegrationHubController? integrationController;
   final BackendRuntimeConfig? backendRuntimeConfig;
   final AppPermissionService? permissionService;
@@ -337,6 +343,7 @@ class _WhatsWaveAppState extends State<WhatsWaveApp> {
       isEnabled: _authController.isAuthenticated,
       child: AppShell(
         reachability: _reachability,
+        pushTapRouter: widget.pushTapRouter,
         authController: _authController,
         currentUser: _authController.currentUser!,
         preferencesController: _preferencesController,

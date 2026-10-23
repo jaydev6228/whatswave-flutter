@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Required for APNs. Xcode rewrites this to "production" for release
+	     builds when the Push Notifications capability is enabled on the
+	     target; without the entitlement at all, the device never registers
+	     and FCM has no token to send to. -->
+	<key>aps-environment</key>
+	<string>development</string>
+</dict>
+</plist>

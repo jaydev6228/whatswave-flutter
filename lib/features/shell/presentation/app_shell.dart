@@ -11,6 +11,7 @@ import '../../calls/presentation/calls_screen.dart';
 import '../../chats/application/chats_controller.dart';
 import '../../chats/presentation/chats_screen.dart';
 import '../../chats/presentation/conversation_screen.dart';
+import '../../../core/notifications/push_tap_router.dart';
 import '../../chats/presentation/new_chat_screen.dart';
 import '../../communities/application/communities_controller.dart';
 import '../../communities/presentation/communities_screen.dart';
@@ -33,6 +34,7 @@ class AppShell extends StatefulWidget {
     required this.communitiesController,
     required this.updatesController,
     this.reachability,
+    this.pushTapRouter,
     super.key,
   });
 
@@ -48,6 +50,10 @@ class AppShell extends StatefulWidget {
   /// Null in local/seeded builds, which have no backend to be cut off from.
   final BackendReachability? reachability;
 
+  /// Null in local/seeded builds and in widget tests. Non-null only where
+  /// FirebaseMessaging is live.
+  final PushTapRouter? pushTapRouter;
+
   @override
   State<AppShell> createState() => _AppShellState();
 }
@@ -61,6 +67,44 @@ class _AppShellState extends State<AppShell> {
     super.initState();
     widget.chatsController.ensureLoaded();
     widget.updatesController.ensureLoaded();
+    widget.pushTapRouter?.pendingThreadId.addListener(_openThreadFromPush);
+  }
+
+  @override
+  void dispose() {
+    widget.pushTapRouter?.pendingThreadId.removeListener(_openThreadFromPush);
+    super.dispose();
+  }
+
+  /// A tapped notification asked for a thread. Mirrors the navigation the
+  /// chat list does, then consumes the request so popping back to the shell
+  /// does not immediately re-open the same thread.
+  Future<void> _openThreadFromPush() async {
+    final router = widget.pushTapRouter;
+    final threadId = router?.pendingThreadId.value;
+    if (router == null || threadId == null || !mounted) {
+      return;
+    }
+    router.consume();
+
+    widget.chatsController.openThread(threadId);
+    widget.chatsController.ensureThreadMessagesLoaded(threadId);
+
+    final navigator = Navigator.of(context);
+    // A notification can land while the user is several screens deep.
+    // Returning to the shell first keeps the back stack sane.
+    navigator.popUntil((route) => route.isFirst);
+    await navigator.push(
+      MaterialPageRoute<void>(
+        builder: (_) => ConversationScreen(
+          callsController: widget.callsController,
+          controller: widget.chatsController,
+          updatesController: widget.updatesController,
+          communitiesController: widget.communitiesController,
+          threadId: threadId,
+        ),
+      ),
+    );
   }
 
   @override
