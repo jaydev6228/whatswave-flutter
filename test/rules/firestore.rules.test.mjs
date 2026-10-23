@@ -637,3 +637,53 @@ describe('per-owner collections', () => {
     );
   });
 });
+
+describe('phoneDirectory', () => {
+  beforeEach(async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      await setDoc(doc(db, 'phoneDirectory/12345678'), { uid: ALICE });
+      await setDoc(doc(db, 'phoneDirectory/87654321'), { uid: BOB });
+      await setDoc(doc(db, 'phoneDirectory/11112222'), { uid: CAROL });
+    });
+  });
+
+  it('lets a signed-in user look up one number they already know', async () => {
+    // This is the intended behaviour: device-contact matching asks
+    // "is THIS number registered?" one key at a time.
+    const db = testEnv.authenticatedContext(DAVE).firestore();
+    await assertSucceeds(getDoc(doc(db, 'phoneDirectory/12345678')));
+  });
+
+  it('must NOT let a signed-in user list the whole directory', async () => {
+    // If this passes, any account can download every registered phone key
+    // and the uid behind it -- the entire user base, in one query.
+    const db = testEnv.authenticatedContext(DAVE).firestore();
+    await assertFails(getDocs(collection(db, 'phoneDirectory')));
+  });
+
+  it('denies an unauthenticated reader', async () => {
+    const db = testEnv.unauthenticatedContext().firestore();
+    await assertFails(getDoc(doc(db, 'phoneDirectory/12345678')));
+  });
+});
+
+describe('userProfiles enumeration', () => {
+  beforeEach(async () => {
+    await testEnv.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      await setDoc(doc(db, 'userProfiles/alice'), { name: 'Alice' });
+      await setDoc(doc(db, 'userProfiles/bob'), { name: 'Bob' });
+    });
+  });
+
+  it('lets a signed-in user read one profile by uid', async () => {
+    const db = testEnv.authenticatedContext(DAVE).firestore();
+    await assertSucceeds(getDoc(doc(db, 'userProfiles/alice')));
+  });
+
+  it('must NOT let a signed-in user list every profile', async () => {
+    const db = testEnv.authenticatedContext(DAVE).firestore();
+    await assertFails(getDocs(collection(db, 'userProfiles')));
+  });
+});

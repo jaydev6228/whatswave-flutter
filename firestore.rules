@@ -423,7 +423,14 @@ service cloud.firestore {
       // mapping. Deliberately approximate: phoneKey is a trailing-digits
       // match key, not a real E.164 phone number (see
       // core/utils/phone_number_matching.dart).
-      allow read: if request.auth != null;
+      //
+      // `get`, never `list`. Contact matching asks "is THIS number
+      // registered?" one key at a time, which `get` covers. `list` would
+      // let any signed-in account download the whole collection -- every
+      // registered phone key and the uid behind it, i.e. the entire user
+      // base in one query. `allow read` grants both; splitting them is the
+      // only thing standing between targeted lookup and bulk enumeration.
+      allow get: if request.auth != null;
       allow create: if request.auth != null
                       && request.resource.data.uid == request.auth.uid;
       allow update: if request.auth != null
@@ -438,7 +445,12 @@ service cloud.firestore {
       // each side of a 1:1 chat shows the *other* person's real name,
       // instead of whatever got baked into the thread doc once by
       // whoever created it. Only the owner can write their own profile.
-      allow read: if request.auth != null;
+      //
+      // `get`, never `list` -- see phoneDirectory above. Every lookup here
+      // is by a uid the caller already holds; nothing needs to walk the
+      // collection, and allowing it would dump every user's display name
+      // and about text.
+      allow get: if request.auth != null;
       allow write: if request.auth != null && request.auth.uid == uid;
     }
 
@@ -452,7 +464,11 @@ service cloud.firestore {
     match /signalIdentities/{ownerUid} {
       // Anyone signed in may read: you need a stranger's identity key and
       // signed pre-key before you can message them for the first time.
-      allow read: if request.auth != null;
+      //
+      // `get`, never `list`. The bundle is always fetched by a uid the
+      // caller already has. Listing would enumerate every account that has
+      // ever set up encryption -- a user directory by another name.
+      allow get: if request.auth != null;
       // Only you may publish yours. This is the whole integrity story for
       // identity -- if another user could overwrite your identity key they
       // could impersonate you to anyone who has not yet verified your
