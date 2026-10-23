@@ -16,10 +16,10 @@ import '../../shared/swipe_down_to_dismiss.dart';
 
 /// Shown as an in-place overlay over the current screen (see
 /// [showAttachmentPreview]) rather than pushed as a separate route -- a
-/// plain full-bleed canvas with a close button, no AppBar/back-chevron
+/// full-bleed canvas under a floating title bar, no AppBar/back-chevron
 /// chrome pretending it's a whole new screen.
 ///
-/// The close button floats over the canvas (a [Stack], not a [Column] that
+/// The title bar floats over the canvas (a [Stack], not a [Column] that
 /// pushes the media down under a separate header bar) so it always reads
 /// correctly whether the canvas underneath is the black photo/video
 /// background or a themed placeholder/document card -- a frosted glass
@@ -34,6 +34,16 @@ class AttachmentViewerScreen extends StatefulWidget {
     required this.attachments,
     required this.threadName,
     this.initialIndex = 0,
+    this.senderName,
+    this.sentAtLabel,
+    this.isStarred = false,
+    this.onShare,
+    this.onSave,
+    this.onForward,
+    this.onStar,
+    this.onReply,
+    this.onEdit,
+    this.onDelete,
     super.key,
   }) : assert(attachments.length > 0, 'nothing to preview');
 
@@ -46,19 +56,62 @@ class AttachmentViewerScreen extends StatefulWidget {
   final String threadName;
   final int initialIndex;
 
+  /// Who sent the message these attachments came with ("You" for your own).
+  final String? senderName;
+
+  /// When it was sent, already formatted by the caller.
+  ///
+  /// A pre-formatted string rather than a [DateTime]: the day/clock
+  /// formatting the message list uses lives with the message list, and the
+  /// title has to read the same as the timestamp under the bubble the viewer
+  /// was opened from -- formatting it a second time here is how those two
+  /// drift apart.
+  final String? sentAtLabel;
+
+  /// Whether the message is starred, which flips the star action's
+  /// icon/tooltip the same way the long-press menu's star row does.
+  final bool isStarred;
+
+  /// Every action is optional, and an action with no callback simply isn't
+  /// offered -- the shared-media grid opens this viewer with no message
+  /// context at all, so there is nothing there to forward, star or delete.
+  ///
+  /// Share and save act on the attachment currently paged to, not the
+  /// message, so they hand it back; resolving it to a real local file (a
+  /// Storage URL for anyone but the sender, ciphertext when encrypted) is
+  /// the caller's job, since it already owns that pipeline.
+  final void Function(ChatAttachment attachment)? onShare;
+  final void Function(ChatAttachment attachment)? onSave;
+  final VoidCallback? onForward;
+  final VoidCallback? onStar;
+  final VoidCallback? onReply;
+  final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
+
   @override
   State<AttachmentViewerScreen> createState() => _AttachmentViewerScreenState();
 }
 
+/// The one fixed dark-glass tint every piece of this viewer's chrome uses --
+/// see the close button for why it ignores the app theme.
+final Color _chromeTint = Colors.black.withValues(alpha: 0.42);
+
 class _AttachmentViewerScreenState extends State<AttachmentViewerScreen> {
   late final PageController _pageController;
   late int _index;
+
+  /// Mirrors [AttachmentViewerScreen.isStarred] so the star fills in the
+  /// moment it's tapped. The viewer is an overlay over a message list it
+  /// doesn't listen to, so without a local copy the icon would keep showing
+  /// the state the message had when the viewer opened.
+  late bool _isStarred;
 
   @override
   void initState() {
     super.initState();
     _index = widget.initialIndex.clamp(0, widget.attachments.length - 1);
     _pageController = PageController(initialPage: _index);
+    _isStarred = widget.isStarred;
   }
 
   @override
@@ -67,16 +120,136 @@ class _AttachmentViewerScreenState extends State<AttachmentViewerScreen> {
     super.dispose();
   }
 
+  /// The navigation title: who sent this and when, the context the message
+  /// list gives a bubble and a full-screen canvas otherwise throws away.
+  /// Null when the caller supplied neither, which is what keeps the
+  /// pre-existing bare-canvas presentation for callers that have no message
+  /// behind the attachment.
+  Widget? _buildTitle() {
+    final senderName = widget.senderName?.trim() ?? '';
+    final sentAtLabel = widget.sentAtLabel?.trim() ?? '';
+    if (senderName.isEmpty && sentAtLabel.isEmpty) {
+      return null;
+    }
+    return LiquidGlassSurface(
+      borderRadius: BorderRadius.circular(16),
+      color: _chromeTint,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (senderName.isNotEmpty)
+            Text(
+              senderName,
+              key: const Key('attachment_viewer_sender_name'),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          if (sentAtLabel.isNotEmpty)
+            Text(
+              sentAtLabel,
+              key: const Key('attachment_viewer_sent_at'),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.72),
+                fontSize: 12,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// The actions that make sense for [current], in WhatsApp's order.
+  List<Widget> _buildActions(ChatAttachment current) {
+    final onShare = widget.onShare;
+    final onSave = widget.onSave;
+    final onStar = widget.onStar;
+
+    // Sharing and saving both hand another app the file itself, so an
+    // attachment that is only coordinates has nothing to give it.
+    final hasFile = (current.localMediaPath ?? '').trim().isNotEmpty;
+    // Gal only takes images and videos, so there is nothing a document or a
+    // pinned location could put in the gallery.
+    final isSavable = hasFile &&
+        (current.type == ChatAttachmentType.photo ||
+            current.type == ChatAttachmentType.video ||
+            current.isImageDocument);
+
+    return [
+      if (onShare != null && hasFile)
+        _ViewerActionButton(
+          key: const Key('attachment_viewer_share_button'),
+          icon: Icons.share_rounded,
+          tooltip: 'Share',
+          onTap: () => onShare(current),
+        ),
+      if (onSave != null && isSavable)
+        _ViewerActionButton(
+          key: const Key('attachment_viewer_save_button'),
+          icon: Icons.download_rounded,
+          tooltip: 'Save to gallery',
+          onTap: () => onSave(current),
+        ),
+      if (widget.onForward != null)
+        _ViewerActionButton(
+          key: const Key('attachment_viewer_forward_button'),
+          icon: Icons.forward_rounded,
+          tooltip: 'Forward',
+          onTap: widget.onForward!,
+        ),
+      if (onStar != null)
+        _ViewerActionButton(
+          key: const Key('attachment_viewer_star_button'),
+          icon: _isStarred ? Icons.star_rounded : Icons.star_border_rounded,
+          tooltip: _isStarred ? 'Unstar' : 'Star',
+          onTap: () {
+            setState(() => _isStarred = !_isStarred);
+            onStar();
+          },
+        ),
+      if (widget.onReply != null)
+        _ViewerActionButton(
+          key: const Key('attachment_viewer_reply_button'),
+          icon: Icons.reply_rounded,
+          tooltip: 'Reply',
+          onTap: widget.onReply!,
+        ),
+      if (widget.onEdit != null)
+        _ViewerActionButton(
+          key: const Key('attachment_viewer_edit_button'),
+          icon: Icons.edit_outlined,
+          tooltip: 'Edit',
+          onTap: widget.onEdit!,
+        ),
+      if (widget.onDelete != null)
+        _ViewerActionButton(
+          key: const Key('attachment_viewer_delete_button'),
+          icon: Icons.delete_outline_rounded,
+          tooltip: 'Delete',
+          onTap: widget.onDelete!,
+        ),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     final attachments = widget.attachments;
     final hasAlbum = attachments.length > 1;
     final current = attachments[_index];
+    final title = _buildTitle();
+    final actions = _buildActions(current);
 
     return Semantics(
-      // threadName no longer shows as visible text (a floating close
-      // button over the media is all the chrome this screen needs), but
-      // still gives screen-reader users the same context sighted users get
+      // The visible title names the sender, not the thread, so this is
+      // still what gives screen-reader users the context sighted users get
       // from the surrounding conversation.
       label: hasAlbum
           ? '${current.compactLabel} from ${widget.threadName}, '
@@ -110,46 +283,83 @@ class _AttachmentViewerScreenState extends State<AttachmentViewerScreen> {
                 bottom: false,
                 child: Padding(
                   padding: const EdgeInsets.all(12),
-                  child: Row(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      LiquidGlassIconButton(
-                        key: const Key('attachment_viewer_close_button'),
-                        icon: Icons.close_rounded,
-                        tooltip: 'Close',
-                        // visualSize, not size: the glass circle shrinks to
-                        // sit level with the "6 of 11" pill opposite it,
-                        // while the tap target stays at the 44pt minimum.
-                        visualSize: 32,
-                        iconSize: 18,
-                        onTap: () => Navigator.of(context).pop(),
-                        // A fixed dark-glass chrome regardless of app theme --
-                        // this floats over media/black canvases, not the app's
-                        // own surface, so it must stay legible in both light
-                        // and dark mode (same reasoning as the video control
-                        // bar's buttons and in-call controls).
-                        color: Colors.black.withValues(alpha: 0.42),
-                        iconColor: Colors.white,
-                      ),
-                      if (hasAlbum) ...[
-                        const Spacer(),
-                        LiquidGlassSurface(
-                          borderRadius: BorderRadius.circular(999),
-                          color: Colors.black.withValues(alpha: 0.42),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 6,
+                      Row(
+                        children: [
+                          LiquidGlassIconButton(
+                            key: const Key('attachment_viewer_close_button'),
+                            icon: Icons.close_rounded,
+                            tooltip: 'Close',
+                            // visualSize, not size: the glass circle shrinks
+                            // to sit level with the "6 of 11" pill opposite
+                            // it, while the tap target stays at the 44pt
+                            // minimum.
+                            visualSize: 32,
+                            iconSize: 18,
+                            onTap: () => Navigator.of(context).pop(),
+                            // A fixed dark-glass chrome regardless of app
+                            // theme -- this floats over media/black canvases,
+                            // not the app's own surface, so it must stay
+                            // legible in both light and dark mode (same
+                            // reasoning as the video control bar's buttons
+                            // and in-call controls).
+                            color: _chromeTint,
+                            iconColor: Colors.white,
                           ),
-                          child: Text(
-                            '${_index + 1} of ${attachments.length}',
-                            key: const Key('attachment_viewer_page_label'),
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
+                          // Expanded rather than a Spacer: the title is what
+                          // absorbs the slack, so a long sender name
+                          // ellipsizes instead of pushing the page pill off
+                          // the right edge (docs/ui_layout_guidelines.md
+                          // rule 6).
+                          Expanded(
+                            child: title == null
+                                ? const SizedBox.shrink()
+                                : Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                    ),
+                                    child: title,
+                                  ),
+                          ),
+                          if (hasAlbum)
+                            LiquidGlassSurface(
+                              borderRadius: BorderRadius.circular(999),
+                              color: _chromeTint,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 6,
+                              ),
+                              child: Text(
+                                '${_index + 1} of ${attachments.length}',
+                                key: const Key('attachment_viewer_page_label'),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
                             ),
+                        ],
+                      ),
+                      if (actions.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          // A Wrap, not a Row: seven 48pt tap targets stop
+                          // fitting one line on a compact phone at a large
+                          // Android display size, and a second line is the
+                          // right failure mode for a bar of actions
+                          // (docs/ui_layout_guidelines.md rule 6). The bar
+                          // sits up here rather than along the bottom
+                          // because a video's own control bar already owns
+                          // that edge.
+                          child: Wrap(
+                            key: const Key('attachment_viewer_actions'),
+                            alignment: WrapAlignment.end,
+                            children: actions,
                           ),
                         ),
-                      ],
                     ],
                   ),
                 ),
@@ -162,6 +372,34 @@ class _AttachmentViewerScreenState extends State<AttachmentViewerScreen> {
   }
 }
 
+/// One action in the viewer's title bar, in the same chrome as the close
+/// button beside it.
+class _ViewerActionButton extends StatelessWidget {
+  const _ViewerActionButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onTap,
+    super.key,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return LiquidGlassIconButton(
+      icon: icon,
+      tooltip: tooltip,
+      visualSize: 32,
+      iconSize: 18,
+      onTap: onTap,
+      color: _chromeTint,
+      iconColor: Colors.white,
+    );
+  }
+}
+
 /// Presents [AttachmentViewerScreen] as a full-screen overlay (fade + scale)
 /// on top of the current screen instead of navigating to a new route.
 Future<void> showAttachmentPreview(
@@ -169,6 +407,16 @@ Future<void> showAttachmentPreview(
   required List<ChatAttachment> attachments,
   required String threadName,
   int initialIndex = 0,
+  String? senderName,
+  String? sentAtLabel,
+  bool isStarred = false,
+  void Function(ChatAttachment attachment)? onShare,
+  void Function(ChatAttachment attachment)? onSave,
+  VoidCallback? onForward,
+  VoidCallback? onStar,
+  VoidCallback? onReply,
+  VoidCallback? onEdit,
+  VoidCallback? onDelete,
 }) {
   return showGeneralDialog<void>(
     context: context,
@@ -182,6 +430,16 @@ Future<void> showAttachmentPreview(
           attachments: attachments,
           initialIndex: initialIndex,
           threadName: threadName,
+          senderName: senderName,
+          sentAtLabel: sentAtLabel,
+          isStarred: isStarred,
+          onShare: onShare,
+          onSave: onSave,
+          onForward: onForward,
+          onStar: onStar,
+          onReply: onReply,
+          onEdit: onEdit,
+          onDelete: onDelete,
         ),
       );
     },

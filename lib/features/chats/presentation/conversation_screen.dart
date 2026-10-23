@@ -7,6 +7,7 @@ import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:gal/gal.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../../app/theme/app_palette.dart';
 import '../../../core/media/media_transfer.dart';
@@ -727,8 +728,8 @@ class _ConversationScreenState extends State<ConversationScreen> {
           onAttachmentTap: (attachment) {
             _handleAttachmentPreviewTap(
               attachment,
-              album: message.attachments,
-              threadName: thread.name,
+              thread: thread,
+              message: message,
             );
           },
           onReactionTap: (emoji) {
@@ -1305,9 +1306,10 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
   Future<void> _handleAttachmentPreviewTap(
     ChatAttachment attachment, {
-    required List<ChatAttachment> album,
-    required String threadName,
+    required ChatThread thread,
+    required ChatMessage message,
   }) async {
+    final album = message.attachments;
     // Location attachments now open the same in-app full preview as every
     // other attachment type (a real map with a pin), rather than jumping
     // straight out to an external Maps app -- "Open in Maps" inside that
@@ -1329,11 +1331,51 @@ class _ConversationScreenState extends State<ConversationScreen> {
         )
         .toList(growable: false);
     final index = gallery.indexWhere((item) => item.id == attachment.id);
+    // The viewer gets the same actions the bubble's long-press menu offers,
+    // as callbacks: every one of them needs this screen's thread/message
+    // context (or its composer), which the viewer has no business knowing
+    // about. Reply, edit and delete close the viewer first -- the composer
+    // they land in, or the bubble they remove, is behind it.
     await showAttachmentPreview(
       context,
       attachments: index < 0 ? [attachment] : gallery,
       initialIndex: index < 0 ? 0 : index,
-      threadName: threadName,
+      threadName: thread.name,
+      senderName: message.isFromCurrentUser ? 'You' : message.senderName,
+      sentAtLabel:
+          '${_dayLabelFor(message.sentAt)} at ${_timeLabelFor(message.sentAt)}',
+      isStarred: message.isStarred,
+      onShare: _shareAttachment,
+      onSave: _saveAttachmentMedia,
+      onForward: () => _forwardMessage(thread, message),
+      onStar: () => widget.controller.toggleMessageStar(
+        threadId: thread.id,
+        messageId: message.id,
+      ),
+      onReply: () {
+        Navigator.of(context).pop();
+        _startReplyingTo(message);
+      },
+      // Only a caption can be edited, so this is offered on exactly the
+      // messages the long-press menu offers MessageAction.edit on.
+      onEdit: message.isFromCurrentUser && message.hasText
+          ? () {
+              Navigator.of(context).pop();
+              _startEditingMessage(message);
+            }
+          : null,
+      onDelete: () {
+        Navigator.of(context).pop();
+        // Your own media goes for everyone, anyone else's can only go for
+        // you -- the same split the long-press menu's two delete rows make.
+        // Picking between "for me" and "for everyone" on your own message
+        // stays in that menu rather than growing a second chooser here.
+        _confirmDeleteMessage(
+          thread,
+          message,
+          forEveryone: message.isFromCurrentUser,
+        );
+      },
     );
   }
 
@@ -2098,10 +2140,41 @@ class _ConversationScreenState extends State<ConversationScreen> {
     }
   }
 
-  /// [Gal.putImage]/[Gal.putVideo] need a real local file path -- a chat
-  /// attachment's own [ChatAttachment.localMediaPath] is that already for
-  /// the sender (pre-upload), but for anyone else it's since become a
-  /// Storage download URL, so the file is downloaded to a temp path first.
+  /// Hands the OS share sheet the attachment's own file.
+  ///
+  /// The sheet copies whatever file it is given into Mail, Photos or another
+  /// app, so it needs the same real, decrypted local file the gallery save
+  /// does -- a Storage URL or a blob of ciphertext would reach the other app
+  /// as an unopenable file rather than the photo someone meant to send on.
+  Future<void> _shareAttachment(ChatAttachment attachment) async {
+    try {
+      final localPath = await _localFileForAttachment(attachment);
+      if (localPath == null) {
+        throw Exception('This attachment could not be read.');
+      }
+      if (!mounted) {
+        return;
+      }
+      // An iPad anchors the share popover to sharePositionOrigin and has
+      // nowhere to put it without one; this screen's own box is as close as
+      // this layer gets to the button that was tapped.
+      final box = context.findRenderObject() as RenderBox?;
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [XFile(localPath)],
+          sharePositionOrigin:
+              box == null ? null : box.localToGlobal(Offset.zero) & box.size,
+        ),
+      );
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('We could not share that right now.')),
+        );
+      }
+    }
+  }
+
   Future<void> _saveMessageMedia(ChatMessage message) async {
     final attachment = message.attachments.cast<ChatAttachment?>().firstWhere(
           (candidate) =>
@@ -2110,11 +2183,17 @@ class _ConversationScreenState extends State<ConversationScreen> {
               statusMediaSourceExists(candidate?.localMediaPath ?? ''),
           orElse: () => null,
         );
-    final source = attachment?.localMediaPath;
-    if (attachment == null || source == null) {
+    if (attachment == null) {
       return;
     }
+    await _saveAttachmentMedia(attachment);
+  }
 
+  /// [Gal.putImage]/[Gal.putVideo] need a real local file path -- a chat
+  /// attachment's own [ChatAttachment.localMediaPath] is that already for
+  /// the sender (pre-upload), but for anyone else it's since become a
+  /// Storage download URL, so the file is downloaded to a temp path first.
+  Future<void> _saveAttachmentMedia(ChatAttachment attachment) async {
     try {
       final hasAccess = await Gal.hasAccess() || await Gal.requestAccess();
       if (!hasAccess) {
@@ -2130,10 +2209,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
         return;
       }
 
-      // resolveAttachmentMediaPath already does "give me a local file for
-      // this attachment", decrypting and verifying it when encrypted, and
-      // going through the shared disk cache rather than a bare http.get.
-      final localPath = await resolveAttachmentMediaPath(attachment);
+      final localPath = await _localFileForAttachment(attachment);
       if (localPath == null) {
         throw Exception('This media could not be read.');
       }
@@ -4986,6 +5062,22 @@ class _DayDivider extends StatelessWidget {
       ),
     );
   }
+}
+
+/// A real local file for [attachment], whatever shape its stored path has.
+///
+/// [resolveAttachmentMediaPath] decrypts and verifies encrypted media, but
+/// hands a plaintext (v1) upload's Storage URL straight back -- and neither
+/// [Gal] nor the share sheet can do anything with a URL, so that case is
+/// pulled through the shared disk cache here rather than at each call site.
+Future<String?> _localFileForAttachment(ChatAttachment attachment) async {
+  final resolved = await resolveAttachmentMediaPath(attachment);
+  if (resolved == null || !isRemoteStatusMediaPath(resolved)) {
+    return resolved;
+  }
+  final cached = await statusMediaCacheManager.getFileFromCache(resolved) ??
+      await statusMediaCacheManager.downloadFile(resolved);
+  return cached.file.path;
 }
 
 bool _isSameDay(DateTime left, DateTime right) {

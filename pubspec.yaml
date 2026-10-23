@@ -56,6 +56,8 @@ dependencies:
   # by hand over `http`, but that means hardcoding the region URL and
   # reimplementing error mapping -- first-party plugin is the smaller risk.
   cloud_functions: ^6.0.3
+  # Share sheet for the attachment viewer. First-party flutter.dev plugin.
+  share_plus: ^12.0.1
   # Pinned to 10.3.10 (not ^11.x) -- 11.0.0+'s android/build.gradle stopped
   # applying the kotlin-android plugin, breaking every Android build with
   # "cannot find symbol FilePickerPlugin" (a confirmed upstream regression,
@@ -186,6 +188,17 @@ flutter:
   # is a single variable-weight file; declaring it once per weight actually
   # used lets Skia render the correct instance for each.
   fonts:
+    # Bundled so a text status looks the same everywhere. The story canvas
+    # used the generic aliases 'serif' and 'monospace', which iOS resolves to
+    # Times and Android to Noto Serif -- different metrics, different
+    # wrapping, a story that did not match what its author composed.
+    # Both are SIL Open Font License, same as Inter.
+    - family: StorySerif
+      fonts:
+        - asset: assets/fonts/noto_serif/NotoSerif.ttf
+    - family: StoryMono
+      fonts:
+        - asset: assets/fonts/roboto_mono/RobotoMono.ttf
     - family: Inter
       fonts:
         - asset: assets/fonts/inter/InterVariable.ttf

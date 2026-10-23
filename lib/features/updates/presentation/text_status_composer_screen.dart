@@ -160,9 +160,12 @@ class _TextStatusComposerScreenState extends State<TextStatusComposerScreen> {
         // instead, exactly as they do in the media composer.
         body: LayoutBuilder(
           builder: (context, constraints) {
-            // The canvas fills this box, so it is the size the posted text
-            // will be measured against.
-            final canvasSize = constraints.biggest;
+            // The fixed-ratio canvas inside this box, not the box itself:
+            // the editor has to size its type against the same canvas the
+            // posted text is measured against, letterboxing included.
+            final canvasSize = statusStoryFixedCanvasSizeFor(
+              constraints.biggest,
+            );
             return Stack(
               children: [
                 Positioned.fill(child: _buildComposerStage(Theme.of(context))),
@@ -444,112 +447,111 @@ class _TextStatusComposerScreenState extends State<TextStatusComposerScreen> {
   }
 
   Widget _buildComposerStage(ThemeData theme) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final canvasSize = constraints.biggest;
-
-        return GestureDetector(
-          key: const Key('updates_composer_canvas'),
-          behavior: HitTestBehavior.opaque,
-          onTap: () {
-            if (_selectedOverlayId != null) {
-              setState(() => _selectedOverlayId = null);
-              return;
-            }
-            // Tapping away from the text puts the keyboard down and shows
-            // the story exactly as it will be posted, which is also when
-            // colour/alignment/position are worth adjusting. Tapping again
-            // goes back to typing -- the WhatsApp round trip.
-            if (_isEditing) {
-              _focusNode.unfocus();
-              setState(() => _isEditing = false);
-            } else {
-              setState(() => _isEditing = true);
-            }
-          },
-          // Pinch-to-scale the text itself -- matches WhatsApp's real text
-          // status, which has no separate size slider at all. Disabled
-          // whenever an overlay is selected so this outer recognizer
-          // doesn't compete with that overlay's own drag/pinch handling for
-          // the same pointer.
-          onScaleStart: _selectedOverlayId != null
-              ? null
-              : (_) => _pinchStartSizeScale = _style.sizeScale,
-          onScaleUpdate: _selectedOverlayId != null
-              ? null
-              : (details) {
-                  final start = _pinchStartSizeScale;
-                  if (start == null) {
-                    return;
-                  }
-                  setState(() {
-                    _style = _style.copyWith(
-                      sizeScale: (start * details.scale).clamp(
-                          kStatusTextMinSizeScale, kStatusTextMaxSizeScale),
-                    );
-                  });
-                },
-          onScaleEnd: _selectedOverlayId != null
-              ? null
-              : (_) => _pinchStartSizeScale = null,
-          child: Stack(
-            fit: StackFit.expand,
-            clipBehavior: Clip.none,
-            children: [
-              TextStatusCanvas(
-                text: _captionController.text,
-                style: _style,
-                accentColor: AppPalette.emerald,
-                // Edge-to-edge and unframed, exactly how the viewer renders
-                // a posted text status -- the rounded, bordered card the
-                // composer used to show was a frame the story never has.
-                borderRadius: BorderRadius.zero,
-                showFrame: false,
-                // The very same editor the media composer's "Add text"
-                // overlay uses, so the two tools behave identically rather
-                // than drifting as two parallel implementations.
-                // While typing the canvas holds the text back and the
-                // editor card is laid out above the keyboard instead (see
-                // the body Stack) -- centring it in the full-height preview
-                // would drop it behind the keyboard and under the font row.
-                // With the keyboard down the canvas renders its own text:
-                // no card chrome, no border, precisely what gets posted.
-                // Hidden outright while typing -- an empty child still
-                // left the panel's own capsule painted on the preview.
-                showText: !_isEditing,
-              ),
-              for (final item in _overlayItems)
-                _TextStatusOverlayItem(
-                  key: ValueKey(item.id),
-                  item: item,
-                  canvasSize: canvasSize,
-                  isSelected: _selectedOverlayId == item.id,
-                  onDragStart: () => setState(() {
-                    _isDraggingOverlay = true;
-                    _isDeleteTargetActive = false;
-                    _selectedOverlayId = item.id;
-                  }),
-                  onDragUpdate: _updateDeleteTargetHover,
-                  onDragEnd: () => _endOverlayDrag(item.id),
-                  onTap: () => setState(() => _selectedOverlayId = item.id),
-                  onDelete: () => setState(() {
-                    _overlayItems.removeWhere((o) => o.id == item.id);
-                    if (_selectedOverlayId == item.id) {
-                      _selectedOverlayId = null;
-                    }
-                  }),
-                  onChanged: (updated) => setState(() {
-                    final index =
-                        _overlayItems.indexWhere((o) => o.id == item.id);
-                    if (index != -1) {
-                      _overlayItems[index] = updated;
-                    }
-                  }),
-                ),
-            ],
-          ),
-        );
+    return GestureDetector(
+      key: const Key('updates_composer_canvas'),
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        if (_selectedOverlayId != null) {
+          setState(() => _selectedOverlayId = null);
+          return;
+        }
+        // Tapping away from the text puts the keyboard down and shows
+        // the story exactly as it will be posted, which is also when
+        // colour/alignment/position are worth adjusting. Tapping again
+        // goes back to typing -- the WhatsApp round trip.
+        if (_isEditing) {
+          _focusNode.unfocus();
+          setState(() => _isEditing = false);
+        } else {
+          setState(() => _isEditing = true);
+        }
       },
+      // Pinch-to-scale the text itself -- matches WhatsApp's real text
+      // status, which has no separate size slider at all. Disabled
+      // whenever an overlay is selected so this outer recognizer
+      // doesn't compete with that overlay's own drag/pinch handling for
+      // the same pointer.
+      onScaleStart: _selectedOverlayId != null
+          ? null
+          : (_) => _pinchStartSizeScale = _style.sizeScale,
+      onScaleUpdate: _selectedOverlayId != null
+          ? null
+          : (details) {
+              final start = _pinchStartSizeScale;
+              if (start == null) {
+                return;
+              }
+              setState(() {
+                _style = _style.copyWith(
+                  sizeScale: (start * details.scale)
+                      .clamp(kStatusTextMinSizeScale, kStatusTextMaxSizeScale),
+                );
+              });
+            },
+      onScaleEnd: _selectedOverlayId != null
+          ? null
+          : (_) => _pinchStartSizeScale = null,
+      // The gesture surface stays full-bleed -- tapping the letterbox
+      // bars still puts the keyboard down -- while the story itself is
+      // composed inside the fixed-ratio canvas the viewer renders.
+      child: StatusStoryFixedCanvas(
+        builder: (context, canvasSize) => Stack(
+          fit: StackFit.expand,
+          clipBehavior: Clip.none,
+          children: [
+            TextStatusCanvas(
+              text: _captionController.text,
+              style: _style,
+              accentColor: AppPalette.emerald,
+              // Edge-to-edge and unframed, exactly how the viewer renders
+              // a posted text status -- the rounded, bordered card the
+              // composer used to show was a frame the story never has.
+              borderRadius: BorderRadius.zero,
+              showFrame: false,
+              // The very same editor the media composer's "Add text"
+              // overlay uses, so the two tools behave identically rather
+              // than drifting as two parallel implementations.
+              // While typing the canvas holds the text back and the
+              // editor card is laid out above the keyboard instead (see
+              // the body Stack) -- centring it in the full-height preview
+              // would drop it behind the keyboard and under the font row.
+              // With the keyboard down the canvas renders its own text:
+              // no card chrome, no border, precisely what gets posted.
+              // Hidden outright while typing -- an empty child still
+              // left the panel's own capsule painted on the preview.
+              showText: !_isEditing,
+            ),
+            for (final item in _overlayItems)
+              _TextStatusOverlayItem(
+                key: ValueKey(item.id),
+                item: item,
+                canvasSize: canvasSize,
+                isSelected: _selectedOverlayId == item.id,
+                onDragStart: () => setState(() {
+                  _isDraggingOverlay = true;
+                  _isDeleteTargetActive = false;
+                  _selectedOverlayId = item.id;
+                }),
+                onDragUpdate: _updateDeleteTargetHover,
+                onDragEnd: () => _endOverlayDrag(item.id),
+                onTap: () => setState(() => _selectedOverlayId = item.id),
+                onDelete: () => setState(() {
+                  _overlayItems.removeWhere((o) => o.id == item.id);
+                  if (_selectedOverlayId == item.id) {
+                    _selectedOverlayId = null;
+                  }
+                }),
+                onChanged: (updated) => setState(() {
+                  final index =
+                      _overlayItems.indexWhere((o) => o.id == item.id);
+                  if (index != -1) {
+                    _overlayItems[index] = updated;
+                  }
+                }),
+              ),
+          ],
+        ),
+      ),
     );
   }
 

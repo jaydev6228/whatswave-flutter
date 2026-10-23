@@ -1699,23 +1699,32 @@ class _TextStoryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final activeSegment = segment;
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        TextStatusCanvas(
-          key: const Key('updates_story_text_card'),
-          text: activeSegment?.previewText ?? story.previewText,
-          style: activeSegment?.textStyle ?? const StatusTextStyle(),
-          accentColor: story.accentColor,
-          borderRadius: BorderRadius.zero,
-        ),
-        // Emoji placed on a text status (round 3) travel with the segment
-        // the same way media-status overlays already do -- without this,
-        // they'd be silently dropped in the viewer despite showing fine in
-        // the composer.
-        if (activeSegment != null)
-          SafeArea(
-            child: StatusMediaDecorationOverlay(
+    // The same fixed-ratio canvas the composer arranges the story in. The
+    // positions it saved are fractions of that canvas, so rendering them
+    // against a box shaped like this particular screen is what moved an
+    // emoji off the words it was placed above.
+    return StatusStoryFixedCanvas(
+      builder: (context, _) => Stack(
+        fit: StackFit.expand,
+        children: [
+          TextStatusCanvas(
+            key: const Key('updates_story_text_card'),
+            text: activeSegment?.previewText ?? story.previewText,
+            style: activeSegment?.textStyle ?? const StatusTextStyle(),
+            accentColor: story.accentColor,
+            borderRadius: BorderRadius.zero,
+          ),
+          // Emoji placed on a text status (round 3) travel with the segment
+          // the same way media-status overlays already do -- without this,
+          // they'd be silently dropped in the viewer despite showing fine in
+          // the composer.
+          //
+          // Not inside a SafeArea: the composer anchors them to the whole
+          // canvas, so insetting only the viewer's copy by this device's
+          // notch and home indicator shifted every placed emoji relative to
+          // the text. The canvas is already letterboxed clear of both.
+          if (activeSegment != null)
+            StatusMediaDecorationOverlay(
               segment: activeSegment,
               accentColor: story.accentColor,
               padding: kStatusMediaOverlayCanvasPadding,
@@ -1727,8 +1736,8 @@ class _TextStoryCard extends StatelessWidget {
               showCaption: false,
               showTextOverlays: false,
             ),
-          ),
-      ],
+        ],
+      ),
     );
   }
 }

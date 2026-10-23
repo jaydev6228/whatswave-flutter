@@ -58,6 +58,10 @@ class TextStatusTonePreset {
   Color? get color => colorValue == null ? null : Color(colorValue!);
 }
 
+// The serif and mono looks name bundled families (StorySerif, StoryMono)
+// rather than the generic 'serif'/'monospace' aliases, which iOS resolves to
+// Times and Android to Noto Serif -- different metrics, so the same status
+// wrapped and measured differently on each platform.
 final List<TextStatusFontLook> kTextStatusFontLooks = <TextStatusFontLook>[
   TextStatusFontLook(
     id: 'clean',
@@ -85,7 +89,7 @@ final List<TextStatusFontLook> kTextStatusFontLooks = <TextStatusFontLook>[
     label: 'Serif',
     sample: 'Sr',
     apply: (baseStyle) => baseStyle.copyWith(
-      fontFamily: 'serif',
+      fontFamily: 'StorySerif',
       fontWeight: FontWeight.w700,
       height: 1.06,
     ),
@@ -95,7 +99,7 @@ final List<TextStatusFontLook> kTextStatusFontLooks = <TextStatusFontLook>[
     label: 'Mono',
     sample: '01',
     apply: (baseStyle) => baseStyle.copyWith(
-      fontFamily: 'monospace',
+      fontFamily: 'StoryMono',
       fontWeight: FontWeight.w700,
       letterSpacing: 0.8,
       height: 1.1,
@@ -106,7 +110,7 @@ final List<TextStatusFontLook> kTextStatusFontLooks = <TextStatusFontLook>[
     label: 'Italic',
     sample: 'It',
     apply: (baseStyle) => baseStyle.copyWith(
-      fontFamily: 'serif',
+      fontFamily: 'StorySerif',
       fontStyle: FontStyle.italic,
       fontWeight: FontWeight.w600,
       height: 1.08,
@@ -138,7 +142,7 @@ final List<TextStatusFontLook> kTextStatusFontLooks = <TextStatusFontLook>[
     label: 'Editorial',
     sample: 'Ed',
     apply: (baseStyle) => baseStyle.copyWith(
-      fontFamily: 'serif',
+      fontFamily: 'StorySerif',
       fontWeight: FontWeight.w800,
       letterSpacing: -1.1,
       height: 1.0,
@@ -182,7 +186,7 @@ final List<TextStatusFontLook> kTextStatusFontLooks = <TextStatusFontLook>[
     sample: 'Cp',
     uppercase: true,
     apply: (baseStyle) => baseStyle.copyWith(
-      fontFamily: 'monospace',
+      fontFamily: 'StoryMono',
       fontWeight: FontWeight.w700,
       letterSpacing: 1.5,
       height: 1.04,
@@ -204,7 +208,7 @@ final List<TextStatusFontLook> kTextStatusFontLooks = <TextStatusFontLook>[
     label: 'Journal',
     sample: 'Jn',
     apply: (baseStyle) => baseStyle.copyWith(
-      fontFamily: 'serif',
+      fontFamily: 'StorySerif',
       fontStyle: FontStyle.italic,
       fontWeight: FontWeight.w500,
       height: 1.18,
@@ -217,7 +221,7 @@ final List<TextStatusFontLook> kTextStatusFontLooks = <TextStatusFontLook>[
     sample: 'SG',
     uppercase: true,
     apply: (baseStyle) => baseStyle.copyWith(
-      fontFamily: 'monospace',
+      fontFamily: 'StoryMono',
       fontWeight: FontWeight.w800,
       letterSpacing: 2.2,
       height: 1.0,
@@ -228,7 +232,7 @@ final List<TextStatusFontLook> kTextStatusFontLooks = <TextStatusFontLook>[
     label: 'Luxe',
     sample: 'Lx',
     apply: (baseStyle) => baseStyle.copyWith(
-      fontFamily: 'serif',
+      fontFamily: 'StorySerif',
       fontWeight: FontWeight.w600,
       letterSpacing: 0.9,
       height: 1.08,
@@ -519,6 +523,65 @@ TextStatusBackgroundPreset resolveTextStatusBackgroundForStyle(
 const double _kMinLineHeight = 1.15;
 
 const String kTextStatusCanvasPlaceholder = 'Type something';
+
+/// Every text story composes and renders inside this one ratio, whatever
+/// shape the device screen is.
+///
+/// Overlay positions travel as fractions of the canvas, so a canvas shaped
+/// like the screen puts the same fraction somewhere else on a phone with a
+/// different aspect ratio -- an emoji arranged above the words on a 19.5:9
+/// iPhone landed on top of them on a shorter Android. A fixed ratio is what
+/// makes the arrangement the author saw the arrangement everyone sees.
+const double kStatusStoryCanvasAspectRatio = 9 / 16;
+
+/// The largest [kStatusStoryCanvasAspectRatio] box that fits in [available].
+///
+/// Degenerate or unbounded boxes pass straight through: a canvas with no
+/// real size to divide has no ratio to hold, and returning [available]
+/// keeps the caller laying out exactly as it did before.
+Size statusStoryFixedCanvasSizeFor(Size available) {
+  if (!available.width.isFinite ||
+      !available.height.isFinite ||
+      available.width <= 0 ||
+      available.height <= 0) {
+    return available;
+  }
+  final width = math.min(
+    available.width,
+    available.height * kStatusStoryCanvasAspectRatio,
+  );
+  return Size(width, width / kStatusStoryCanvasAspectRatio);
+}
+
+/// Centres a fixed-ratio story canvas in the space it is given, letterboxed
+/// with whatever is left over, and hands [builder] the box it settled on.
+///
+/// The composer and the viewer both go through this so the text and the
+/// overlays anchored to it measure against the same numbers on both sides
+/// of a post.
+class StatusStoryFixedCanvas extends StatelessWidget {
+  const StatusStoryFixedCanvas({
+    required this.builder,
+    super.key,
+  });
+
+  final Widget Function(BuildContext context, Size canvasSize) builder;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final canvasSize = statusStoryFixedCanvasSizeFor(constraints.biggest);
+        return Center(
+          child: SizedBox.fromSize(
+            size: canvasSize,
+            child: builder(context, canvasSize),
+          ),
+        );
+      },
+    );
+  }
+}
 
 class TextStatusCanvas extends StatelessWidget {
   const TextStatusCanvas({

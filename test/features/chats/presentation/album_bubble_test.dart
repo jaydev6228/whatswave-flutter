@@ -208,6 +208,49 @@ void main() {
   );
 
   testWidgets(
+    'the viewer titles itself with the sender and the send time',
+    (tester) async {
+      await _openAlbumThread(tester, photos: 1);
+
+      await tester
+          .tap(find.byKey(const Key('attachment_preview_album-photo-0')));
+      await tester.pumpAndSettle();
+
+      // The same day/clock labels the message list itself uses, not a
+      // second format invented for the viewer.
+      // By key, not by text: the conversation's own app bar names the
+      // sender too.
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(const Key('attachment_viewer_sender_name')),
+            )
+            .data,
+        'Album Sender',
+      );
+      expect(find.text('Jan 1 at 9:00 AM'), findsOneWidget);
+
+      // The actions that act on the message are all wired up here.
+      for (final action in ['forward', 'star', 'reply', 'delete']) {
+        expect(
+          find.byKey(Key('attachment_viewer_${action}_button')),
+          findsOneWidget,
+          reason: action,
+        );
+      }
+      // These attachments have no file behind them, and the message isn't
+      // the current user's, so there is nothing to share, save or edit.
+      for (final action in ['share', 'save', 'edit']) {
+        expect(
+          find.byKey(Key('attachment_viewer_${action}_button')),
+          findsNothing,
+          reason: action,
+        );
+      }
+    },
+  );
+
+  testWidgets(
     'a lone photo gets no pager and no counter',
     (tester) async {
       await _openAlbumThread(tester, photos: 1);
