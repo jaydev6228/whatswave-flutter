@@ -87,77 +87,77 @@ class _CommunityInfoScreenState extends State<CommunityInfoScreen> {
         return Scaffold(
           key: const Key('community_info_screen'),
           appBar: AppBar(
-            // In edit mode the single Edit button becomes Cancel + Done,
-            // and at a large accessibility text scale the title plus both
-            // buttons need more than a 320pt bar has -- it overflowed by
-            // 25px. Ellipsizing the title does not help, because AppBar
-            // gives the title its own slot and the actions still claim
-            // their natural width.
-            //
-            // So the title goes away while editing. Cancel and Done say
-            // what the screen is doing more clearly than the word
-            // "Community info" does, and dropping it is what every editor
-            // with a confirm/cancel pair does. See rule 6 in
-            // docs/ui_layout_guidelines.md.
-            title: _isEditing ? null : const Text('Community info'),
+            title: const Text('Community info'),
             actions: [
               if (canEdit)
-                StatusModeSwitcher(
-                  alignment: Alignment.centerRight,
-                  unboundedWidth: true,
-                  child: KeyedSubtree(
-                    key: ValueKey<bool>(_isEditing),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (!_isEditing)
-                          TextButton(
-                            key: const Key('community_info_edit_button'),
-                            onPressed:
-                                isBusy ? null : () => _startEdit(community),
-                            child: const Text('Edit'),
-                          ),
-                        if (_isEditing) ...[
-                          // Flexible with an ellipsis: Cancel and Done at
-                          // twice the text size want more than a 320pt bar
-                          // has, and a Row in AppBar actions has no slack of
-                          // its own. A clipped label stays tappable and
-                          // legible; an overflowing Row does not.
-                          Flexible(
-                            child: TextButton(
-                              key: const Key(
-                                'community_detail_cancel_edit_button',
-                              ),
-                              onPressed: isBusy ? null : _cancelEdit,
-                              child: const Text(
-                                'Cancel',
-                                overflow: TextOverflow.ellipsis,
-                                maxLines: 1,
-                              ),
-                            ),
-                          ),
-                          Flexible(
-                            child: TextButton(
-                              key: const Key('community_detail_save_button'),
+                // Flexible as a direct child of AppBar's actions Row, which
+                // is the RenderFlex that actually overflowed -- by 25px at
+                // 320pt with text scale 2.0, in edit mode, where one Edit
+                // button becomes Cancel plus Done.
+                //
+                // Flexible deeper inside, around the buttons themselves,
+                // does nothing: AnimatedSwitcher reports its child's natural
+                // width to the Row above, so the Row never offers a
+                // constraint the buttons could shrink into. The flex has to
+                // be at the level of the thing AppBar measures.
+                Flexible(
+                  child: StatusModeSwitcher(
+                    alignment: Alignment.centerRight,
+                    unboundedWidth: true,
+                    child: KeyedSubtree(
+                      key: ValueKey<bool>(_isEditing),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (!_isEditing)
+                            TextButton(
+                              key: const Key('community_info_edit_button'),
                               onPressed:
-                                  isBusy ? null : () => _saveEdit(community),
-                              child: isBusy
-                                  ? const SizedBox(
-                                      width: 18,
-                                      height: 18,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                      ),
-                                    )
-                                  : const Text(
-                                      'Done',
-                                      overflow: TextOverflow.ellipsis,
-                                      maxLines: 1,
-                                    ),
+                                  isBusy ? null : () => _startEdit(community),
+                              child: const Text('Edit'),
                             ),
-                          ),
+                          if (_isEditing) ...[
+                            // Flexible with an ellipsis: Cancel and Done at
+                            // twice the text size want more than a 320pt bar
+                            // has, and a Row in AppBar actions has no slack of
+                            // its own. A clipped label stays tappable and
+                            // legible; an overflowing Row does not.
+                            Flexible(
+                              child: TextButton(
+                                key: const Key(
+                                  'community_detail_cancel_edit_button',
+                                ),
+                                onPressed: isBusy ? null : _cancelEdit,
+                                child: const Text(
+                                  'Cancel',
+                                  overflow: TextOverflow.ellipsis,
+                                  maxLines: 1,
+                                ),
+                              ),
+                            ),
+                            Flexible(
+                              child: TextButton(
+                                key: const Key('community_detail_save_button'),
+                                onPressed:
+                                    isBusy ? null : () => _saveEdit(community),
+                                child: isBusy
+                                    ? const SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : const Text(
+                                        'Done',
+                                        overflow: TextOverflow.ellipsis,
+                                        maxLines: 1,
+                                      ),
+                              ),
+                            ),
+                          ],
                         ],
-                      ],
+                      ),
                     ),
                   ),
                 ),

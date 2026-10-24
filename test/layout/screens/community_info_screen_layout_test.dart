@@ -80,22 +80,6 @@ void main() {
     );
     // Un-skip this with the AppBar fix: it fails today, by design, for the
     // reason documented above.
-  },
-      // STILL RED, and deliberately so. A 25px horizontal overflow in the
-      // AppBar's actions, only at 320x568 with text scale 2.0, only in edit
-      // mode, which is admin-only.
-      //
-      // Three fixes were tried and none moved the number: ellipsizing the
-      // title, removing the title entirely in edit mode, and wrapping both
-      // buttons in Flexible with an ellipsis. The overflow stayed at exactly
-      // 25px through all three, which means the overflowing RenderFlex is
-      // not the one being edited. StatusModeSwitcher's unboundedWidth only
-      // loosens the DEPARTING child during a crossfade, so that is not it
-      // either.
-      //
-      // Narrow enough to defer -- an admin, at double text size, on the
-      // smallest supported phone -- but the test stays written so it turns
-      // green the moment someone finds the real culprit.
-      skip: true);
+  });
 
 }
