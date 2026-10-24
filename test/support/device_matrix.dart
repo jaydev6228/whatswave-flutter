@@ -1,4 +1,5 @@
 
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:whatswave/app/whatswave_app.dart';
@@ -171,4 +172,51 @@ Future<void> pumpUntilVisible(
   }
 
   throw TestFailure('Timed out waiting for a target widget to appear.');
+}
+
+/// Renders [build]'s screen at every [layoutMatrix] size crossed with every
+/// [layoutVariants] variant, and fails if any combination throws.
+///
+/// A RenderFlex overflow is reported through the same channel as any other
+/// framework error, so `takeException` catches it -- including the overflows
+/// that only appear at a large text scale, which a size-only sweep misses
+/// entirely. That is the whole point of the variant axis: most layouts break
+/// because the text grew, not because the screen narrowed.
+///
+/// [build] is called fresh for each combination rather than reused, because
+/// a screen that holds controllers must not carry state between sizes.
+Future<void> expectScreenSurvivesLayoutMatrix(
+  WidgetTester tester, {
+  required Widget Function() build,
+  List<TestDeviceProfile> devices = layoutMatrix,
+  List<UiVariant> variants = layoutVariants,
+  Duration settle = const Duration(milliseconds: 900),
+}) async {
+  for (final device in devices) {
+    for (final variant in variants) {
+      await tester.binding.setSurfaceSize(device.size);
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(
+        MediaQuery(
+          data: MediaQueryData(
+            size: device.size,
+            textScaler: TextScaler.linear(variant.textScale),
+            platformBrightness: variant.brightness,
+          ),
+          child: Builder(builder: (_) => build()),
+        ),
+      );
+      await pumpForAsyncUi(tester, total: settle);
+
+      expect(
+        tester.takeException(),
+        isNull,
+        reason: '${device.name} at ${variant.name} '
+            '(${device.size.width.toInt()}x${device.size.height.toInt()}, '
+            'text ${variant.textScale}x, ${variant.brightness.name}) '
+            'did not render cleanly',
+      );
+    }
+  }
 }
