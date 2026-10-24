@@ -62,11 +62,18 @@ class UiVariant {
     required this.name,
     this.textScale = 1.0,
     this.brightness = Brightness.light,
+    this.viewPadding = EdgeInsets.zero,
   });
 
   final String name;
   final double textScale;
   final Brightness brightness;
+
+  /// Simulated notch and home indicator. A widget test has no insets at
+  /// all by default, so 43 files using SafeArea were being swept against a
+  /// device shape that does not exist. Two of the story-rendering bugs were
+  /// exactly this: a layer inset by a notch sitting beside one that was not.
+  final EdgeInsets viewPadding;
 
   @override
   String toString() => name;
@@ -75,6 +82,12 @@ class UiVariant {
 const defaultVariant = UiVariant(name: 'default');
 const largeTextVariant = UiVariant(name: 'text scale 2.0', textScale: 2.0);
 const darkVariant = UiVariant(name: 'dark', brightness: Brightness.dark);
+
+/// A Dynamic Island phone: 59pt of status bar, 34pt of home indicator.
+const notchVariant = UiVariant(
+  name: 'notch',
+  viewPadding: EdgeInsets.only(top: 59, bottom: 34),
+);
 
 /// What every screen must survive. Two extremes of width crossed with the
 /// variants that break layouts in place -- four cases per screen, which stays
@@ -88,6 +101,7 @@ const layoutVariants = <UiVariant>[
   defaultVariant,
   largeTextVariant,
   darkVariant,
+  notchVariant,
 ];
 
 const deviceMatrix = <TestDeviceProfile>[
@@ -203,6 +217,8 @@ Future<void> expectScreenSurvivesLayoutMatrix(
             size: device.size,
             textScaler: TextScaler.linear(variant.textScale),
             platformBrightness: variant.brightness,
+            viewPadding: variant.viewPadding,
+            padding: variant.viewPadding,
           ),
           child: Builder(builder: (_) => build()),
         ),
@@ -218,5 +234,28 @@ Future<void> expectScreenSurvivesLayoutMatrix(
             'did not render cleanly',
       );
     }
+  }
+}
+
+/// Runs Flutter's four built-in accessibility guidelines against whatever is
+/// currently pumped.
+///
+/// Separate from [expectScreenSurvivesLayoutMatrix] on purpose: the sweep
+/// answers "does this lay out", this answers "can someone use it". Bolting
+/// them together would mean a contrast failure reported as a layout failure,
+/// and a single screen failing would hide the rest of its matrix.
+///
+/// Apple and Google both reject on these, so they are not advisory.
+Future<void> expectScreenMeetsAccessibilityGuidelines(
+  WidgetTester tester,
+) async {
+  final handle = tester.ensureSemantics();
+  try {
+    await expectLater(tester, meetsGuideline(textContrastGuideline));
+    await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
+    await expectLater(tester, meetsGuideline(iOSTapTargetGuideline));
+    await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+  } finally {
+    handle.dispose();
   }
 }
