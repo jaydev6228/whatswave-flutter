@@ -73,8 +73,13 @@ class _StarredMessagesScreenState extends State<StarredMessagesScreen> {
           body: SafeArea(
             bottom: false,
             child: entries.isEmpty
-                ? Align(
-                    alignment: Alignment.topCenter,
+                // Scrollable, not a bare Align: EmptyStateCard sizes to its
+                // content, and at a large accessibility text scale the
+                // wrapped message outgrows a 320pt-wide phone's body by
+                // ~168px. Every other user of this card puts it inside a
+                // sliver, which is why none of them overflow; this branch
+                // was the odd one out.
+                ? SingleChildScrollView(
                     child: Padding(
                       padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
                       child: EmptyStateCard(

@@ -219,106 +219,128 @@ class _LocationSendPreviewScreenState extends State<LocationSendPreviewScreen> {
           ),
         ],
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: Stack(
-              children: [
-                FlutterMap(
-                  mapController: _mapController,
-                  options: MapOptions(
-                    initialCenter: _selectedCenter,
-                    initialZoom: 15,
-                    onMapEvent: _onMapMoved,
-                  ),
-                  children: [
-                    TileLayer(
-                      urlTemplate: osmTileUrlTemplate,
-                      userAgentPackageName: osmUserAgentPackageName,
+      // LayoutBuilder so the bottom panel can be capped against the real
+      // body height. At a large accessibility text scale both button labels
+      // wrap, the panel's natural height exceeds the whole body, and the
+      // map's Expanded collapses to zero while the Column still overflows.
+      body: LayoutBuilder(builder: (context, bodyConstraints) {
+        return Column(
+          children: [
+            Expanded(
+              child: Stack(
+                children: [
+                  FlutterMap(
+                    mapController: _mapController,
+                    options: MapOptions(
+                      initialCenter: _selectedCenter,
+                      initialZoom: 15,
+                      onMapEvent: _onMapMoved,
                     ),
-                  ],
-                ),
-                IgnorePointer(
-                  child: Center(
-                    child: Icon(
-                      Icons.location_on_rounded,
-                      color: theme.colorScheme.error,
-                      size: 44,
-                    ),
+                    children: [
+                      TileLayer(
+                        urlTemplate: osmTileUrlTemplate,
+                        userAgentPackageName: osmUserAgentPackageName,
+                      ),
+                    ],
                   ),
-                ),
-                if (_isLocating)
-                  const Positioned(
-                    top: 16,
-                    left: 0,
-                    right: 0,
+                  IgnorePointer(
                     child: Center(
-                      child: Card(
-                        child: Padding(
-                          padding: EdgeInsets.symmetric(
-                            horizontal: 14,
-                            vertical: 8,
-                          ),
-                          child: SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
+                      child: Icon(
+                        Icons.location_on_rounded,
+                        color: theme.colorScheme.error,
+                        size: 44,
+                      ),
+                    ),
+                  ),
+                  if (_isLocating)
+                    const Positioned(
+                      top: 16,
+                      left: 0,
+                      right: 0,
+                      child: Center(
+                        child: Card(
+                          child: Padding(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 8,
+                            ),
+                            child: SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  ),
-              ],
-            ),
-          ),
-          Material(
-            elevation: 8,
-            color: theme.colorScheme.surface,
-            child: Padding(
-              padding: EdgeInsets.fromLTRB(16, 12, 16, 12 + bottomInset),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  if (_statusMessage != null) ...[
-                    Text(
-                      _statusMessage!,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.error,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                  ],
-                  TextField(
-                    key: const Key('location_send_preview_caption_field'),
-                    controller: _captionController,
-                    minLines: 1,
-                    maxLines: 3,
-                    textCapitalization: TextCapitalization.sentences,
-                    decoration: const InputDecoration(
-                      hintText: 'Add a caption (optional)',
-                      isDense: true,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  OutlinedButton.icon(
-                    key: const Key('location_send_current_location_button'),
-                    onPressed: _isLocating ? null : _sendCurrentLocationPin,
-                    icon: const Icon(Icons.my_location_rounded),
-                    label: const Text('Send your current location'),
-                  ),
-                  const SizedBox(height: 8),
-                  FilledButton(
-                    key: const Key('location_send_selected_location_button'),
-                    onPressed: () => _confirmSend(isCurrentLocation: false),
-                    child: const Text('Send this location'),
-                  ),
                 ],
               ),
             ),
-          ),
-        ],
-      ),
+            Material(
+              elevation: 8,
+              color: theme.colorScheme.surface,
+              child: ConstrainedBox(
+                // Two thirds leaves the map a usable third even when the panel
+                // wants more than the screen has; past that the panel scrolls
+                // rather than pushing the map out of existence.
+                constraints: BoxConstraints(
+                  maxHeight: bodyConstraints.maxHeight.isFinite
+                      ? bodyConstraints.maxHeight * 0.66
+                      : double.infinity,
+                ),
+                child: SingleChildScrollView(
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(16, 12, 16, 12 + bottomInset),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        if (_statusMessage != null) ...[
+                          Text(
+                            _statusMessage!,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.error,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                        ],
+                        TextField(
+                          key: const Key('location_send_preview_caption_field'),
+                          controller: _captionController,
+                          minLines: 1,
+                          maxLines: 3,
+                          textCapitalization: TextCapitalization.sentences,
+                          decoration: const InputDecoration(
+                            hintText: 'Add a caption (optional)',
+                            isDense: true,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        OutlinedButton.icon(
+                          key: const Key(
+                              'location_send_current_location_button'),
+                          onPressed:
+                              _isLocating ? null : _sendCurrentLocationPin,
+                          icon: const Icon(Icons.my_location_rounded),
+                          label: const Text('Send your current location'),
+                        ),
+                        const SizedBox(height: 8),
+                        FilledButton(
+                          key: const Key(
+                              'location_send_selected_location_button'),
+                          onPressed: () =>
+                              _confirmSend(isCurrentLocation: false),
+                          child: const Text('Send this location'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      }),
     );
   }
 }

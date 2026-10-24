@@ -39,14 +39,21 @@ class BlockedContactsScreen extends StatelessWidget {
           body: SafeArea(
             bottom: false,
             child: blocked.isEmpty
-                ? const Padding(
-                    padding: EdgeInsets.all(24),
-                    child: EmptyStateCard(
-                      icon: Icons.block_outlined,
-                      title: 'No blocked contacts',
-                      message:
-                          'Contacts you block from a chat\'s info screen show '
-                          'up here.',
+                // Scrollable: EmptyStateCard sizes to its content, and at
+                // a large accessibility text scale the wrapped message
+                // outgrows a 320pt phone's body by ~216px. The card is fine
+                // wherever it sits in a sliver; an unscrolled Padding is
+                // what breaks it.
+                ? const SingleChildScrollView(
+                    child: Padding(
+                      padding: EdgeInsets.all(24),
+                      child: EmptyStateCard(
+                        icon: Icons.block_outlined,
+                        title: 'No blocked contacts',
+                        message:
+                            'Contacts you block from a chat\'s info screen show '
+                            'up here.',
+                      ),
                     ),
                   )
                 : ListView.separated(

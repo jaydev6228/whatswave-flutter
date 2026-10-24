@@ -32,7 +32,17 @@ class FakeAuthRepository implements AuthRepository {
   SharedPreferences? _preferences;
   bool _didHydratePersistedState = false;
 
-  Future<void> _wait() => Future<void>.delayed(latency);
+  Future<void> _wait() {
+    // Short-circuit zero, exactly as FakeChatRepository does. A
+    // Future.delayed(Duration.zero) still arms a timer that does not fire
+    // until the first pump, so a test awaiting one of these calls before
+    // pumpWidget deadlocks until the suite times out. Two layout tests lost
+    // ten minutes each to this before it was found.
+    if (latency == Duration.zero) {
+      return Future<void>.value();
+    }
+    return Future<void>.delayed(latency);
+  }
 
   @override
   Future<AppUser?> restoreSession() async {

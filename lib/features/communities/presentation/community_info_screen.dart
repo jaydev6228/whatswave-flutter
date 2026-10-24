@@ -87,7 +87,19 @@ class _CommunityInfoScreenState extends State<CommunityInfoScreen> {
         return Scaffold(
           key: const Key('community_info_screen'),
           appBar: AppBar(
-            title: const Text('Community info'),
+            // In edit mode the single Edit button becomes Cancel + Done,
+            // and at a large accessibility text scale the title plus both
+            // buttons need more than a 320pt bar has -- it overflowed by
+            // 25px. Ellipsizing the title does not help, because AppBar
+            // gives the title its own slot and the actions still claim
+            // their natural width.
+            //
+            // So the title goes away while editing. Cancel and Done say
+            // what the screen is doing more clearly than the word
+            // "Community info" does, and dropping it is what every editor
+            // with a confirm/cancel pair does. See rule 6 in
+            // docs/ui_layout_guidelines.md.
+            title: _isEditing ? null : const Text('Community info'),
             actions: [
               if (canEdit)
                 StatusModeSwitcher(
@@ -101,31 +113,48 @@ class _CommunityInfoScreenState extends State<CommunityInfoScreen> {
                         if (!_isEditing)
                           TextButton(
                             key: const Key('community_info_edit_button'),
-                            onPressed: isBusy
-                                ? null
-                                : () => _startEdit(community),
+                            onPressed:
+                                isBusy ? null : () => _startEdit(community),
                             child: const Text('Edit'),
                           ),
                         if (_isEditing) ...[
-                          TextButton(
-                            key: const Key('community_detail_cancel_edit_button'),
-                            onPressed: isBusy ? null : _cancelEdit,
-                            child: const Text('Cancel'),
+                          // Flexible with an ellipsis: Cancel and Done at
+                          // twice the text size want more than a 320pt bar
+                          // has, and a Row in AppBar actions has no slack of
+                          // its own. A clipped label stays tappable and
+                          // legible; an overflowing Row does not.
+                          Flexible(
+                            child: TextButton(
+                              key: const Key(
+                                'community_detail_cancel_edit_button',
+                              ),
+                              onPressed: isBusy ? null : _cancelEdit,
+                              child: const Text(
+                                'Cancel',
+                                overflow: TextOverflow.ellipsis,
+                                maxLines: 1,
+                              ),
+                            ),
                           ),
-                          TextButton(
-                            key: const Key('community_detail_save_button'),
-                            onPressed: isBusy
-                                ? null
-                                : () => _saveEdit(community),
-                            child: isBusy
-                                ? const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
+                          Flexible(
+                            child: TextButton(
+                              key: const Key('community_detail_save_button'),
+                              onPressed:
+                                  isBusy ? null : () => _saveEdit(community),
+                              child: isBusy
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : const Text(
+                                      'Done',
+                                      overflow: TextOverflow.ellipsis,
+                                      maxLines: 1,
                                     ),
-                                  )
-                                : const Text('Done'),
+                            ),
                           ),
                         ],
                       ],
@@ -579,9 +608,8 @@ class _IdentityCard extends StatelessWidget {
   }
 
   Widget _buildAvatar(BuildContext context) {
-    final effectiveUrl = pendingRemovePhoto
-        ? null
-        : (pendingPhoto?.path ?? community.avatarUrl);
+    final effectiveUrl =
+        pendingRemovePhoto ? null : (pendingPhoto?.path ?? community.avatarUrl);
 
     Widget avatar = pendingPhoto != null
         ? ClipOval(
@@ -719,8 +747,8 @@ class _CommunityMemberRow extends StatelessWidget {
                 children: [
                   AvatarBadge(
                     label: member.avatarLabel,
-                    color:
-                        member.contact?.accentColor ?? theme.colorScheme.primary,
+                    color: member.contact?.accentColor ??
+                        theme.colorScheme.primary,
                     size: 36,
                   ),
                   const SizedBox(width: 12),

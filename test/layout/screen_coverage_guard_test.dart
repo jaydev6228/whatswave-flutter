@@ -17,22 +17,11 @@ const _covered = <String>{
   'media_send_preview_screen',
   'layout_status_composer_screen',
   'shared_media_screen',
-};
-
-/// Debug-only surfaces behind WW_ENABLE_DEMO_SURFACES. These never ship, so
-/// they are deliberately not worth a layout test -- but `release_gate_test`
-/// must keep proving they stay out of release builds.
-const _exemptDebugOnly = <String>{
-  'call_signaling_test_screen',
-  'livekit_test_screen',
-  'backend_sync_screen',
-};
-
-/// The backlog. This set may only ever shrink -- see the ratchet below.
-const _pendingCoverage = <String>{
+  // Swept across layoutMatrix x layoutVariants -- see
+  // test/layout/screens/. Five real overflows were found doing this; four
+  // are fixed, and community_info's edit mode is a documented skip.
   'add_group_members_screen',
   'attachment_viewer_screen',
-  'avatar_crop_screen',
   'blocked_contacts_screen',
   'call_experience_screen',
   'community_detail_screen',
@@ -53,9 +42,28 @@ const _pendingCoverage = <String>{
   'storage_data_screen',
 };
 
+/// Debug-only surfaces behind WW_ENABLE_DEMO_SURFACES. These never ship, so
+/// they are deliberately not worth a layout test -- but `release_gate_test`
+/// must keep proving they stay out of release builds.
+const _exemptDebugOnly = <String>{
+  'call_signaling_test_screen',
+  'livekit_test_screen',
+  'backend_sync_screen',
+};
+
+/// The backlog. This set may only ever shrink -- see the ratchet below.
+const _pendingCoverage = <String>{
+  // Cannot be driven by expectScreenSurvivesLayoutMatrix: its body is a
+  // FutureBuilder on real file I/O, and crop_your_image parses the bytes in
+  // a real isolate, so on the fake clock it renders nothing but a progress
+  // indicator. Sweeping that would assert a spinner does not overflow.
+  // Needs tester.runAsync plus an on-disk image -- a different kind of test.
+  'avatar_crop_screen',
+};
+
 /// The ratchet. Lower this number as screens move to [_covered]; the test
 /// fails if it ever grows, so coverage cannot quietly rot back.
-const _maxPendingScreens = 21;
+const _maxPendingScreens = 1;
 
 void main() {
   test('every screen in lib/ is classified for layout coverage', () {
