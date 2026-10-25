@@ -150,6 +150,11 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  # On-device end-to-end flows (integration_test/). The only layer that runs
+  # against real sqflite, the real Keychain/Keystore, real isolates and real
+  # platform channels -- every `flutter test` above mocks all four away.
+  integration_test:
+    sdk: flutter
   flutter_lints: ^5.0.0
   image_picker_platform_interface: ^2.11.1
   path_provider_platform_interface: ^2.1.2

@@ -67,7 +67,7 @@ change, and `hasOnly` on an empty set is vacuously true.
 
 ### Integration tests
 
-Does not exist yet. See "Layer 4" below.
+`integration_test/` holds four on-device flows. See "Layer 4".
 
 ---
 
@@ -170,9 +170,10 @@ checks give most of the value at none of the churn.
 
 ## Layer 4 -- integration tests on real devices (1 week)
 
-`integration_test/` does not exist. It is the only layer that exercises real
-sqflite, real Keychain, real isolates, real biometrics and real platform
-channels -- none of which a widget test touches.
+`integration_test/` holds four flows. It is the only layer that exercises
+real sqflite, real Keychain, real isolates and real platform channels --
+none of which a widget test touches. They destroy local app state on the
+device they run on, so use a test device or a fresh simulator.
 
 Four flows, chosen because each one covers a failure that has already happened
 or that the crypto work makes possible:
