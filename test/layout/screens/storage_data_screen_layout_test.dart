@@ -35,4 +35,33 @@ void main() {
       ),
     );
   });
+
+  testWidgets('StorageDataScreen meets accessibility guidelines',
+      (tester) async {
+    final preferencesController = AppPreferencesController();
+    await preferencesController.ensureLoaded();
+
+    final chatsController = ChatsController(
+      repository: FakeChatRepository(latency: Duration.zero),
+    );
+    await chatsController.ensureLoaded();
+
+    await tester.binding.setSurfaceSize(const Size(393, 852));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.lightTheme(),
+        darkTheme: AppTheme.darkTheme(),
+        home: StorageDataScreen(
+          chatsController: chatsController,
+          preferencesController: preferencesController,
+        ),
+      ),
+    );
+    await pumpForAsyncUi(tester);
+    expect(find.byType(StorageDataScreen), findsOneWidget);
+
+    await expectScreenMeetsAccessibilityGuidelines(tester);
+  });
 }

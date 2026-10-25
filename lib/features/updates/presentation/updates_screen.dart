@@ -483,18 +483,22 @@ class _MyStatusCard extends StatelessWidget {
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      // No VisualDensity.compact on either of these: it
+                      // shrank the tap target to 40x40, under both
+                      // platform minimums (48dp Android / 44pt iOS) and
+                      // under this repo's own rule 7. The icon glyph is
+                      // 24px either way, so the buttons look identical --
+                      // only the hit box grew.
                       if (onManageTap != null)
                         IconButton(
                           key: const Key('updates_my_status_manage_button'),
                           tooltip: 'Manage statuses',
-                          visualDensity: VisualDensity.compact,
                           onPressed: isBusy ? null : onManageTap,
                           icon: const Icon(Icons.more_horiz_rounded),
                         ),
                       IconButton(
                         key: const Key('updates_my_status_text_button'),
                         tooltip: 'Write text status',
-                        visualDensity: VisualDensity.compact,
                         onPressed: isBusy ? null : onTextTap,
                         icon: isBusy
                             ? const SizedBox(

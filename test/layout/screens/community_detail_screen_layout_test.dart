@@ -59,4 +59,46 @@ void main() {
           '"Community unavailable" fallback',
     );
   });
+
+  testWidgets('CommunityDetailScreen meets accessibility guidelines',
+      (tester) async {
+    final communities = CommunitiesController(
+      repository: FakeCommunitiesRepository(latency: Duration.zero),
+      permissionService: MemoryAppPermissionService(
+        contactsStatus: ContactAccessStatus.granted,
+      ),
+    );
+    await communities.ensureLoaded();
+
+    final chats = ChatsController(
+      repository: FakeChatRepository(latency: Duration.zero),
+      permissionService: MemoryAppPermissionService(),
+    );
+    await chats.ensureLoaded();
+
+    await tester.binding.setSurfaceSize(const Size(393, 852));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.lightTheme(),
+        darkTheme: AppTheme.darkTheme(),
+        home: CommunityDetailScreen(
+          controller: communities,
+          chatsController: chats,
+          callsController: CallsController(
+            repository: FakeCallsRepository(latency: Duration.zero),
+          ),
+          updatesController: UpdatesController(
+            repository: FakeUpdatesRepository(latency: Duration.zero),
+          ),
+          communityId: communities.communities.first.id,
+        ),
+      ),
+    );
+    await pumpForAsyncUi(tester);
+    expect(find.byKey(const Key('community_detail_screen')), findsOneWidget);
+
+    await expectScreenMeetsAccessibilityGuidelines(tester);
+  });
 }

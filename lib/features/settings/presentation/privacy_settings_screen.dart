@@ -182,12 +182,17 @@ class PrivacySettingsScreen extends StatelessWidget {
                                             ),
                                       ),
                                     ),
-                                    Switch.adaptive(
-                                      key: const Key(
-                                        'privacy_app_lock_switch',
+                                    // Not a SettingsTile, so it does not
+                                    // inherit that widget's trailing label.
+                                    Semantics(
+                                      label: 'App lock',
+                                      child: Switch.adaptive(
+                                        key: const Key(
+                                          'privacy_app_lock_switch',
+                                        ),
+                                        value: controller.appLockEnabled,
+                                        onChanged: controller.setAppLockEnabled,
                                       ),
-                                      value: controller.appLockEnabled,
-                                      onChanged: controller.setAppLockEnabled,
                                     ),
                                   ],
                                 ),

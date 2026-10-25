@@ -28,31 +28,32 @@ const _document = ChatAttachment(
   localMediaPath: '/viewer-layout-test/handover.docx',
 );
 
+Widget _photoViewer() {
+  return MaterialApp(
+    theme: AppTheme.lightTheme(),
+    darkTheme: AppTheme.darkTheme(),
+    home: AttachmentViewerScreen(
+      attachments: const [_photo],
+      threadName: 'Priya Shah',
+      senderName: 'Priya Shah',
+      sentAtLabel: 'Today at 9:04 AM',
+      isStarred: true,
+      onShare: (_) {},
+      onSave: (_) {},
+      onForward: () {},
+      onStar: () {},
+      onReply: () {},
+      onEdit: () {},
+      onDelete: () {},
+    ),
+  );
+}
+
 void main() {
   testWidgets(
       'AttachmentViewerScreen survives the layout matrix with every action',
       (tester) async {
-    await expectScreenSurvivesLayoutMatrix(
-      tester,
-      build: () => MaterialApp(
-        theme: AppTheme.lightTheme(),
-        darkTheme: AppTheme.darkTheme(),
-        home: AttachmentViewerScreen(
-          attachments: const [_photo],
-          threadName: 'Priya Shah',
-          senderName: 'Priya Shah',
-          sentAtLabel: 'Today at 9:04 AM',
-          isStarred: true,
-          onShare: (_) {},
-          onSave: (_) {},
-          onForward: () {},
-          onStar: () {},
-          onReply: () {},
-          onEdit: () {},
-          onDelete: () {},
-        ),
-      ),
-    );
+    await expectScreenSurvivesLayoutMatrix(tester, build: _photoViewer);
   });
 
   testWidgets('AttachmentViewerScreen document canvas survives the matrix',
@@ -73,5 +74,22 @@ void main() {
         ),
       ),
     );
+  });
+
+  // Separate from the sweeps above on purpose: a contrast or tap-target
+  // failure reported as a layout failure tells nobody what broke. Pumped
+  // once at one realistic size, then asserted against that rendered tree
+  // -- running the guidelines before pumpWidget checks an empty tree and
+  // passes trivially.
+  testWidgets('AttachmentViewerScreen meets the accessibility guidelines',
+      (tester) async {
+    await expectScreenSurvivesLayoutMatrix(
+      tester,
+      build: _photoViewer,
+      devices: const [iphoneProProfile],
+      variants: const [defaultVariant],
+    );
+    expect(find.byType(AttachmentViewerScreen), findsOneWidget);
+    await expectScreenMeetsAccessibilityGuidelines(tester);
   });
 }

@@ -21,8 +21,7 @@ Future<CommunitiesController> _loadedCommunities() async {
 }
 
 void main() {
-  testWidgets('CommunityInfoScreen survives the layout matrix',
-      (tester) async {
+  testWidgets('CommunityInfoScreen survives the layout matrix', (tester) async {
     final controller = await _loadedCommunities();
 
     await expectScreenSurvivesLayoutMatrix(
@@ -82,4 +81,40 @@ void main() {
     // reason documented above.
   });
 
+  testWidgets('CommunityInfoScreen meets accessibility guidelines',
+      (tester) async {
+    final controller = await _loadedCommunities();
+
+    await tester.binding.setSurfaceSize(const Size(393, 852));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.lightTheme(),
+        darkTheme: AppTheme.darkTheme(),
+        home: CommunityInfoScreen(
+          controller: controller,
+          communityId: controller.communities.first.id,
+        ),
+      ),
+    );
+    await pumpForAsyncUi(tester);
+    expect(find.byKey(const Key('community_info_screen')), findsOneWidget);
+
+    await expectScreenMeetsAccessibilityGuidelines(tester);
+    // SKIPPED, not loosened: fails textContrastGuideline on two theme
+    // colours, both measured at 393x852, default text scale, light theme:
+    //   * "4 members" (InfoSectionHeading): ratio 4.41 at font size 12.0,
+    //     colorScheme.onSurface at alpha 0.6 (composites to #6F7473) on
+    //     the scaffold's AppPalette.cloud #F5F7F6. WCAG wants 4.5.
+    //   * the AppBar's "Edit" TextButton: ratio 3.84 at font size 14.0,
+    //     AppPalette.emerald #128C7E on AppPalette.cloud #F5F7F6.
+    // Both are palette decisions, so they are reported rather than fixed
+    // -- changing either colour is the user's call, and the same two pairs
+    // fail on ContactInfoScreen too, so one palette change clears both
+    // screens.
+    // androidTapTargetGuideline, iOSTapTargetGuideline and
+    // labeledTapTargetGuideline all pass.
+    // Un-skip the moment the palette changes; this is the regression test.
+  }, skip: true);
 }

@@ -229,19 +229,28 @@ class _LocationSendPreviewScreenState extends State<LocationSendPreviewScreen> {
             Expanded(
               child: Stack(
                 children: [
-                  FlutterMap(
-                    mapController: _mapController,
-                    options: MapOptions(
-                      initialCenter: _selectedCenter,
-                      initialZoom: 15,
-                      onMapEvent: _onMapMoved,
-                    ),
-                    children: [
-                      TileLayer(
-                        urlTemplate: osmTileUrlTemplate,
-                        userAgentPackageName: osmUserAgentPackageName,
+                  // flutter_map's gesture layer is tappable and pannable
+                  // but nameless, so a screen reader announced the whole
+                  // canvas as an unlabelled button. The pin itself is
+                  // decoration (IgnorePointer below), so this is the only
+                  // place the map can be named.
+                  Semantics(
+                    label: 'Map. Drag to choose the location to send.',
+                    container: true,
+                    child: FlutterMap(
+                      mapController: _mapController,
+                      options: MapOptions(
+                        initialCenter: _selectedCenter,
+                        initialZoom: 15,
+                        onMapEvent: _onMapMoved,
                       ),
-                    ],
+                      children: [
+                        TileLayer(
+                          urlTemplate: osmTileUrlTemplate,
+                          userAgentPackageName: osmUserAgentPackageName,
+                        ),
+                      ],
+                    ),
                   ),
                   IgnorePointer(
                     child: Center(

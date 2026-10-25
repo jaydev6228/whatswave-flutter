@@ -1274,35 +1274,42 @@ class _MyStatusStripItem extends StatelessWidget {
                   builder: (buttonContext) => Material(
                     color: theme.colorScheme.primary,
                     shape: const CircleBorder(),
-                    child: InkWell(
-                      key: const Key('chats_status_add_button'),
-                      customBorder: const CircleBorder(),
-                      onTap: isBusy ? null : () => onAdd(buttonContext),
-                      child: Container(
-                        width: 22,
-                        height: 22,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: theme.colorScheme.surface,
-                            width: 2,
+                    // Icon-only "+" badge: it reached a screen reader as an
+                    // unnamed tappable circle, so the one control that
+                    // starts a status had no accessible name at all.
+                    child: Semantics(
+                      button: true,
+                      label: 'Add status',
+                      child: InkWell(
+                        key: const Key('chats_status_add_button'),
+                        customBorder: const CircleBorder(),
+                        onTap: isBusy ? null : () => onAdd(buttonContext),
+                        child: Container(
+                          width: 22,
+                          height: 22,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: theme.colorScheme.surface,
+                              width: 2,
+                            ),
                           ),
-                        ),
-                        child: Center(
-                          child: isBusy
-                              ? SizedBox(
-                                  width: 11,
-                                  height: 11,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 1.8,
+                          child: Center(
+                            child: isBusy
+                                ? SizedBox(
+                                    width: 11,
+                                    height: 11,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 1.8,
+                                      color: theme.colorScheme.onPrimary,
+                                    ),
+                                  )
+                                : Icon(
+                                    Icons.add_rounded,
+                                    size: 14,
                                     color: theme.colorScheme.onPrimary,
                                   ),
-                                )
-                              : Icon(
-                                  Icons.add_rounded,
-                                  size: 14,
-                                  color: theme.colorScheme.onPrimary,
-                                ),
+                          ),
                         ),
                       ),
                     ),

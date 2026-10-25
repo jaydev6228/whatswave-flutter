@@ -14,7 +14,8 @@ void main() {
   // sets. The Column sits in a Center with no scroll view, so at 2x the
   // avatar + title + wrapped message + spinner no longer fit 568pt. Left
   // red deliberately -- the fix belongs in the screen, not here.
-  testWidgets('SessionSplashScreen survives the layout matrix without a '
+  testWidgets(
+      'SessionSplashScreen survives the layout matrix without a '
       'message', (tester) async {
     await expectScreenSurvivesLayoutMatrix(
       tester,
@@ -26,7 +27,8 @@ void main() {
     );
   });
 
-  testWidgets('SessionSplashScreen survives the layout matrix with a status '
+  testWidgets(
+      'SessionSplashScreen survives the layout matrix with a status '
       'message', (tester) async {
     await expectScreenSurvivesLayoutMatrix(
       tester,
@@ -41,5 +43,29 @@ void main() {
         ),
       ),
     );
+  });
+
+  // The message state, not the bare one: it renders strictly more -- the muted
+  // status line on top of everything the bare state has. Neither state has an
+  // interactive control, so the tap-target guidelines are vacuous here and the
+  // contrast of that muted line is the whole point.
+  testWidgets('SessionSplashScreen meets accessibility guidelines',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(393, 852));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.lightTheme(),
+        darkTheme: AppTheme.darkTheme(),
+        home: const SessionSplashScreen(
+          message: 'No saved session on this device yet.',
+        ),
+      ),
+    );
+    await pumpForAsyncUi(tester);
+    expect(find.byType(SessionSplashScreen), findsOneWidget);
+
+    await expectScreenMeetsAccessibilityGuidelines(tester);
   });
 }

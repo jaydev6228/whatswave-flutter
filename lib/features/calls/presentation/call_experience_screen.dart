@@ -1561,17 +1561,28 @@ class _CallActionButton extends StatelessWidget {
       child: Material(
         color: Colors.transparent,
         borderRadius: BorderRadius.circular(999),
-        child: InkWell(
-          key: buttonKey,
-          borderRadius: BorderRadius.circular(999),
-          onTap: onPressed,
-          child: SizedBox(
-            width: size,
-            height: size,
-            child: Icon(
-              icon,
-              color: resolvedForegroundColor,
-              size: size * 0.42,
+        // The accessible name for the control. Without it the in-call
+        // controls reach a screen reader as five unnamed round buttons --
+        // `label` was only ever painted as visible text, and the compact
+        // dock (showLabel: false) does not paint it at all, so mute,
+        // speaker, camera and flip announced as nothing. Annotating the
+        // tap target itself means both docks are named, and the visible
+        // label below is excluded so it is not read out twice.
+        child: Semantics(
+          button: true,
+          label: label,
+          child: InkWell(
+            key: buttonKey,
+            borderRadius: BorderRadius.circular(999),
+            onTap: onPressed,
+            child: SizedBox(
+              width: size,
+              height: size,
+              child: Icon(
+                icon,
+                color: resolvedForegroundColor,
+                size: size * 0.42,
+              ),
             ),
           ),
         ),
@@ -1592,16 +1603,21 @@ class _CallActionButton extends StatelessWidget {
         children: [
           circleButton,
           const SizedBox(height: 8),
-          Text(
-            label,
-            textAlign: TextAlign.center,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  color: resolvedLabelColor,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 15,
-                ),
+          // Excluded: the button above already carries this exact string as
+          // its semantic label, so leaving this readable would announce
+          // every control twice.
+          ExcludeSemantics(
+            child: Text(
+              label,
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    color: resolvedLabelColor,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 15,
+                  ),
+            ),
           ),
         ],
       ),
@@ -1625,17 +1641,23 @@ class _EndCallButton extends StatelessWidget {
     return Material(
       color: const Color(0xFFFF3347),
       shape: const CircleBorder(),
-      child: InkWell(
-        key: buttonKey,
-        customBorder: const CircleBorder(),
-        onTap: onPressed,
-        child: SizedBox(
-          width: size,
-          height: size,
-          child: Icon(
-            Icons.call_end_rounded,
-            color: Colors.white,
-            size: size * 0.4,
+      // Icon-only and the single most consequential control on the screen;
+      // unnamed it announced as nothing at all.
+      child: Semantics(
+        button: true,
+        label: 'End call',
+        child: InkWell(
+          key: buttonKey,
+          customBorder: const CircleBorder(),
+          onTap: onPressed,
+          child: SizedBox(
+            width: size,
+            height: size,
+            child: Icon(
+              Icons.call_end_rounded,
+              color: Colors.white,
+              size: size * 0.4,
+            ),
           ),
         ),
       ),
@@ -1966,7 +1988,18 @@ _CallVisualScheme _callVisualScheme(
   BuildContext context,
   CallSession session,
 ) {
-  final isDark = Theme.of(context).brightness == Brightness.dark;
+  // A video call paints a hardcoded black backdrop in BOTH themes, so the
+  // light scheme's near-black text sat on near-black and came out at a 1.12
+  // contrast ratio -- effectively invisible. That is the camera-off and
+  // pre-first-frame state a real light-theme video call shows before a
+  // remote frame arrives, not a test artifact.
+  //
+  // Video chrome is therefore always the dark scheme: light text over video
+  // is what the backdrop demands, independent of the app's theme. Audio
+  // calls keep following the theme, and already passed every guideline.
+  final isVideoOverBlack = session.isVideo;
+  final isDark = Theme.of(context).brightness == Brightness.dark ||
+      isVideoOverBlack;
   final accent = session.contact.accentColor;
 
   if (isDark) {

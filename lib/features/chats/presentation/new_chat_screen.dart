@@ -526,9 +526,20 @@ class _InviteContactTile extends StatelessWidget {
             key: Key('new_chat_invite_${contact.id}'),
             onPressed: isBusy || contact.appInviteSent ? null : onInvite,
             style: TextButton.styleFrom(
-              visualDensity: VisualDensity.compact,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              // 48x48 of tap target behind a capsule that still paints at
+              // exactly 112.6x32 (verified against the pre-fix size).
+              //
+              // `padded` is what grows the hit area, but its minimum is
+              // 48 + VisualDensity.baseSizeAdjustment, so the old
+              // `VisualDensity.compact` capped it at 40 -- under both
+              // platform minimums. Standard density lifts that to a full
+              // 48, and density also feeds the button's own padding, so
+              // the 14/8 padding and default minimumSize are restated as
+              // 14/6 and Size.zero to land back on the same painted box.
+              visualDensity: VisualDensity.standard,
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.padded,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
               // The chrome recipe: a translucent fill under a hairline, not
               // an outline on nothing -- an outline alone read as a different
               // material from the glass controls beside it.

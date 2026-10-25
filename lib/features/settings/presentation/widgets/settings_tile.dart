@@ -93,11 +93,17 @@ class SettingsTile extends StatelessWidget {
           ),
           if (trailing != null || onTap != null) ...[
             const SizedBox(width: 12),
-            trailing ??
-                Icon(
-                  Icons.chevron_right_rounded,
-                  color: theme.colorScheme.onSurface.withValues(alpha: 0.48),
-                ),
+            // A trailing control (a switch, say) is its own tap target with
+            // its own semantics node, and a bare switch carries no label at
+            // all -- a screen reader announces "on, switch" with no hint as
+            // to what it toggles. The tile's own title is that hint.
+            if (trailing != null)
+              Semantics(label: title, child: trailing)
+            else
+              Icon(
+                Icons.chevron_right_rounded,
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.48),
+              ),
           ],
         ],
       ),

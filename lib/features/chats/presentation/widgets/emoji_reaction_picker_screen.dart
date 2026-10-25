@@ -76,6 +76,17 @@ class EmojiReactionPickerSheet extends StatelessWidget {
                     backgroundColor: surface,
                     buttonIconColor: onSurface.withValues(alpha: 0.6),
                   ),
+                  // emoji_picker_flutter renders its bottom-bar search
+                  // button as a bare IconButton with no tooltip, so the
+                  // only tappable thing on the bar announced as nothing at
+                  // all. customSearchIcon is the package's only hook into
+                  // that button; Colors.white matches the
+                  // buttonIconColor default it replaces, so nothing moves.
+                  customSearchIcon: const Icon(
+                    Icons.search,
+                    color: Colors.white,
+                    semanticLabel: 'Search emoji',
+                  ),
                   bottomActionBarConfig: BottomActionBarConfig(
                     showBackspaceButton: false,
                     backgroundColor: surface,

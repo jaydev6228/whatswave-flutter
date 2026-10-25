@@ -144,7 +144,8 @@ class SettingsScreen extends StatelessWidget {
                           child: Column(
                             children: [
                               SettingsTile(
-                                key: const Key('settings_mirror_self_view_tile'),
+                                key:
+                                    const Key('settings_mirror_self_view_tile'),
                                 icon: Icons.flip_outlined,
                                 title: 'Mirror my video',
                                 subtitle: preferencesController.mirrorSelfView

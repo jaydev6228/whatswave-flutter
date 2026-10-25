@@ -26,4 +26,25 @@ void main() {
       ),
     );
   });
+
+  testWidgets('PrivacySettingsScreen meets accessibility guidelines',
+      (tester) async {
+    final controller = AppPreferencesController();
+    await controller.ensureLoaded();
+
+    await tester.binding.setSurfaceSize(const Size(393, 852));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.lightTheme(),
+        darkTheme: AppTheme.darkTheme(),
+        home: PrivacySettingsScreen(controller: controller),
+      ),
+    );
+    await pumpForAsyncUi(tester);
+    expect(find.byType(PrivacySettingsScreen), findsOneWidget);
+
+    await expectScreenMeetsAccessibilityGuidelines(tester);
+  });
 }

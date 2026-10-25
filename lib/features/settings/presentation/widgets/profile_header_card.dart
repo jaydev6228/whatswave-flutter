@@ -75,7 +75,6 @@ class ProfileHeaderCard extends StatelessWidget {
                 IconButton(
                   key: const Key('settings_profile_edit_button'),
                   tooltip: 'Edit profile',
-                  visualDensity: VisualDensity.compact,
                   onPressed: onEditTap,
                   icon: const Icon(Icons.edit_outlined),
                 ),

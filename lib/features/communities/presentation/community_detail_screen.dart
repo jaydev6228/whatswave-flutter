@@ -73,11 +73,22 @@ class CommunityDetailScreen extends StatelessWidget {
           appBar: AppBar(
             title: GestureDetector(
               key: const Key('community_detail_title_button'),
+              // Opaque + padded: the hit area was only as tall as the
+              // title text (28pt), under both platform minimums. The
+              // padding is transparent and the AppBar's 56pt toolbar
+              // centres the title either way, so nothing moves on screen
+              // -- deferToChild would have left the added strip dead, so
+              // the behaviour has to be opaque for the bigger box to be
+              // real and not just bigger in the semantics tree.
+              behavior: HitTestBehavior.opaque,
               onTap: () => _openCommunityInfo(context, controller, community),
-              child: Text(
-                community.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                child: Text(
+                  community.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
             ),
             actions: [
