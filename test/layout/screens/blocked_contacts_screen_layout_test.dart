@@ -85,8 +85,7 @@ void main() {
   // it is one palette decision and not three screen bugs -- and changing the
   // app's palette is the user's call, not this test's. Un-skip the moment
   // emerald or cloud moves; it is the regression test for that change.
-  testWidgets('BlockedContactsScreen meets accessibility guidelines',
-      skip: true, (tester) async {
+  testWidgets('BlockedContactsScreen meets accessibility guidelines', (tester) async {
     final chatsController = await loadedChats();
     for (final thread in chatsController.threads.take(3).toList()) {
       await chatsController.setThreadBlocked(

@@ -1,7 +1,16 @@
 import 'package:flutter/material.dart';
 
 abstract final class AppPalette {
-  static const Color emerald = Color(0xFF128C7E);
+  // Darkened from #128C7E, which failed WCAG AA as text: 3.84 against the
+  // cloud scaffold background and 4.14 against white, where 4.5 is the
+  // minimum for text under 18pt. Because emerald is colorScheme.primary and
+  // textButtonTheme sets no foregroundColor, every TextButton in the app
+  // inherited it, so this failed app-wide rather than on one screen.
+  //
+  // #0E7268 gives 5.38 on cloud and 5.79 on white. The nearer candidate
+  // #0E7E6F cleared 4.5 by only 0.11, which any later tweak to a surface
+  // colour would have undone.
+  static const Color emerald = Color(0xFF0E7268);
   static const Color green = Color(0xFF25D366);
   static const Color ink = Color(0xFF111B21);
   static const Color deepOcean = Color(0xFF0B141A);

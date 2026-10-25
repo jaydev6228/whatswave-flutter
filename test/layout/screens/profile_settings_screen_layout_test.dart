@@ -60,8 +60,7 @@ void main() {
   // it is one palette decision and not three screen bugs -- and changing the
   // app's palette is the user's call, not this test's. Un-skip the moment
   // emerald or cloud moves; it is the regression test for that change.
-  testWidgets('ProfileSettingsScreen meets accessibility guidelines',
-      skip: true, (tester) async {
+  testWidgets('ProfileSettingsScreen meets accessibility guidelines', (tester) async {
     final authController = await restoredAuth(tester);
 
     await tester.binding.setSurfaceSize(const Size(393, 852));

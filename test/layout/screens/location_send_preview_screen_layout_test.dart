@@ -99,6 +99,5 @@ void main() {
     //
     // Left in place rather than deleted or loosened, so this becomes the
     // regression test the moment that pair changes.
-    skip: true,
   );
 }
