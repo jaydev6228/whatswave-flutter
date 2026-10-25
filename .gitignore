@@ -81,3 +81,6 @@ docs/handoff/
 # upstream dependency patch versions shift, causing noise-only diffs with
 # no code change behind them (see gtm-session-fetcher 5.3.0 -> 5.3.1).
 ios/Runner.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+
+# Flutter writes this on any golden mismatch; it is diff output, not source.
+test/golden/failures/
