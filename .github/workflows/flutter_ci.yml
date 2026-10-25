@@ -50,6 +50,58 @@ jobs:
       # regression here is a data-exposure bug that no Dart test would catch.
       - run: npm run test:rules
 
+  integration-test-lab:
+    name: Integration tests on real devices
+    runs-on: ubuntu-latest
+    needs: [quality, security-rules]
+    # Only on main, and only when the credential exists: a fork or a PR from
+    # one has no access to secrets, and Test Lab runs cost money per device
+    # minute. Skipped is the correct outcome there, not failed.
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+
+      - id: creds
+        run: |
+          if [ -n "${{ secrets.GCP_TEST_LAB_SA_KEY }}" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::GCP_TEST_LAB_SA_KEY not set -- skipping Test Lab."
+          fi
+
+      # The androidTest APK is what actually carries the integration tests;
+      # the app APK alone would install and do nothing.
+      - if: steps.creds.outputs.present == 'true'
+        working-directory: android
+        run: |
+          ./gradlew app:assembleDebug \
+            -Ptarget=integration_test/app_test.dart
+          ./gradlew app:assembleDebugAndroidTest \
+            -Ptarget=integration_test/app_test.dart
+
+      - if: steps.creds.outputs.present == 'true'
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_TEST_LAB_SA_KEY }}
+
+      - if: steps.creds.outputs.present == 'true'
+        uses: google-github-actions/setup-gcloud@v2
+
+      - if: steps.creds.outputs.present == 'true'
+        run: |
+          gcloud firebase test android run \
+            --type instrumentation \
+            --app build/app/outputs/apk/debug/app-debug.apk \
+            --test build/app/outputs/apk/androidTest/debug/app-debug-androidTest.apk \
+            --device model=MediumPhone.arm,version=33,locale=en,orientation=portrait \
+            --timeout 10m
+
   android-build-smoke:
     name: Android debug build
     runs-on: ubuntu-latest
