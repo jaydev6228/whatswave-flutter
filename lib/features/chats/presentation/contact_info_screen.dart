@@ -13,6 +13,7 @@ import '../../communities/application/communities_controller.dart';
 import '../../communities/domain/community_hub.dart';
 import '../../communities/presentation/community_detail_screen.dart';
 import '../../shared/widgets/avatar_badge.dart';
+import '../../shared/widgets/info_screen_chrome.dart';
 import '../../shared/widgets/error_dialog.dart';
 import '../../shared/widgets/avatar_preview.dart';
 import '../../shared/widgets/status_motion.dart';
@@ -292,7 +293,7 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                             ),
                           ),
                         if (communityContext != null) ...[
-                          _SectionHeading('Community'),
+                          InfoSectionHeading('Community'),
                           _FlatInfoPanel(
                             padding: EdgeInsets.zero,
                             child: _CommunityLinkRow(
@@ -330,7 +331,7 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                           const SizedBox(height: 14),
                         ],
                         if (mediaAttachments.isNotEmpty) ...[
-                          _SectionHeading('Shared media'),
+                          InfoSectionHeading('Shared media'),
                           _FlatInfoPanel(
                             padding: EdgeInsets.zero,
                             child: _SharedMediaDisclosureRow(
@@ -341,7 +342,7 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                           const SizedBox(height: 14),
                         ],
                         if (threadStarredCount > 0) ...[
-                          _SectionHeading('Starred messages'),
+                          InfoSectionHeading('Starred messages'),
                           _FlatInfoPanel(
                             padding: EdgeInsets.zero,
                             child: _StarredMessagesDisclosureRow(
@@ -356,7 +357,7 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                         ],
                         if (thread.isGroup &&
                             (thread.participants?.isNotEmpty ?? false)) ...[
-                          _SectionHeading(
+                          InfoSectionHeading(
                             '${thread.participants!.length} participants',
                           ),
                           _FlatInfoPanel(
@@ -406,7 +407,7 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                         if (!thread.isGroup &&
                             _hasLoadedCommonGroups &&
                             _commonGroups.isNotEmpty) ...[
-                          _SectionHeading('Common groups'),
+                          InfoSectionHeading('Common groups'),
                           _FlatInfoPanel(
                             padding: EdgeInsets.zero,
                             child: Column(
@@ -427,7 +428,7 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                           ),
                           const SizedBox(height: 14),
                         ],
-                        _SectionHeading('Actions'),
+                        InfoSectionHeading('Actions'),
                         _FlatInfoPanel(
                           padding: EdgeInsets.zero,
                           child: Column(
@@ -1231,33 +1232,6 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
 
 enum _ParticipantAction { toggleAdmin, remove }
 
-/// Section labels read as list-section captions, not page titles -- the
-/// screen stacks up to six of them, and at title size they pushed most of
-/// the content below the fold on a compact phone.
-class _SectionHeading extends StatelessWidget {
-  const _SectionHeading(this.label);
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 0, 4, 6),
-      child: Text(
-        label,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: theme.textTheme.labelMedium?.copyWith(
-          color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
-          fontWeight: FontWeight.w700,
-          letterSpacing: 0.6,
-        ),
-      ),
-    );
-  }
-}
-
 class _CommunityLinkRow extends StatelessWidget {
   const _CommunityLinkRow({
     required this.community,
@@ -1601,7 +1575,10 @@ class _ActionRow extends StatelessWidget {
         key: actionKey,
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          // 14, not 12: a 20pt icon with 12 above and below is a 44pt row,
+          // under the 48dp minimum tap target in
+          // docs/ui_layout_guidelines.md rule 7. 14 makes it exactly 48.
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
           child: Row(
             children: [
               Icon(icon, size: 20, color: color),

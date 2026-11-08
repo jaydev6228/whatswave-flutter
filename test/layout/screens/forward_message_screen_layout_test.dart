@@ -57,19 +57,8 @@ void main() {
       );
       await expectScreenMeetsAccessibilityGuidelines(tester);
     },
-    // textContrast and labeledTapTarget pass. The two tap-target
-    // guidelines fail on one node, and it is not this screen's widget:
-    //
-    //   "Search chats" field -- 361.0x42.0, against 48x48 (Android) and
-    //   44x44 (iOS). That is the shared SearchField
-    //   (lib/features/shared/widgets/search_field.dart), whose 9pt
-    //   vertical contentPadding sets the 42pt height for chats, archived
-    //   chats, communities, new chat, new group and community invite
-    //   alike. Raising it to 12 would clear both minimums but make every
-    //   search capsule in the app 6pt taller -- a visible change to a
-    //   shared control, so it is reported, not fixed here.
-    //
-    // Left in place rather than deleted or loosened.
-    skip: true,
+    // All four guidelines pass. This was skipped on the shared
+    // SearchField measuring 361x42 against the 48x48 minimum; that
+    // field's vertical padding is now 12, so it is 48.
   );
 }

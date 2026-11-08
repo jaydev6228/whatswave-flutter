@@ -432,7 +432,10 @@ class _ArchivedCard extends StatelessWidget {
         key: const Key('chat_archived_row'),
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6),
+          // 12, not 6: 6 made this a 36pt tap target, under the 48dp
+          // minimum in docs/ui_layout_guidelines.md rule 7. Its content is
+          // 24pt, so 12 above and below lands exactly on 48.
+          padding: const EdgeInsets.symmetric(vertical: 12),
           child: Row(
             children: [
               Icon(

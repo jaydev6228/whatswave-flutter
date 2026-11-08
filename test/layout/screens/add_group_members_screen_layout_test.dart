@@ -91,15 +91,8 @@ void main() {
     expect(find.byKey(const Key('add_group_members_screen')), findsOneWidget);
 
     await expectScreenMeetsAccessibilityGuidelines(tester);
-    // SKIPPED, not loosened: this fails androidTapTargetGuideline and
-    // iOSTapTargetGuideline today on the shared SearchField -- the capsule
-    // measures 361.0x42.0, under both the 48x48 Android minimum and the
-    // 44x44 iOS one. The height comes from
-    // lib/features/shared/widgets/search_field.dart (isDense: true plus
-    // contentPadding vertical: 9); vertical: 12 would clear 48, but every
-    // search capsule in the app would grow 6pt taller, which is a visible
-    // design change and not this change's call to make.
-    // textContrastGuideline and labeledTapTargetGuideline pass.
-    // Un-skip with the SearchField height change.
-  }, skip: true);
+    // All four guidelines pass. This was skipped on the shared
+    // SearchField measuring 361x42 against the 48x48 minimum; that
+    // field's vertical padding is now 12, so it is 48.
+  });
 }

@@ -60,24 +60,26 @@ void main() {
       );
       await expectScreenMeetsAccessibilityGuidelines(tester);
     },
-    // labeledTapTargetGuideline passes now -- the package's bottom-bar
-    // search button was announcing as nothing at all, and
-    // `customSearchIcon` in the Config above names it.
+    // Two of the four pass now.
     //
-    // The other three fail inside emoji_picker_flutter 4.5.3, on widgets
-    // this app does not build and cannot reach through Config:
+    // labeledTapTargetGuideline: the package's bottom-bar search button
+    // was announcing as nothing at all, and `customSearchIcon` in the
+    // Config above names it.
     //
-    //   textContrast: its "No Recents" placeholder -- ratio 1.88, needs
-    //   3.0 (large-text threshold), font size 20.0. #BDBDBD on #FFFFFF,
-    //   the package's own hardcoded grey, not an app palette token.
+    // textContrast: its "No Recents" placeholder was #BDBDBD on #FFFFFF
+    // -- 1.88 against the 3.0 large-text threshold at font size 20.0.
+    // `noRecents` in the EmojiViewConfig above replaces that widget with
+    // a themed one, so the package's hardcoded grey is no longer drawn.
     //
-    //   android/iOSTapTarget: the 9 category tabs, each 43.7x46 against
-    //   48x48 and 44x44. Width is viewport/9, so 393/9 = 43.7 -- it is
-    //   short by 4.3pt on Android and 0.3pt on iOS, and the only fixes
-    //   are fewer tabs or a scrolling tab strip. Both are design
-    //   decisions, and both live in the package.
+    // Still failing: android/iOSTapTargetGuideline on the 9 category
+    // tabs, each 43.7x46 against 48x48 and 44x44. The width is
+    // viewport/9 -- 393/9 = 43.7 -- so no amount of padding fixes it;
+    // it needs fewer tabs or a scrolling tab strip, both of which are
+    // design decisions and both of which live inside
+    // emoji_picker_flutter 4.5.3.
     //
-    // Left in place rather than deleted or loosened.
+    // Left in place rather than deleted or loosened: un-skip when the
+    // tab strip changes.
     skip: true,
   );
 }

@@ -106,47 +106,34 @@ void main() {
     await _expectThreadSurvives(tester, 'ava-patel');
   });
 
-  // Both cases below are SKIPPED, not loosened. Measured at 393x852,
-  // default text scale, light theme.
+  // Both cases below pass all four guidelines. Four things had to change,
+  // measured at 393x852, default text scale, light theme:
+  //   * section headings were onSurface at alpha 0.6 -- 4.41 at font size
+  //     12.0 on cloud, under WCAG's 4.5. They are alpha 0.66 now, and
+  //     this screen uses the shared InfoSectionHeading rather than the
+  //     byte-identical private copy it used to carry.
+  //   * every _ActionRow drew colorScheme.error on the panel's #FBFBFB
+  //     fill: 3.39 at font size 14.0 while that was rose #E55B5B. The
+  //     light scheme uses roseDeep #CC3B3B now, 4.77 on that fill.
+  //   * _ActionRow measured 359x44 against Android's 48x48. Its vertical
+  //     padding is 14, so the rows are 48.
+  //   * the AppBar's "Edit" TextButton draws colorScheme.primary on
+  //     cloud: 3.84 while emerald was #128C7E, 5.38 at #0E7268.
   //
-  // textContrastGuideline fails on three theme colours, none of which this
-  // change may fix -- a palette change is the user's decision:
-  //   * section headings ("3 participants", "Shared media", "Actions",
-  //     InfoSectionHeading): ratio 4.41 at font size 12.0,
-  //     colorScheme.onSurface at alpha 0.6 (composites to #6F7473) on the
-  //     scaffold's AppPalette.cloud #F5F7F6. Needs 4.5. The same pair
-  //     fails on CommunityInfoScreen.
-  //   * every _ActionRow ("Clear chat", "Exit group", "Block Ava Patel"
-  //     and, oddly, "Add participants"): ratio 3.39 at font size 14.0,
-  //     colorScheme.error / AppPalette.rose #E55B5B on the info panel's
-  //     #FBFBFB fill. Needs 4.5, and this is the worst ratio outside the
-  //     video-call screen -- on the destructive actions. Separately worth
-  //     a look: _ActionRow paints *all* its rows in colorScheme.error, so
-  //     "Add participants" is red although it destroys nothing.
-  //   * the AppBar's "Edit" TextButton: ratio 3.84 at font size 14.0,
-  //     AppPalette.emerald #128C7E on AppPalette.cloud #F5F7F6. Also
-  //     fails on CommunityInfoScreen.
-  //
-  // androidTapTargetGuideline also fails: the _ActionRow rows measure
-  // 359.0x44.0, under Android's 48x48 (they clear iOS's 44x44 exactly).
-  // 44 = 12 + 20 + 12 (vertical padding, icon, vertical padding), the same
-  // recipe InfoPrimaryActionRow uses in
-  // lib/features/shared/widgets/info_screen_chrome.dart. Vertical padding
-  // of 14 would clear 48, but every info row in the app would grow 4pt and
-  // the divider rhythm would shift, so it is reported, not changed.
-  //
-  // iOSTapTargetGuideline and labeledTapTargetGuideline pass.
+  // Still open, and not a guideline failure: _ActionRow paints *all* its
+  // rows in colorScheme.error, so "Add participants" is red although it
+  // destroys nothing.
   testWidgets('ContactInfoScreen meets accessibility guidelines for a group',
       (tester) async {
     await _pumpThreadForAccessibility(tester, 'design-sprint');
     await expectScreenMeetsAccessibilityGuidelines(tester);
-  }, skip: true);
+  });
 
   testWidgets('ContactInfoScreen meets accessibility guidelines for a contact',
       (tester) async {
     await _pumpThreadForAccessibility(tester, 'ava-patel');
     await expectScreenMeetsAccessibilityGuidelines(tester);
-  }, skip: true);
+  });
 
   // The report dialog is the tallest transient surface this screen opens:
   // an explanation plus five radio rows, which at a 2.0 text scale on a

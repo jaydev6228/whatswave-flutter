@@ -1,5 +1,4 @@
-import 'dart:io';
-
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -29,7 +28,7 @@ const _appSettingsChannel = MethodChannel('whatswave/app_settings');
 /// Opens this app's permission page — Settings → Whatswave on iOS,
 /// the app info screen on Android — not the OS Settings home list.
 Future<void> openAppPermissionSettings() async {
-  if (Platform.isIOS) {
+  if (defaultTargetPlatform == TargetPlatform.iOS) {
     try {
       final opened =
           await _appSettingsChannel.invokeMethod<bool>('openAppSettings');

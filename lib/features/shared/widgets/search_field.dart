@@ -58,14 +58,19 @@ class SearchField extends StatelessWidget {
             fillColor: theme.colorScheme.onSurface.withValues(
               alpha: theme.brightness == Brightness.dark ? 0.08 : 0.05,
             ),
+            // 12, not 9: 9 left the field 42pt tall against the 48dp
+            // minimum tap target in docs/ui_layout_guidelines.md rule 7,
+            // which failed tapTargetGuideline on every screen that has a
+            // search field. 24pt of text plus 12 top and bottom is exactly
+            // 48, and it still grows from there with the text scale.
             contentPadding: const EdgeInsets.symmetric(
               horizontal: 14,
-              vertical: 9,
+              vertical: 12,
             ),
             prefixIcon: const Icon(Icons.search_rounded),
             prefixIconConstraints: const BoxConstraints(
               minWidth: 40,
-              minHeight: 40,
+              minHeight: 48,
             ),
             // Capsule, like every other control in this language.
             border: const OutlineInputBorder(

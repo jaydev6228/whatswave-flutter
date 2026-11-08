@@ -1,5 +1,4 @@
-import 'dart:io';
-
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -8,33 +7,16 @@ import 'package:whatswave/features/chats/presentation/widgets/location_map_previ
 
 /// Platform-branch coverage for [LocationMapCanvas]'s "Open in Maps" action.
 ///
-/// READ THIS BEFORE ADDING AN "iOS" CASE HERE.
+/// `_handleOpenInMapsTap` used to branch on `dart:io`'s `Platform.isIOS`,
+/// the compile-time host platform. `flutter test` runs on macOS or Linux
+/// and `dart:io` offers no override seam for platform identity, so the iOS
+/// side -- the provider sheet, the `maps.apple.com` URL, and the
+/// dismissed-without-choosing path -- was unreachable from here at all. It
+/// now branches on `defaultTargetPlatform`, which
+/// `debugDefaultTargetPlatformOverride` drives, so both sides are covered.
 ///
-/// `_handleOpenInMapsTap` branches on `Platform.isIOS` -- `dart:io`'s
-/// compile-time host platform, not `defaultTargetPlatform`. That distinction
-/// matters: `debugDefaultTargetPlatformOverride` steers
-/// `defaultTargetPlatform` and nothing else, so wrapping these tests in it
-/// would swap Material for Cupertino page transitions and leave this branch
-/// reading the host platform exactly as before -- a test that looks like
-/// two-branch coverage while only ever running one branch.
-///
-/// `flutter test` runs on the host VM (macOS locally, Linux in CI), where
-/// `Platform.isIOS` is `false`. `dart:io` exposes no override seam for
-/// `Platform` (`IOOverrides` covers the file system and sockets, not the
-/// platform identity), so the iOS side of this branch is unreachable here:
-///
-///   * the `showModalBottomSheet` provider choice (`_MapProviderSheet`,
-///     `open_in_apple_maps_option` / `open_in_google_maps_option`),
-///   * the `maps.apple.com/?ll=...&q=...` URL built by
-///     `_launchProvider(_MapProvider.apple)`,
-///   * the "sheet dismissed without a choice" path (`selected == null`).
-///
-/// Those need an integration test on an iOS simulator, or a switch to
-/// `defaultTargetPlatform` in the widget itself.
-///
-/// Everything below is the Android/host branch plus the shared failure path,
-/// and it is falsifiable: the tests assert no provider sheet appears, so
-/// deleting the `if (!Platform.isIOS)` early return fails them.
+/// Both directions are falsifiable: the Android tests assert no sheet
+/// appears, the iOS tests assert it does.
 void main() {
   const urlLauncherChannel = MethodChannel('plugins.flutter.io/url_launcher');
 
@@ -55,11 +37,27 @@ void main() {
       };
     });
     addTearDown(
-      () => TestDefaultBinaryMessengerBinding
-          .instance.defaultBinaryMessenger
+      () => TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(urlLauncherChannel, null),
     );
   });
+
+  /// Runs [body] as [platform], clearing the override before returning.
+  ///
+  /// It cannot be an addTearDown: testWidgets asserts that every foundation
+  /// debug variable is unset at the end of the test *body*, and tearDown
+  /// callbacks run after that check.
+  Future<void> onPlatform(
+    TargetPlatform platform,
+    Future<void> Function() body,
+  ) async {
+    debugDefaultTargetPlatformOverride = platform;
+    try {
+      await body();
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  }
 
   /// The canvas needs a real viewport: `FlutterMap` sizes itself from its
   /// constraints, and the button is positioned against the bottom edge.
@@ -86,6 +84,13 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
   }
 
+  Future<void> tapOpenInMaps(WidgetTester tester) async {
+    await tester.tap(
+      find.byKey(const Key('attachment_viewer_open_in_maps_button')),
+    );
+    await tester.pumpAndSettle();
+  }
+
   String? launchedUrl() {
     final launch = launchCalls.where((call) => call.method == 'launch');
     if (launch.isEmpty) {
@@ -94,49 +99,106 @@ void main() {
     return (launch.last.arguments as Map)['url'] as String?;
   }
 
-  test('this suite runs on a non-iOS host, so only that branch is drivable',
-      () {
-    // The premise of every test below, asserted rather than assumed.
-    expect(
-      Platform.isIOS,
-      isFalse,
-      reason: 'flutter test runs on the host VM (macOS/Linux), never iOS',
-    );
-  });
-
   testWidgets('Open in Maps goes straight to Google Maps off iOS',
       (tester) async {
-    await pumpCanvas(tester);
+    await onPlatform(TargetPlatform.android, () async {
+      await pumpCanvas(tester);
+      await tapOpenInMaps(tester);
 
-    await tester.tap(
-      find.byKey(const Key('attachment_viewer_open_in_maps_button')),
-    );
-    await tester.pumpAndSettle();
+      // No provider choice: that sheet is the iOS branch. These two
+      // assertions are what make this branch coverage -- drop the platform
+      // early return and the sheet appears here.
+      expect(find.byKey(const Key('open_in_apple_maps_option')), findsNothing);
+      expect(find.byKey(const Key('open_in_google_maps_option')), findsNothing);
 
-    // No provider choice: that sheet is the iOS branch. These two assertions
-    // are what make this branch coverage -- drop the `if (!Platform.isIOS)`
-    // early return and the sheet appears here.
-    expect(find.byKey(const Key('open_in_apple_maps_option')), findsNothing);
-    expect(find.byKey(const Key('open_in_google_maps_option')), findsNothing);
-
-    expect(
-      launchedUrl(),
-      'https://www.google.com/maps/search/?api=1&query=19.076,72.8777',
-    );
+      expect(
+        launchedUrl(),
+        'https://www.google.com/maps/search/?api=1&query=19.076,72.8777',
+      );
+    });
   });
 
   testWidgets('a refused launch surfaces the error dialog', (tester) async {
-    launchSucceeds = false;
-    await pumpCanvas(tester);
+    await onPlatform(TargetPlatform.android, () async {
+      launchSucceeds = false;
+      await pumpCanvas(tester);
+      await tapOpenInMaps(tester);
 
-    await tester.tap(
-      find.byKey(const Key('attachment_viewer_open_in_maps_button')),
-    );
-    await tester.pumpAndSettle();
+      expect(launchedUrl(), isNotNull);
+      expect(
+        find.text('We could not open Maps for that location.'),
+        findsOneWidget,
+      );
+    });
+  });
 
-    expect(launchedUrl(), isNotNull);
-    expect(find.text('We could not open Maps for that location.'),
-        findsOneWidget);
+  testWidgets('on iOS Open in Maps offers a provider choice first',
+      (tester) async {
+    await onPlatform(TargetPlatform.iOS, () async {
+      await pumpCanvas(tester);
+      await tapOpenInMaps(tester);
+
+      expect(
+          find.byKey(const Key('open_in_apple_maps_option')), findsOneWidget);
+      expect(
+          find.byKey(const Key('open_in_google_maps_option')), findsOneWidget);
+      expect(
+        launchCalls,
+        isEmpty,
+        reason: 'nothing opens until the user picks a provider',
+      );
+    });
+  });
+
+  testWidgets('on iOS picking Apple Maps launches maps.apple.com',
+      (tester) async {
+    await onPlatform(TargetPlatform.iOS, () async {
+      await pumpCanvas(tester);
+      await tapOpenInMaps(tester);
+      await tester.tap(find.byKey(const Key('open_in_apple_maps_option')));
+      await tester.pumpAndSettle();
+
+      // The label is encoded rather than interpolated raw: it carries
+      // spaces and a comma, which would otherwise break the query.
+      expect(
+        launchedUrl(),
+        'https://maps.apple.com/?ll=19.076,72.8777'
+        '&q=Bandra%20Kurla%20Complex%2C%20Mumbai',
+      );
+    });
+  });
+
+  testWidgets('on iOS picking Google Maps launches the Google URL',
+      (tester) async {
+    await onPlatform(TargetPlatform.iOS, () async {
+      await pumpCanvas(tester);
+      await tapOpenInMaps(tester);
+      await tester.tap(find.byKey(const Key('open_in_google_maps_option')));
+      await tester.pumpAndSettle();
+
+      expect(
+        launchedUrl(),
+        'https://www.google.com/maps/search/?api=1&query=19.076,72.8777',
+      );
+    });
+  });
+
+  testWidgets('on iOS dismissing the sheet opens nothing', (tester) async {
+    await onPlatform(TargetPlatform.iOS, () async {
+      await pumpCanvas(tester);
+      await tapOpenInMaps(tester);
+
+      // The barrier above the sheet, not an option.
+      await tester.tapAt(const Offset(196, 20));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('open_in_apple_maps_option')), findsNothing);
+      expect(
+        launchCalls,
+        isEmpty,
+        reason: 'selected == null must not fall through to a provider',
+      );
+    });
   });
 
   testWidgets('the snippet preview has no platform branch to drive',

@@ -179,27 +179,10 @@ void main() {
       );
       await expectScreenMeetsAccessibilityGuidelines(tester);
     },
-    // labeledTapTargetGuideline passes. The "Invite" capsule used to fail
-    // both tap-target guidelines at 112.6x32 and now passes with a 48x48
-    // hit area behind the same painted capsule.
-    //
-    // What still fails:
-    //
-    //   android/iOSTapTarget: the "Search name or number" field --
-    //   361.0x42.0, against 48x48 and 44x44. That is the shared
-    //   SearchField (lib/features/shared/widgets/search_field.dart),
-    //   whose 9pt vertical contentPadding sets the 42pt height for six
-    //   screens at once; raising it to 12 clears both minimums but makes
-    //   every search capsule in the app 6pt taller. A visible change to a
-    //   shared control, so it is reported, not fixed here.
-    //
-    //   textContrast: the "On WhatsWave" and "Invite to WhatsWave"
-    //   section labels -- ratio 3.84 each, needs 4.5, font size 14.0.
-    //   AppPalette.emerald #128C7E (colorScheme.primary, which
-    //   _SectionLabel asks for by name) on AppPalette.cloud #F5F7F6
-    //   (scaffoldBackgroundColor). A palette decision, not ours.
-    //
-    // Left in place rather than deleted or loosened.
-    skip: true,
+    // All four guidelines pass now. Three things had to change: the
+    // "Invite" capsule got a 48x48 hit area behind the same painted
+    // capsule, the shared SearchField went from 42pt to 48pt, and
+    // AppPalette.emerald was darkened to #0E7268, which took the section
+    // labels on cloud from 3.84 to 5.38.
   );
 }

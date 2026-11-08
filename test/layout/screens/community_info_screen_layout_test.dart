@@ -102,19 +102,11 @@ void main() {
     expect(find.byKey(const Key('community_info_screen')), findsOneWidget);
 
     await expectScreenMeetsAccessibilityGuidelines(tester);
-    // SKIPPED, not loosened: fails textContrastGuideline on two theme
-    // colours, both measured at 393x852, default text scale, light theme:
-    //   * "4 members" (InfoSectionHeading): ratio 4.41 at font size 12.0,
-    //     colorScheme.onSurface at alpha 0.6 (composites to #6F7473) on
-    //     the scaffold's AppPalette.cloud #F5F7F6. WCAG wants 4.5.
-    //   * the AppBar's "Edit" TextButton: ratio 3.84 at font size 14.0,
-    //     AppPalette.emerald #128C7E on AppPalette.cloud #F5F7F6.
-    // Both are palette decisions, so they are reported rather than fixed
-    // -- changing either colour is the user's call, and the same two pairs
-    // fail on ContactInfoScreen too, so one palette change clears both
-    // screens.
-    // androidTapTargetGuideline, iOSTapTargetGuideline and
-    // labeledTapTargetGuideline all pass.
-    // Un-skip the moment the palette changes; this is the regression test.
-  }, skip: true);
+    // All four guidelines pass. Two theme colours had to move, and the
+    // same two cleared ContactInfoScreen with it:
+    //   * InfoSectionHeading was onSurface at alpha 0.6 -- 4.41 at font
+    //     size 12.0 on cloud, under WCAG's 4.5. It is alpha 0.66 now.
+    //   * the AppBar's "Edit" TextButton draws colorScheme.primary on
+    //     cloud: 3.84 while emerald was #128C7E, 5.38 at #0E7268.
+  });
 }

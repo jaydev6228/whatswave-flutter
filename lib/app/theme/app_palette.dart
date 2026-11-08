@@ -19,6 +19,20 @@ abstract final class AppPalette {
   static const Color slate = Color(0xFF667781);
   static const Color sand = Color(0xFFF8F3E8);
   static const Color rose = Color(0xFFE55B5B);
+
+  /// [rose] for the light scheme's `error`, dark enough to be read on it.
+  ///
+  /// No single value works for both schemes: rose is 5.29 on deepOcean and
+  /// 4.97 on ink, but only 3.51/3.39/3.26 on white, surface and cloud,
+  /// where 4.5 is the minimum for text under 18pt. Anything dark enough
+  /// for the light backgrounds drops below 4.5 on the dark ones -- so the
+  /// two schemes get different values rather than one compromise that
+  /// fails on both.
+  ///
+  /// #CC3B3B gives 4.93 on white, 4.77 on surface and 4.59 on cloud. It is
+  /// the nearest value to rose that clears 4.5 everywhere it is used as
+  /// text; darker reds pass by more but stop reading as the same colour.
+  static const Color roseDeep = Color(0xFFCC3B3B);
   static const Color amber = Color(0xFFFFC857);
   static const Color sky = Color(0xFF58A6FF);
 

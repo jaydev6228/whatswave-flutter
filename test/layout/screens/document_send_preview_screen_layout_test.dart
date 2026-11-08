@@ -54,14 +54,8 @@ void main() {
       );
       await expectScreenMeetsAccessibilityGuidelines(tester);
     },
-    // Three of the four pass. textContrastGuideline does not, and the fix
-    // is a palette decision, not ours:
-    //
-    //   app bar "Send" -- ratio 3.84, needs 4.5, font size 14.0.
-    //   AppPalette.emerald #128C7E (colorScheme.primary) on
-    //   AppPalette.cloud #F5F7F6 (scaffoldBackgroundColor).
-    //
-    // Left in place rather than deleted or loosened, so this becomes the
-    // regression test the moment that pair changes.
+    // All four guidelines pass. The app bar's "Send" was 3.84 on cloud at
+    // 14.0, under WCAG AA's 4.5, while emerald was #128C7E; at #0E7268 it
+    // is 5.38.
   );
 }

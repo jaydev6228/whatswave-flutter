@@ -1,5 +1,4 @@
-import 'dart:io';
-
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart' as ll;
@@ -114,7 +113,7 @@ class LocationMapCanvas extends StatelessWidget {
   }
 
   Future<void> _handleOpenInMapsTap(BuildContext context) async {
-    if (!Platform.isIOS) {
+    if (defaultTargetPlatform != TargetPlatform.iOS) {
       await _launchProvider(context, _MapProvider.google);
       return;
     }

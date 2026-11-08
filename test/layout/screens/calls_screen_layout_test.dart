@@ -50,14 +50,8 @@ void main() {
     expect(controller.history, isNotEmpty);
 
     await expectScreenMeetsAccessibilityGuidelines(tester);
-    // SKIPPED, not loosened: fails androidTapTargetGuideline (48x48) and
-    // iOSTapTargetGuideline (44x44) on the shared SearchField, which
-    // measures 361.0x42.0 -- "Search name, number, or username". The
-    // height is set in lib/features/shared/widgets/search_field.dart
-    // (isDense: true, contentPadding vertical: 9) and is shared with the
-    // Chats tab and both group pickers, so raising it is one visible
-    // design change across four screens rather than a local fix.
-    // textContrastGuideline and labeledTapTargetGuideline pass.
-    // Un-skip with the SearchField height change.
-  }, skip: true);
+    // All four guidelines pass. This was skipped on the shared
+    // SearchField measuring 361x42 against the 48x48 minimum; that
+    // field's vertical padding is now 12, so it is 48.
+  });
 }

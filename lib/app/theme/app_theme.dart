@@ -21,7 +21,9 @@ abstract final class AppTheme {
       brightness: Brightness.light,
       primary: AppPalette.emerald,
       secondary: AppPalette.green,
-      error: AppPalette.rose,
+      // roseDeep, not rose: rose is unreadable on light backgrounds. The
+      // dark scheme below keeps rose, where it is the one that works.
+      error: AppPalette.roseDeep,
       surface: Colors.white,
     );
 

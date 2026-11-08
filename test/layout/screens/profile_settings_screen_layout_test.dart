@@ -48,19 +48,12 @@ void main() {
   // Accessibility is its own test, not an extra assertion on the sweep above:
   // a contrast failure reported as a layout failure tells nobody what broke.
   //
-  // SKIPPED, and deliberately left in place rather than deleted or loosened.
-  // Three of the four guidelines pass. textContrastGuideline does not: the
-  // app bar's "Save" TextButton draws AppPalette.emerald (#128C7E, the light
-  // scheme's colorScheme.primary and so every TextButton's default
-  // foreground) on AppPalette.cloud (#F5F7F6, scaffoldBackgroundColor, which
-  // shows through because appBarTheme sets backgroundColor: transparent).
-  // That pair is 3.84:1 at a font size of 14.0, against WCAG AA's 4.5:1.
-  //
-  // The same pair fails on BlockedContactsScreen and CommunityInfoScreen, so
-  // it is one palette decision and not three screen bugs -- and changing the
-  // app's palette is the user's call, not this test's. Un-skip the moment
-  // emerald or cloud moves; it is the regression test for that change.
-  testWidgets('ProfileSettingsScreen meets accessibility guidelines', (tester) async {
+  // All four guidelines pass. The app bar's "Save" TextButton draws
+  // colorScheme.primary on cloud -- which shows through because
+  // appBarTheme sets a transparent background -- and that pair was
+  // 3.84:1 at 14.0 while emerald was #128C7E. It is 5.38 at #0E7268.
+  testWidgets('ProfileSettingsScreen meets accessibility guidelines',
+      (tester) async {
     final authController = await restoredAuth(tester);
 
     await tester.binding.setSurfaceSize(const Size(393, 852));

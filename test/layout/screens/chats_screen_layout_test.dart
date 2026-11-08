@@ -76,18 +76,11 @@ void main() {
     expect(find.byKey(const Key('chat_tile_ava-patel')), findsOneWidget);
 
     await expectScreenMeetsAccessibilityGuidelines(tester);
-    // SKIPPED, not loosened: two tappable rows are under both platform
-    // minimums (48x48 Android, 44x44 iOS) --
-    //   * the shared SearchField capsule ("Search"): 361.0x42.0, height
-    //     from lib/features/shared/widgets/search_field.dart;
-    //   * the archived-chats row ("Archived\n1"): 361.0x36.0.
-    // Both would have to get visibly taller to comply, and the search
-    // capsule is shared with the Calls tab and both group pickers, so it
-    // is one design decision rather than four local fixes.
-    // textContrastGuideline passes. labeledTapTargetGuideline passes only
-    // because of the fix in this change: the 22x22 "+" status badge
-    // (chats_status_add_button) had no semantic label at all and now
-    // announces as "Add status".
-    // Un-skip with the SearchField and archived-row heights.
-  }, skip: true);
+    // All four guidelines pass. Two tappable rows used to sit under both
+    // platform minimums and both are now 48pt tall: the shared
+    // SearchField capsule (was 361x42, vertical padding now 12) and the
+    // archived-chats row (was 361x36, vertical padding now 12).
+    // labeledTapTargetGuideline passes because the 22x22 "+" status badge
+    // (chats_status_add_button) announces as "Add status".
+  });
 }

@@ -63,6 +63,17 @@ class EmojiReactionPickerSheet extends StatelessWidget {
                     backgroundColor: surface,
                     emojiSizeMax: 30,
                     recentsLimit: 28,
+                    // The package's DefaultNoRecentsWidget draws #BDBDBD
+                    // at 20pt, which is 1.88 on this sheet's surface where
+                    // even large text needs 3.0. Ours is themed, so it
+                    // also follows the dark scheme instead of staying a
+                    // fixed grey.
+                    noRecents: Text(
+                      'No recents',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: onSurface.withValues(alpha: 0.6),
+                      ),
+                    ),
                   ),
                   categoryViewConfig: CategoryViewConfig(
                     backgroundColor: surface,

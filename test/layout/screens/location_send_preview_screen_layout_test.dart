@@ -86,18 +86,8 @@ void main() {
     // is tappable and pannable but was nameless, so the whole map canvas
     // announced as an unlabelled button. It is named in the screen.
     //
-    // Both tap-target guidelines pass. textContrastGuideline does not,
-    // and the fix is a palette decision, not ours:
-    //
-    //   "Send this location" -- ratio 4.14, needs 4.5, font size 14.0.
-    //   AppPalette.emerald #128C7E (colorScheme.primary) on #FFFFFF
-    //   (colorScheme.surface, the bottom panel's Material colour).
-    //
-    //   app bar "Send" -- ratio 3.84, needs 4.5, font size 14.0.
-    //   AppPalette.emerald #128C7E on AppPalette.cloud #F5F7F6
-    //   (scaffoldBackgroundColor).
-    //
-    // Left in place rather than deleted or loosened, so this becomes the
-    // regression test the moment that pair changes.
+    // All four guidelines pass. "Send this location" (4.14 on white) and
+    // the app bar's "Send" (3.84 on cloud) were both under 4.5 at 14.0
+    // while emerald was #128C7E; at #0E7268 they are 5.79 and 5.38.
   );
 }

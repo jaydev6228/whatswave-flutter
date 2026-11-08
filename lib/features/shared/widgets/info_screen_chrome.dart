@@ -4,6 +4,12 @@ import 'liquid_glass.dart';
 
 /// Shared list-section chrome for Contact info, Group info, and Community
 /// info -- one visual language, three entry points.
+///
+/// Section labels read as list-section captions, not page titles: Contact
+/// info stacks up to six of them, and at title size they pushed most of
+/// the content below the fold on a compact phone. Contact info carried its
+/// own byte-identical copy of this until the two drifted on a contrast
+/// fix; there is one now.
 class InfoSectionHeading extends StatelessWidget {
   const InfoSectionHeading(this.label, {super.key});
 
@@ -19,7 +25,12 @@ class InfoSectionHeading extends StatelessWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: theme.textTheme.labelMedium?.copyWith(
-          color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+          // 0.66, not 0.6: at 0.6 this caption is 4.41 on cloud at its
+          // 12pt size, just under WCAG AA's 4.5 for text under 18pt, on
+          // all three info screens at once. 0.66 gives ~5.4 -- chosen with
+          // margin rather than the first passing value, so a later tweak
+          // to a surface colour does not quietly undo it.
+          color: theme.colorScheme.onSurface.withValues(alpha: 0.66),
           fontWeight: FontWeight.w700,
           letterSpacing: 0.6,
         ),

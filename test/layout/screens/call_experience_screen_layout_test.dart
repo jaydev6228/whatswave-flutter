@@ -147,29 +147,14 @@ void main() {
     await expectScreenMeetsAccessibilityGuidelines(tester);
   });
 
-  // SKIPPED, not loosened. The audio case above passes all four
-  // guidelines; this one fails textContrastGuideline, and the cause is a
-  // colour decision rather than a layout bug:
-  //
-  // A video call paints a hardcoded `ColoredBox(color: Colors.black)`
-  // backdrop in both themes (call_experience_screen.dart, the
-  // `if (session.isVideo)` branch of the root Stack), while
-  // `_callVisualScheme` hands the *light* theme near-black text --
-  // primaryText: AppPalette.ink #111B21 and secondaryText: ink at alpha
-  // 0.72. Measured at 393x852, default text scale, light theme:
-  //   * "Ava" (call_name_text): ratio 1.20 at font size 22.0,
-  //     AppPalette.ink #111B21 on #000000. Large text needs 3.0.
-  //   * "Live - 0:00" (call_video_status_text): ratio 1.12 at font size
-  //     14.0, ink at alpha 0.72 (composites to #0C1318) on #000000.
-  //     Needs 3.0.
-  // The camera-off / pre-first-frame fallback is exactly what renders
-  // here, and it is what a real light-theme video call shows before a
-  // remote frame arrives, so this is not a test artefact. Fixing it means
-  // deciding whether the video chrome is always dark-on-video or whether
-  // the backdrop follows the theme -- the user's call, not this change's.
-  //
-  // androidTapTargetGuideline, iOSTapTargetGuideline and
-  // labeledTapTargetGuideline all pass (the labels came from this change).
+  // Passes all four guidelines. It used to fail textContrastGuideline
+  // badly: a video call paints a hardcoded black backdrop in both themes,
+  // while `_callVisualScheme` handed the *light* theme near-black text,
+  // so "Ava" was 1.20 and "Live - 0:00" was 1.12 against the 3.0 large-
+  // text threshold -- effectively invisible, and not a test artefact,
+  // since that is what a real light-theme video call shows before the
+  // first remote frame. The video chrome is always dark now, whatever the
+  // theme, which is the branch this exercises.
   testWidgets(
       'CallExperienceScreen meets accessibility guidelines on a '
       'video call', (tester) async {

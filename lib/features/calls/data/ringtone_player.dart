@@ -1,6 +1,6 @@
 import 'dart:async';
-import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 
 /// Plays/stops the incoming-call ringtone. A seam so [CallsController] can
@@ -64,7 +64,7 @@ class SystemRingtonePlayer implements RingtonePlayer {
       asAlarm: false,
     );
 
-    if (!Platform.isAndroid) {
+    if (defaultTargetPlatform != TargetPlatform.android) {
       _iosRepeatTimer = Timer.periodic(const Duration(seconds: 3), (_) {
         FlutterRingtonePlayer().play(
           ios: IosSounds.electronic,

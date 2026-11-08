@@ -1462,12 +1462,13 @@ void main() {
     // first row still has to fit an iPhone SE in one screenful, so the
     // actions are never something you have to go hunting for.
     //
-    // The panel's *last* row no longer fits. Report is a fourth action and
-    // both stores require it for user-generated content; it puts Exit group
-    // 692pt down a 667pt screen. The rows are already at the 44pt iOS
-    // tap-target floor and the section labels are already captions, so
-    // nothing above it can give back the 25pt -- the screen scrolls for
-    // that last row instead.
+    // The panel's *last* row no longer fits. Two required changes put it
+    // there: Report is a fourth action both stores want for
+    // user-generated content, and the rows went from 44pt to 48pt to meet
+    // the minimum tap target. Exit group now ends 708pt down a 667pt
+    // screen. The section labels are already captions and the rows are at
+    // the floor the guidelines set, so nothing above can give the 41pt
+    // back -- the screen scrolls for that last row instead.
     expect(
       tester.getRect(find.text('Actions')).bottom,
       lessThan(iphoneSeProfile.size.height),
