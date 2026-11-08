@@ -22,6 +22,7 @@ import '../application/chats_controller.dart';
 import '../domain/chat_attachment.dart';
 import '../domain/chat_thread.dart';
 import '../domain/group_participant.dart';
+import '../domain/report_reason.dart';
 import 'add_group_members_screen.dart';
 import 'shared_media_screen.dart';
 import 'starred_messages_screen.dart';
@@ -445,6 +446,22 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
                                 color: theme.colorScheme.outlineVariant
                                     .withValues(alpha: 0.22),
                               ),
+                              // Above the block/exit branch rather than below
+                              // it: that branch renders nothing for a
+                              // community announcement group, and a trailing
+                              // row there would need its own divider guard.
+                              _ActionRow(
+                                actionKey:
+                                    const Key('contact_info_report_button'),
+                                icon: Icons.flag_outlined,
+                                label: 'Report ${thread.name}',
+                                onTap: () => _confirmReport(thread),
+                              ),
+                              Divider(
+                                height: 1,
+                                color: theme.colorScheme.outlineVariant
+                                    .withValues(alpha: 0.22),
+                              ),
                               if (thread.isGroup && !isCommunityAnnouncement)
                                 _ActionRow(
                                   actionKey: const Key(
@@ -594,6 +611,106 @@ class _ContactInfoScreenState extends State<ContactInfoScreen> {
       await widget.controller.setThreadBlocked(
         threadId: thread.id,
         isBlocked: willBlock,
+      );
+    }
+  }
+
+  /// Reports a contact, and blocks them in the same step unless they
+  /// already are -- both stores require a report mechanism and a block
+  /// mechanism for user-generated content, and someone who just reported
+  /// a contact does not expect to keep hearing from them.
+  Future<void> _confirmReport(ChatThread thread) async {
+    var selectedReason = kReportReasons.first;
+    final alreadyBlocked = thread.isBlocked;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return LiquidGlassDialog(
+              title: Text(
+                'Report ${thread.name}?',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              // Scrollable: five options plus the explanation outgrow a
+              // 320pt phone's dialog at a large accessibility text scale,
+              // and a dialog does not scroll its content on its own.
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      alreadyBlocked
+                          ? 'Our moderation team will review this report.'
+                          : 'Our moderation team will review this report, and '
+                              '${thread.name} will be blocked.',
+                    ),
+                    const SizedBox(height: 12),
+                    RadioGroup<String>(
+                      groupValue: selectedReason,
+                      onChanged: (nextValue) {
+                        if (nextValue == null) {
+                          return;
+                        }
+                        setDialogState(() => selectedReason = nextValue);
+                      },
+                      // The dialog paints its glass on a DecoratedBox, which
+                      // would swallow each tile's ink splash; the tiles need
+                      // a Material of their own, as _ActionRow does below.
+                      child: Material(
+                        color: Colors.transparent,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: kReportReasons.map((reason) {
+                            return RadioListTile<String>(
+                              key: Key('report_reason_$reason'),
+                              value: reason,
+                              contentPadding: EdgeInsets.zero,
+                              title: Text(reason),
+                            );
+                          }).toList(growable: false),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(false),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  key: const Key('contact_info_confirm_report_button'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Theme.of(dialogContext).colorScheme.error,
+                  ),
+                  onPressed: () => Navigator.of(dialogContext).pop(true),
+                  child: const Text('Report'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (confirmed != true || !mounted) {
+      return;
+    }
+    final didReport = await widget.controller.reportThread(
+      threadId: thread.id,
+      reason: selectedReason,
+    );
+    // Only block once the report is actually filed: silently blocking
+    // after a failed report would leave the user thinking both happened.
+    if (didReport && !alreadyBlocked && mounted) {
+      await widget.controller.setThreadBlocked(
+        threadId: thread.id,
+        isBlocked: true,
       );
     }
   }

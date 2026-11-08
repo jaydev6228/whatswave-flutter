@@ -147,6 +147,17 @@ abstract class ChatRepository {
     required bool isBlocked,
   });
 
+  /// Files an abuse report against a thread's other participant.
+  ///
+  /// Reporting does not itself block -- the caller decides, because the two
+  /// are separate store requirements and blocking already stands alone.
+  /// [reason] must be one of `kReportReasons`; the security rules reject
+  /// anything else.
+  Future<List<ChatThread>> reportThread({
+    required String threadId,
+    required String reason,
+  });
+
   /// Empties a thread's messages while keeping the thread/contact itself --
   /// deliberately distinct from [deleteThread], which removes the whole
   /// thread. Matches WhatsApp's "Clear chat" (contact stays, history goes)
@@ -190,6 +201,7 @@ abstract class ChatRepository {
     required String text,
     StoryReplyContext? storyReplyContext,
     MessageReplyPreview? replyPreview,
+
     /// The message's document id.
     ///
     /// Supplied by the caller so the optimistic bubble and the stored

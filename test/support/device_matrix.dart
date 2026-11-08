@@ -205,6 +205,7 @@ Future<void> expectScreenSurvivesLayoutMatrix(
   List<TestDeviceProfile> devices = layoutMatrix,
   List<UiVariant> variants = layoutVariants,
   Duration settle = const Duration(milliseconds: 900),
+  Future<void> Function(WidgetTester tester)? afterPump,
 }) async {
   for (final device in devices) {
     for (final variant in variants) {
@@ -224,6 +225,19 @@ Future<void> expectScreenSurvivesLayoutMatrix(
         ),
       );
       await pumpForAsyncUi(tester, total: settle);
+
+      // Lets a caller sweep something reachable only by interacting -- a
+      // dialog or sheet never laid out by the first pump. Runs inside the
+      // loop so it is re-opened fresh at every size and text scale.
+      //
+      // A callback that pushes a route must pop it again before returning:
+      // pumpWidget above updates the existing element tree rather than
+      // replacing it, so the Navigator and its stack survive into the next
+      // combination, and a leaked route sits over everything there.
+      if (afterPump != null) {
+        await afterPump(tester);
+        await pumpForAsyncUi(tester, total: settle);
+      }
 
       expect(
         tester.takeException(),

@@ -537,6 +537,39 @@ class FirestoreChatRepository implements ChatRepository {
   }
 
   @override
+  Future<List<ChatThread>> reportThread({
+    required String threadId,
+    required String reason,
+  }) async {
+    final uid = _requireCurrentUid;
+    try {
+      final threadDoc = await _threadsRef.doc(threadId).get();
+      // Moderation needs to know *who* was reported, not just which thread.
+      // A 1:1 thread has exactly one other participant; on a group the
+      // report stands against the thread alone, so this stays null.
+      final participantUids =
+          (threadDoc.data()?['participantUids'] as List<dynamic>?)
+                  ?.cast<String>() ??
+              const <String>[];
+      final reportedUid =
+          participantUids.where((entry) => entry != uid).firstOrNull;
+
+      await _firestore.collection('reports').add({
+        'reporterUid': uid,
+        'threadId': threadId,
+        'reportedUid': reportedUid,
+        'reason': reason,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+    } on FirebaseException catch (e) {
+      throw ChatRepositoryException(
+        e.message ?? 'Could not send that report right now.',
+      );
+    }
+    return fetchThreads();
+  }
+
+  @override
   Future<List<ChatThread>> clearThreadMessages(String threadId) async {
     try {
       final messagesSnapshot =

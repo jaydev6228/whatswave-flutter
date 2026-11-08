@@ -147,4 +147,67 @@ void main() {
     await _pumpThreadForAccessibility(tester, 'ava-patel');
     await expectScreenMeetsAccessibilityGuidelines(tester);
   }, skip: true);
+
+  // The report dialog is the tallest transient surface this screen opens:
+  // an explanation plus five radio rows, which at a 2.0 text scale on a
+  // 320pt phone is well past the viewport. Swept with the screen rather
+  // than in its own file because it only exists as a child of this one.
+  testWidgets('the report dialog survives the layout matrix', (tester) async {
+    final chats = ChatsController(
+      repository: FakeChatRepository(latency: Duration.zero),
+      permissionService: MemoryAppPermissionService(),
+    );
+    await chats.ensureLoaded();
+
+    await expectScreenSurvivesLayoutMatrix(
+      tester,
+      build: () => MaterialApp(
+        theme: AppTheme.lightTheme(),
+        darkTheme: AppTheme.darkTheme(),
+        home: ContactInfoScreen(
+          controller: chats,
+          communitiesController: CommunitiesController(
+            repository: FakeCommunitiesRepository(latency: Duration.zero),
+          ),
+          callsController: CallsController(
+            repository: FakeCallsRepository(latency: Duration.zero),
+          ),
+          updatesController: UpdatesController(
+            repository: FakeUpdatesRepository(latency: Duration.zero),
+          ),
+          threadId: 'ava-patel',
+        ),
+      ),
+      afterPump: (tester) async {
+        final reportButton =
+            find.byKey(const Key('contact_info_report_button'));
+        // .first is the page's own CustomScrollView: some sizes render a
+        // second, inner Scrollable, and the default finder demands exactly
+        // one.
+        await tester.scrollUntilVisible(
+          reportButton,
+          200,
+          scrollable: find.byType(Scrollable).first,
+        );
+        // scrollUntilVisible stops as soon as the row exists; at a large
+        // text scale it can stop with the row still under the app bar,
+        // and the tap then lands on nothing.
+        await tester.ensureVisible(reportButton);
+        await tester.pumpAndSettle();
+        await tester.tap(reportButton);
+        await tester.pumpAndSettle();
+        // Without this the sweep could pass having never opened anything.
+        expect(
+          find.byKey(const Key('contact_info_confirm_report_button')),
+          findsOneWidget,
+        );
+        // Close it before the next combination. pumpWidget updates the
+        // existing element tree rather than replacing it, so the Navigator
+        // -- and anything pushed onto it -- survives into the next size,
+        // where the tap would land on this stale dialog instead.
+        await tester.tap(find.text('Cancel'));
+        await tester.pumpAndSettle();
+      },
+    );
+  });
 }

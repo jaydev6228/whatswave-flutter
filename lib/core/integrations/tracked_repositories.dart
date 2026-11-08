@@ -548,6 +548,17 @@ class TrackedChatRepository implements ChatRepository {
   }
 
   @override
+  Future<List<ChatThread>> reportThread({
+    required String threadId,
+    required String reason,
+  }) {
+    return _delegate.reportThread(
+      threadId: threadId,
+      reason: reason,
+    );
+  }
+
+  @override
   Future<List<ChatThread>> clearThreadMessages(String threadId) {
     return _delegate.clearThreadMessages(threadId);
   }

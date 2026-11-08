@@ -536,6 +536,38 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    match /reports/{reportId} {
+      // Create-only, and never readable or listable by a client: a report
+      // names both who complained and who was named, which is exactly the
+      // kind of collection the phoneDirectory narrowing closed off.
+      // Moderation reads it through the Admin SDK, which bypasses rules.
+      allow read, update, delete: if false;
+
+      // The reason is constrained to the list in
+      // lib/features/chats/domain/report_reason.dart -- keep the two in
+      // step. An open string on a create-only collection is a
+      // write-anything endpoint, and hasOnly keeps a client from padding
+      // the document with arbitrary extra fields.
+      allow create: if request.auth != null
+        && request.resource.data.reporterUid == request.auth.uid
+        && request.resource.data.threadId is string
+        && request.resource.data.threadId.size() <= 200
+        && request.resource.data.reason in [
+             'Spam or scam',
+             'Harassment or bullying',
+             'Nudity or sexual content',
+             'Violence or threats',
+             'Other'
+           ]
+        && request.resource.data.keys().hasOnly([
+             'reporterUid',
+             'threadId',
+             'reportedUid',
+             'reason',
+             'createdAt'
+           ]);
+    }
+
     match /pushTokens/{ownerUid} {
       // Only the owner can read/write their own push token -- a future
       // server-side sender would use the Admin SDK, which bypasses these

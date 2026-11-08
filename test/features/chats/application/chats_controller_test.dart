@@ -1291,6 +1291,14 @@ class _FailingChatRepository implements ChatRepository {
   }
 
   @override
+  Future<List<ChatThread>> reportThread({
+    required String threadId,
+    required String reason,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
   Future<List<ChatThread>> clearThreadMessages(String threadId) {
     throw UnimplementedError();
   }
@@ -1553,6 +1561,13 @@ class _SendFailingChatRepository implements ChatRepository {
     required bool isBlocked,
   }) =>
       _delegate.setThreadBlocked(threadId: threadId, isBlocked: isBlocked);
+
+  @override
+  Future<List<ChatThread>> reportThread({
+    required String threadId,
+    required String reason,
+  }) =>
+      _delegate.reportThread(threadId: threadId, reason: reason);
 
   @override
   Future<List<ChatThread>> clearThreadMessages(String threadId) =>

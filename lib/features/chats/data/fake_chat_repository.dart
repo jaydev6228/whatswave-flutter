@@ -365,6 +365,23 @@ class FakeChatRepository implements ChatRepository {
     return _deepCopyThreads(_threads);
   }
 
+  /// Reports filed in this session, newest last -- the fake has no backend
+  /// to write to, so tests assert against this instead.
+  final List<({String threadId, String reason})> reports =
+      <({String threadId, String reason})>[];
+
+  @override
+  Future<List<ChatThread>> reportThread({
+    required String threadId,
+    required String reason,
+  }) async {
+    await _wait();
+    // Throws for an unknown thread, matching every other mutation here.
+    final thread = _threadForId(threadId);
+    reports.add((threadId: thread.id, reason: reason));
+    return _deepCopyThreads(_threads);
+  }
+
   @override
   Future<List<ChatThread>> clearThreadMessages(String threadId) async {
     await _wait();

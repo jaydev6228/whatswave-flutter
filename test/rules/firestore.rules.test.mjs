@@ -24,6 +24,7 @@ import {
   getDoc,
   getDocs,
   collection,
+  serverTimestamp,
   setDoc,
   updateDoc,
 } from 'firebase/firestore';
@@ -685,5 +686,81 @@ describe('userProfiles enumeration', () => {
   it('must NOT let a signed-in user list every profile', async () => {
     const db = testEnv.authenticatedContext(DAVE).firestore();
     await assertFails(getDocs(collection(db, 'userProfiles')));
+  });
+});
+
+describe('reports', () => {
+  const validReport = (reporterUid) => ({
+    reporterUid,
+    threadId: 'g1',
+    reportedUid: BOB,
+    reason: 'Harassment or bullying',
+    createdAt: serverTimestamp(),
+  });
+
+  it('lets a signed-in user file a report against someone', async () => {
+    await assertSucceeds(
+      setDoc(doc(as(ALICE), 'reports/r1'), validReport(ALICE)),
+    );
+  });
+
+  it('must NOT let a user file a report in someone else\'s name', async () => {
+    await assertFails(
+      setDoc(doc(as(ALICE), 'reports/r1'), validReport(BOB)),
+    );
+  });
+
+  it('must NOT accept a reason outside the fixed list', async () => {
+    await assertFails(
+      setDoc(doc(as(ALICE), 'reports/r1'), {
+        ...validReport(ALICE),
+        reason: 'anything I like',
+      }),
+    );
+  });
+
+  it('must NOT accept extra fields', async () => {
+    await assertFails(
+      setDoc(doc(as(ALICE), 'reports/r1'), {
+        ...validReport(ALICE),
+        // A create-only collection with an open shape is somewhere to
+        // park arbitrary data for free.
+        payload: 'x'.repeat(1000),
+      }),
+    );
+  });
+
+  it('must NOT let an anonymous caller file a report', async () => {
+    await assertFails(
+      setDoc(doc(anonymous(), 'reports/r1'), validReport(ALICE)),
+    );
+  });
+
+  it('must NOT be readable or listable, even by the reporter', async () => {
+    await seed(async (db) => {
+      await setDoc(doc(db, 'reports/r1'), {
+        reporterUid: ALICE,
+        threadId: 'g1',
+        reportedUid: BOB,
+        reason: 'Spam or scam',
+      });
+    });
+    await assertFails(getDoc(doc(as(ALICE), 'reports/r1')));
+    await assertFails(getDocs(collection(as(ALICE), 'reports')));
+  });
+
+  it('must NOT be editable or deletable once filed', async () => {
+    await seed(async (db) => {
+      await setDoc(doc(db, 'reports/r1'), {
+        reporterUid: ALICE,
+        threadId: 'g1',
+        reportedUid: BOB,
+        reason: 'Spam or scam',
+      });
+    });
+    await assertFails(
+      updateDoc(doc(as(ALICE), 'reports/r1'), { reason: 'Other' }),
+    );
+    await assertFails(deleteDoc(doc(as(ALICE), 'reports/r1')));
   });
 });

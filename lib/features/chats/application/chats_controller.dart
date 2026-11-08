@@ -691,6 +691,20 @@ class ChatsController extends ChangeNotifier {
     );
   }
 
+  Future<bool> reportThread({
+    required String threadId,
+    required String reason,
+  }) async {
+    return _runThreadMutation(
+      threadId,
+      () => _repository.reportThread(
+        threadId: threadId,
+        reason: reason,
+      ),
+      fallbackError: 'We could not send that report right now.',
+    );
+  }
+
   Future<bool> clearThreadMessages(String threadId) async {
     _applyOptimisticClear(threadId);
     return _runThreadMutation(

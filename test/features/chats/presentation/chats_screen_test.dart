@@ -1458,13 +1458,30 @@ void main() {
       lessThan(14),
     );
 
-    // Everything from the avatar header down to the last destructive
-    // action has to fit an iPhone SE in one screenful.
+    // Everything from the avatar header down to the Actions panel and its
+    // first row still has to fit an iPhone SE in one screenful, so the
+    // actions are never something you have to go hunting for.
+    //
+    // The panel's *last* row no longer fits. Report is a fourth action and
+    // both stores require it for user-generated content; it puts Exit group
+    // 692pt down a 667pt screen. The rows are already at the 44pt iOS
+    // tap-target floor and the section labels are already captions, so
+    // nothing above it can give back the 25pt -- the screen scrolls for
+    // that last row instead.
+    expect(
+      tester.getRect(find.text('Actions')).bottom,
+      lessThan(iphoneSeProfile.size.height),
+    );
     expect(
       tester
-          .getRect(find.byKey(const Key('contact_info_exit_group_button')))
+          .getRect(find.byKey(const Key('contact_info_report_button')))
           .bottom,
       lessThan(iphoneSeProfile.size.height),
+    );
+    expect(
+      find.byKey(const Key('contact_info_exit_group_button')),
+      findsOneWidget,
+      reason: 'still rendered, just below the fold',
     );
   });
 
@@ -2379,6 +2396,14 @@ class _FailingChatRepository implements ChatRepository {
   }
 
   @override
+  Future<List<Never>> reportThread({
+    required String threadId,
+    required String reason,
+  }) {
+    throw UnimplementedError();
+  }
+
+  @override
   Future<List<Never>> clearThreadMessages(String threadId) {
     throw UnimplementedError();
   }
@@ -2604,6 +2629,13 @@ class _FlakySendChatRepository implements ChatRepository {
     required bool isBlocked,
   }) =>
       _delegate.setThreadBlocked(threadId: threadId, isBlocked: isBlocked);
+
+  @override
+  Future<List<ChatThread>> reportThread({
+    required String threadId,
+    required String reason,
+  }) =>
+      _delegate.reportThread(threadId: threadId, reason: reason);
 
   @override
   Future<List<ChatThread>> clearThreadMessages(String threadId) =>
